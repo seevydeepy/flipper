@@ -20,6 +20,15 @@ public sealed class ScoreSearchTests
     }
 
     [Fact]
+    public void Filter_ParentFolder_IncludesNestedScores()
+    {
+        var nested = new ScoreEntry("Suite", @"Bach\Cello", @"C:\lib\Bach\Cello\Suite.pdf", "suite", 1, DateTime.UtcNow);
+        var result = ScoreSearch.Filter([..Scores, nested], query: null, selectedFolder: "Bach");
+        Assert.Equal(3, result.Count);
+        Assert.Contains(result, score => score.DisplayName == "Suite");
+    }
+
+    [Fact]
     public void Filter_WithQuery_MatchesFileNameAndIgnoresFolder()
     {
         var result = ScoreSearch.Filter(Scores, query: "noc", selectedFolder: "Bach");
