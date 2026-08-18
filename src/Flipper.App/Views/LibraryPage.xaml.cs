@@ -31,6 +31,7 @@ public sealed partial class LibraryPage : Page
     private string? _scanPath;
     private string? _watchedPath;
     private string? _selectedFolder;
+    private bool _showFavourites;
 
     public LibraryPage()
     {
@@ -55,6 +56,7 @@ public sealed partial class LibraryPage : Page
     {
         SelectSort(App.Current.Settings.Sort);
         SyncSortDirectionIcon();
+        _showFavourites = App.Current.Settings.ShowFavourites;
         var path = App.Current.Settings.LibraryPath;
         if (App.Current.LastSnapshot is { } cached
             && string.Equals(cached.RootDisplayPath, path, StringComparison.OrdinalIgnoreCase))
@@ -146,7 +148,25 @@ public sealed partial class LibraryPage : Page
 
     private void FolderTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
-        _selectedFolder = FolderKey(args.InvokedItem);
+        var mark = args.InvokedItem switch
+        {
+            FolderMark folder => folder,
+            TreeViewNode node when node.Content is FolderMark folder => folder,
+            _ => null
+        };
+        if (mark?.Favourites == true)
+        {
+            _showFavourites = true;
+            _selectedFolder = null;
+        }
+        else
+        {
+            _showFavourites = false;
+            _selectedFolder = FolderKey(args.InvokedItem);
+        }
+
+        App.Current.Settings.ShowFavourites = _showFavourites;
+        App.Current.PersistSettings();
         ApplyFilter();
     }
 
@@ -177,7 +197,7 @@ public sealed partial class LibraryPage : Page
 
         App.Current.ToggleFavourite(card.Entry.CanonicalPath);
         card.IsFavourite = App.Current.Settings.StatsFor(card.Entry.CanonicalPath).Favourite;
-        if (App.Current.Settings.Sort == SortMode.Favourites)
+        if (_showFavourites)
         {
             ApplyFilter();
         }
@@ -357,7 +377,9 @@ public sealed partial class LibraryPage : Page
         var previous = _selectedFolder;
         FolderTree.RootNodes.Clear();
         var all = new TreeViewNode { Content = new FolderMark("All", null) };
+        var favourites = new TreeViewNode { Content = new FolderMark("Favourites", null, favourites: true) };
         FolderTree.RootNodes.Add(all);
+        FolderTree.RootNodes.Add(favourites);
         if (_snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder)))
         {
             FolderTree.RootNodes.Add(new TreeViewNode { Content = new FolderMark("\\", string.Empty) });
@@ -368,9 +390,20 @@ public sealed partial class LibraryPage : Page
             FolderTree.RootNodes.Add(ToNode(item, expand: true));
         }
 
-        var match = FindNode(FolderTree.RootNodes, previous);
+        var match = _showFavourites
+            ? FindNode(FolderTree.RootNodes, key: null, favourites: true)
+            : FindNode(FolderTree.RootNodes, previous, favourites: false);
         FolderTree.SelectedNode = match ?? all;
-        _selectedFolder = FolderKey(FolderTree.SelectedNode);
+        if (FolderTree.SelectedNode?.Content is FolderMark selected && selected.Favourites)
+        {
+            _showFavourites = true;
+            _selectedFolder = null;
+        }
+        else
+        {
+            _showFavourites = false;
+            _selectedFolder = FolderKey(FolderTree.SelectedNode);
+        }
     }
 
     private static TreeViewNode ToNode(FolderItem item, bool expand)
@@ -388,16 +421,25 @@ public sealed partial class LibraryPage : Page
         return node;
     }
 
-    private static TreeViewNode? FindNode(IList<TreeViewNode> nodes, string? key)
+    private static TreeViewNode? FindNode(IList<TreeViewNode> nodes, string? key, bool favourites)
     {
         foreach (var node in nodes)
         {
-            if (FolderKey(node) == key || (key is null && FolderKey(node) is null && node.Content is FolderMark mark && mark.Name == "All"))
+            if (node.Content is FolderMark mark)
             {
-                return node;
+                if (favourites && mark.Favourites)
+                {
+                    return node;
+                }
+
+                if (!favourites && !mark.Favourites && (FolderKey(node) == key
+                    || (key is null && mark.Key is null && mark.Name == "All")))
+                {
+                    return node;
+                }
             }
 
-            var child = FindNode(node.Children, key);
+            var child = FindNode(node.Children, key, favourites);
             if (child is not null)
             {
                 return child;
@@ -421,9 +463,14 @@ public sealed partial class LibraryPage : Page
 
     private void ApplyFilter()
     {
-        var selected = CurrentFolderKey();
+        var selected = _showFavourites ? null : CurrentFolderKey();
         var rows = ScoreSearch.Sort(
-            ScoreSearch.Filter(_snapshot.Scores, SearchBox.Text, selected),
+            ScoreSearch.Filter(
+                _snapshot.Scores,
+                SearchBox.Text,
+                selected,
+                _showFavourites,
+                App.Current.Settings.Scores),
             App.Current.Settings.Sort,
             App.Current.Settings.Scores,
             App.Current.Settings.SortReversed);
@@ -614,14 +661,16 @@ public sealed class ScoreCard : INotifyPropertyChanged
 
 public sealed class FolderMark
 {
-    public FolderMark(string name, string? key)
+    public FolderMark(string name, string? key, bool favourites = false)
     {
         Name = name;
         Key = key;
+        Favourites = favourites;
     }
 
     public string Name { get; }
     public string? Key { get; }
+    public bool Favourites { get; }
 
     public override string ToString() => Name;
 }

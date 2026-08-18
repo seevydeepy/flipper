@@ -61,7 +61,6 @@
                             <ComboBoxItem Content="A–Z" Tag="Name" />
                             <ComboBoxItem Content="Recent" Tag="Recent" />
                             <ComboBoxItem Content="Most played" Tag="MostPlayed" />
-                            <ComboBoxItem Content="Favourites" Tag="Favourites" />
                         </ComboBox>
                         <Button x:Name="SortDirectionButton" Grid.Column="2" Click="SortDirection_Click" AutomationProperties.Name="Reverse sort">
                             <FontIcon x:Name="SortDirectionIcon" Glyph="&#xE74B;" FontSize="16" />

@@ -22,7 +22,18 @@ public sealed class AppSettings
     public int LastPageIndex { get; set; }
     public SortMode Sort { get; set; } = SortMode.Name;
     public bool SortReversed { get; set; }
+    public bool ShowFavourites { get; set; }
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Normalize()
+    {
+        Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
+        if (Sort == SortMode.Favourites)
+        {
+            ShowFavourites = true;
+            Sort = SortMode.Name;
+        }
+    }
 
     public ScoreStats StatsFor(string canonicalPath)
     {
