@@ -38,4 +38,20 @@ public partial class App : Application
         var canonical = Services.PathCanonicalizer.Canonicalize(entry.DisplayFullPath);
         return entry with { CanonicalPath = canonical };
     }
+
+    public void RecordPlay(string canonicalPath)
+    {
+        var stats = Settings.StatsFor(canonicalPath);
+        stats.PlayCount += 1;
+        stats.LastPlayedUtc = DateTime.UtcNow;
+        Settings.LastScoreCanonicalPath = canonicalPath;
+        PersistSettings();
+    }
+
+    public void ToggleFavourite(string canonicalPath)
+    {
+        var stats = Settings.StatsFor(canonicalPath);
+        stats.Favourite = !stats.Favourite;
+        PersistSettings();
+    }
 }

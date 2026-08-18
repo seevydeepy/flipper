@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Flipper.Core.Settings;
 
@@ -7,7 +8,8 @@ public sealed class SettingsStore
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() }
     };
 
     private readonly string _path;
@@ -36,7 +38,9 @@ public sealed class SettingsStore
             }
 
             var json = File.ReadAllText(_path);
-            return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            settings.Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
+            return settings;
         }
         catch (JsonException)
         {

@@ -1,7 +1,8 @@
+using System.Runtime.InteropServices.WindowsRuntime;
+using Microsoft.UI.Xaml.Media.Imaging;
 using PDFtoImage;
 using SkiaSharp;
 using Windows.Storage.Streams;
-using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Flipper.App.Services;
 
@@ -22,7 +23,7 @@ public sealed class PdfPageSource : IDisposable
         }
     }
 
-    public BitmapImage? Render(int pageIndex, float dpi)
+    public WriteableBitmap? Render(int pageIndex, int pixelWidth)
     {
         if (pageIndex < 0 || pageIndex >= PageCount)
         {
@@ -36,32 +37,63 @@ public sealed class PdfPageSource : IDisposable
             {
                 bitmap = Conversion.ToImage(_bytes, pageIndex, options: new RenderOptions
                 {
-                    Dpi = (int)Math.Round(dpi)
+                    Width = Math.Max(64, pixelWidth),
+                    WithAspectRatio = true,
+                    UseTiling = true
                 });
             }
 
             using (bitmap)
-            using (var encoded = bitmap.Encode(SKEncodedImageFormat.Png, 100))
             {
-                var image = new BitmapImage();
-                using var ras = new InMemoryRandomAccessStream();
-                using (var output = ras.AsStreamForWrite())
-                {
-                    encoded.AsStream().CopyTo(output);
-                    output.Flush();
-                }
-                ras.Seek(0);
-                image.SetSource(ras);
-                return image;
+                return ToWriteable(bitmap);
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            WriteError(ex);
             return null;
         }
     }
 
-    public Task PrefetchAsync(int pageIndex, float dpi)
+    public static bool TrySavePreview(string pdfPath, string pngPath, int pixelWidth)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(pdfPath);
+            SKBitmap bitmap;
+            lock (PdfiumLock)
+            {
+                bitmap = Conversion.ToImage(bytes, 0, options: new RenderOptions
+                {
+                    Width = Math.Max(64, pixelWidth),
+                    WithAspectRatio = true
+                });
+            }
+
+            using (bitmap)
+            using (var image = SKImage.FromBitmap(bitmap))
+            using (var data = image.Encode(SKEncodedImageFormat.Png, 80))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(pngPath)!);
+                var tmp = pngPath + ".tmp";
+                using (var file = File.Create(tmp))
+                {
+                    data.SaveTo(file);
+                }
+
+                File.Move(tmp, pngPath, overwrite: true);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteError(ex);
+            return false;
+        }
+    }
+
+    public Task PrefetchAsync(int pageIndex, int pixelWidth)
     {
         return Task.Run(() =>
         {
@@ -76,7 +108,8 @@ public sealed class PdfPageSource : IDisposable
                 {
                     using var bitmap = Conversion.ToImage(_bytes, pageIndex, options: new RenderOptions
                     {
-                        Dpi = (int)Math.Round(dpi)
+                        Width = Math.Max(64, pixelWidth),
+                        WithAspectRatio = true
                     });
                 }
                 catch (Exception)
@@ -84,6 +117,38 @@ public sealed class PdfPageSource : IDisposable
                 }
             }
         });
+    }
+
+    private static WriteableBitmap ToWriteable(SKBitmap source)
+    {
+        using var converted = source.ColorType == SKColorType.Bgra8888
+            ? null
+            : source.Copy(SKColorType.Bgra8888);
+        var pixels = converted ?? source;
+        var bitmap = new WriteableBitmap(pixels.Width, pixels.Height);
+        using (var stream = bitmap.PixelBuffer.AsStream())
+        {
+            var bytes = pixels.Bytes;
+            stream.Write(bytes, 0, bytes.Length);
+        }
+
+        bitmap.Invalidate();
+        return bitmap;
+    }
+
+    private static void WriteError(Exception ex)
+    {
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Flipper",
+                "last-error.txt");
+            File.WriteAllText(path, DateTime.Now.ToString("O") + Environment.NewLine + ex);
+        }
+        catch (IOException)
+        {
+        }
     }
 
     public void Dispose()

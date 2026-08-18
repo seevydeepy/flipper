@@ -8,6 +8,18 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <Color x:Key="InkColor">#1B3A4B</Color>
+            <Color x:Key="PaperColor">#F6F1E8</Color>
+            <Color x:Key="CardColor">#FFFCF7</Color>
+            <SolidColorBrush x:Key="InkBrush" Color="{StaticResource InkColor}" />
+            <SolidColorBrush x:Key="PaperBrush" Color="{StaticResource PaperColor}" />
+            <SolidColorBrush x:Key="CardBrush" Color="{StaticResource CardColor}" />
+            <SolidColorBrush x:Key="MuteBrush" Color="#6B7C86" />
+            <Style TargetType="Button" x:Key="QuietButton">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="10,6" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
