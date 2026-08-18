@@ -205,23 +205,41 @@ public sealed partial class ReaderPage : Page
             RightError.Visibility = Visibility.Collapsed;
             RightColumn.Width = new GridLength(0);
             PageLabel.Text = string.Empty;
+            Overlay.Visibility = Visibility.Visible;
+            _overlayTimer.Stop();
             return;
         }
 
         var portrait = PageLayout.IsPortrait(ReaderRoot.ActualWidth, ReaderRoot.ActualHeight);
         var pages = PageLayout.For(_pdf.PageCount, _lowestVisible, portrait);
         _lowestVisible = pages.FirstIndex;
-        var dpi = (float)(Math.Max(96, (XamlRoot?.RasterizationScale ?? 1) * 96) * 2);
+        var scale = XamlRoot?.RasterizationScale ?? 1;
+        var slotWidth = PagesGrid.ActualWidth > 0 ? PagesGrid.ActualWidth : ReaderRoot.ActualWidth;
+        if (pages.SecondIndex is not null)
+        {
+            slotWidth /= 2;
+        }
 
-        var left = _pdf.Render(pages.FirstIndex, dpi);
+        var pixelWidth = (int)Math.Clamp(slotWidth * scale, 320, 2400);
+
+        LeftImage.Opacity = 0;
+        var left = _pdf.Render(pages.FirstIndex, pixelWidth);
         LeftImage.Source = left;
+        LeftImage.Opacity = 1;
         LeftError.Visibility = left is null ? Visibility.Visible : Visibility.Collapsed;
+        if (left is null)
+        {
+            Overlay.Visibility = Visibility.Visible;
+            _overlayTimer.Stop();
+        }
 
         if (pages.SecondIndex is int second)
         {
             RightColumn.Width = new GridLength(1, GridUnitType.Star);
-            var right = _pdf.Render(second, dpi);
+            RightImage.Opacity = 0;
+            var right = _pdf.Render(second, pixelWidth);
             RightImage.Source = right;
+            RightImage.Opacity = 1;
             RightError.Visibility = right is null ? Visibility.Visible : Visibility.Collapsed;
         }
         else
@@ -238,10 +256,10 @@ public sealed partial class ReaderPage : Page
             : $"page {firstDisplay}-{lastDisplay} of {_pdf.PageCount}";
 
         var next = pages.FirstIndex + pages.Step;
-        _ = _pdf.PrefetchAsync(next, dpi);
+        _ = _pdf.PrefetchAsync(next, pixelWidth);
         if (pages.Step == 2)
         {
-            _ = _pdf.PrefetchAsync(next + 1, dpi);
+            _ = _pdf.PrefetchAsync(next + 1, pixelWidth);
         }
     }
 }

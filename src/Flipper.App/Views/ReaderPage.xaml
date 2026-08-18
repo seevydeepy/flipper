@@ -15,12 +15,20 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition x:Name="RightColumn" Width="*" />
             </Grid.ColumnDefinitions>
-            <Image x:Name="LeftImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <Image x:Name="LeftImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image.OpacityTransition>
+                    <ScalarTransition Duration="0:0:0.16" />
+                </Image.OpacityTransition>
+            </Image>
             <TextBlock x:Name="LeftError" Text="Cannot draw this page" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
-            <Image x:Name="RightImage" Grid.Column="1" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <Image x:Name="RightImage" Grid.Column="1" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image.OpacityTransition>
+                    <ScalarTransition Duration="0:0:0.16" />
+                </Image.OpacityTransition>
+            </Image>
             <TextBlock x:Name="RightError" Grid.Column="1" Text="Cannot draw this page" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
         </Grid>
-        <Grid x:Name="Overlay" Background="#66000000" VerticalAlignment="Top" Padding="12" Visibility="Collapsed">
+        <Grid x:Name="Overlay" Background="#99000000" VerticalAlignment="Top" Padding="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />

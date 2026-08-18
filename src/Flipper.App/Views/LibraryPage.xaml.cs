@@ -1,8 +1,11 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Flipper.App.Services;
-using Flipper.Core.Cache;
 using Flipper.Core.Library;
+using Flipper.Core.Settings;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
 
 namespace Flipper.App.Views;
@@ -10,14 +13,16 @@ namespace Flipper.App.Views;
 public sealed partial class LibraryPage : Page
 {
     private readonly LibraryWatcher _watcher = new();
+    private readonly ObservableCollection<ScoreCard> _cards = new();
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
-    private string? _selectedFolder = string.Empty;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private bool _refreshQueued;
+    private CancellationTokenSource? _previewCts;
 
     public LibraryPage()
     {
         InitializeComponent();
+        ScoreGrid.ItemsSource = _cards;
         _watcher.Changed += OnWatcherChanged;
         _refreshTimer.Tick += (_, _) =>
         {
@@ -30,11 +35,13 @@ public sealed partial class LibraryPage : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        SelectSort(App.Current.Settings.Sort);
         Reload(App.Current.Settings.LibraryPath);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _previewCts?.Cancel();
         _watcher.Dispose();
         _refreshTimer.Stop();
     }
@@ -78,29 +85,46 @@ public sealed partial class LibraryPage : Page
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
 
-    private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyFilter();
+
+    private void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _selectedFolder = FolderList.SelectedItem as string;
-        if (_selectedFolder == "\\")
+        if (SortBox.SelectedItem is ComboBoxItem item && item.Tag is string tag && Enum.TryParse<SortMode>(tag, out var mode))
         {
-            _selectedFolder = string.Empty;
+            App.Current.Settings.Sort = mode;
+            App.Current.PersistSettings();
+            ApplyFilter();
         }
-        ApplyFilter();
     }
 
-    private async void ScoreList_ItemClick(object sender, ItemClickEventArgs e)
+    private void Favourite_Click(object sender, RoutedEventArgs e)
     {
-        if (e.ClickedItem is not ScoreRow row)
+        if (sender is not Button button || button.Tag is not ScoreCard card)
+        {
+            return;
+        }
+
+        App.Current.ToggleFavourite(card.Entry.CanonicalPath);
+        card.IsFavourite = App.Current.Settings.StatsFor(card.Entry.CanonicalPath).Favourite;
+        if (App.Current.Settings.Sort == SortMode.Favourites)
+        {
+            ApplyFilter();
+        }
+    }
+
+    private void ScoreGrid_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not ScoreCard card)
         {
             return;
         }
 
         ErrorLabel.Visibility = Visibility.Collapsed;
-        var livePath = File.Exists(row.Entry.DisplayFullPath) ? row.Entry.DisplayFullPath : null;
+        var livePath = File.Exists(card.Entry.DisplayFullPath) ? card.Entry.DisplayFullPath : null;
         var cachePath = App.Current.Cache.TryOpen(
-            row.Entry.CanonicalPath,
+            card.Entry.CanonicalPath,
             livePath,
-            row.Entry.DisplayFullPath,
+            card.Entry.DisplayFullPath,
             App.Current.OpenCanonicalPath);
         if (cachePath is null)
         {
@@ -109,11 +133,9 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        App.Current.OpenCanonicalPath = row.Entry.CanonicalPath;
-        App.Current.Settings.LastScoreCanonicalPath = row.Entry.CanonicalPath;
-        App.Current.PersistSettings();
-        App.Current.Window?.ShowReader(row.Entry, cachePath);
-        await Task.CompletedTask;
+        App.Current.OpenCanonicalPath = card.Entry.CanonicalPath;
+        App.Current.RecordPlay(card.Entry.CanonicalPath);
+        App.Current.Window?.ShowReader(card.Entry, cachePath);
     }
 
     private void Reload(string? libraryPath)
@@ -121,15 +143,13 @@ public sealed partial class LibraryPage : Page
         _refreshQueued = false;
         if (string.IsNullOrWhiteSpace(libraryPath))
         {
-            SearchBox.Visibility = Visibility.Collapsed;
             OfflineLabel.Visibility = Visibility.Collapsed;
             FolderList.Items.Clear();
-            ScoreList.Items.Clear();
+            _cards.Clear();
             _watcher.Stop();
             return;
         }
 
-        SearchBox.Visibility = Visibility.Visible;
         _snapshot = LibraryScanner.Scan(libraryPath);
         if (_snapshot.RootReachable)
         {
@@ -168,50 +188,163 @@ public sealed partial class LibraryPage : Page
 
     private void BindFolders()
     {
-        var previous = _selectedFolder;
+        var previous = CurrentFolderKey();
         FolderList.Items.Clear();
+        FolderList.Items.Add("All");
         foreach (var folder in _snapshot.Folders)
         {
             FolderList.Items.Add(string.IsNullOrEmpty(folder) ? "\\" : folder);
         }
 
-        var selectedLabel = string.IsNullOrEmpty(previous) ? "\\" : previous;
-        if (previous is not null && FolderList.Items.Contains(selectedLabel))
+        if (previous is null)
         {
-            FolderList.SelectedItem = selectedLabel;
+            FolderList.SelectedItem = "All";
         }
-        else if (FolderList.Items.Count > 0)
+        else
         {
-            FolderList.SelectedIndex = 0;
+            var label = previous == string.Empty ? "\\" : previous;
+            FolderList.SelectedItem = FolderList.Items.Contains(label) ? label : "All";
         }
+    }
+
+    private string? CurrentFolderKey()
+    {
+        return FolderList.SelectedItem switch
+        {
+            null or "All" => null,
+            "\\" => string.Empty,
+            string folder => folder,
+            _ => null
+        };
     }
 
     private void ApplyFilter()
     {
-        var selectedLabel = FolderList.SelectedItem as string;
-        var selected = selectedLabel == "\\" ? string.Empty : selectedLabel ?? string.Empty;
-        var rows = ScoreSearch.Filter(_snapshot.Scores, SearchBox.Text, selected)
-            .Select(score => new ScoreRow(score))
-            .ToArray();
-        ScoreList.Items.Clear();
-        foreach (var row in rows)
+        var selected = CurrentFolderKey();
+        var rows = ScoreSearch.Sort(
+            ScoreSearch.Filter(_snapshot.Scores, SearchBox.Text, selected),
+            App.Current.Settings.Sort,
+            App.Current.Settings.Scores);
+
+        _cards.Clear();
+        foreach (var score in rows)
         {
-            ScoreList.Items.Add(row);
+            var favourite = App.Current.Settings.Scores.TryGetValue(score.CanonicalPath, out var stats) && stats.Favourite;
+            _cards.Add(new ScoreCard(score, favourite));
         }
+
+        QueuePreviews();
+    }
+
+    private void QueuePreviews()
+    {
+        _previewCts?.Cancel();
+        _previewCts = new CancellationTokenSource();
+        var token = _previewCts.Token;
+        var cards = _cards.ToArray();
+        _ = LoadPreviewsAsync(cards, token);
+    }
+
+    private async Task LoadPreviewsAsync(IReadOnlyList<ScoreCard> cards, CancellationToken token)
+    {
+        foreach (var card in cards)
+        {
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var sourcePath = File.Exists(card.Entry.DisplayFullPath)
+                ? card.Entry.DisplayFullPath
+                : null;
+            if (sourcePath is null)
+            {
+                continue;
+            }
+
+            var thumb = ThumbnailStore.PathFor(card.Entry.CanonicalPath, card.Entry.Length, card.Entry.LastWriteUtc);
+            if (!File.Exists(thumb))
+            {
+                await Task.Run(() => PdfPageSource.TrySavePreview(sourcePath, thumb, 360), token);
+            }
+
+            if (!File.Exists(thumb) || token.IsCancellationRequested)
+            {
+                continue;
+            }
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                var image = new BitmapImage();
+                image.UriSource = new Uri(thumb);
+                card.Preview = image;
+            });
+        }
+    }
+
+    private void SelectSort(SortMode mode)
+    {
+        foreach (var item in SortBox.Items.OfType<ComboBoxItem>())
+        {
+            if (item.Tag as string == mode.ToString())
+            {
+                SortBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        SortBox.SelectedIndex = 0;
     }
 }
 
-public sealed class ScoreRow
+public sealed class ScoreCard : INotifyPropertyChanged
 {
-    public ScoreRow(ScoreEntry entry)
+    private BitmapImage? _preview;
+    private bool _favourite;
+
+    public ScoreCard(ScoreEntry entry, bool favourite)
     {
         Entry = entry;
-        Title = string.IsNullOrEmpty(entry.RelativeFolder)
-            ? entry.DisplayName
-            : $"{entry.DisplayName}  {entry.RelativeFolder}";
+        Title = entry.DisplayName;
+        Folder = string.IsNullOrEmpty(entry.RelativeFolder) ? "\\" : entry.RelativeFolder;
+        _favourite = favourite;
     }
 
     public ScoreEntry Entry { get; }
     public string Title { get; }
-    public override string ToString() => Title;
+    public string Folder { get; }
+    public string Star => _favourite ? "★" : "☆";
+
+    public bool IsFavourite
+    {
+        get => _favourite;
+        set
+        {
+            if (_favourite == value)
+            {
+                return;
+            }
+
+            _favourite = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFavourite)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Star)));
+        }
+    }
+
+    public BitmapImage? Preview
+    {
+        get => _preview;
+        set
+        {
+            _preview = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Preview)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
