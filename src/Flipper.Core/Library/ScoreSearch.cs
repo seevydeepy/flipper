@@ -7,25 +7,32 @@ public static class ScoreSearch
     public static IReadOnlyList<ScoreEntry> Filter(
         IEnumerable<ScoreEntry> scores,
         string? query,
-        string? selectedFolder)
+        string? selectedFolder,
+        bool favouritesOnly = false,
+        IReadOnlyDictionary<string, ScoreStats>? stats = null)
     {
-        var list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
+        IReadOnlyList<ScoreEntry> list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
         if (!string.IsNullOrWhiteSpace(query))
         {
             var needle = query.Trim();
-            return list
-                .Where(score => Matches(score, needle))
+            list = list.Where(score => Matches(score, needle)).ToArray();
+        }
+        else if (selectedFolder is not null)
+        {
+            list = list.Where(score => InFolder(score.RelativeFolder, selectedFolder)).ToArray();
+        }
+
+        if (favouritesOnly)
+        {
+            list = list
+                .Where(score =>
+                    stats is not null
+                    && stats.TryGetValue(score.CanonicalPath, out var item)
+                    && item.Favourite)
                 .ToArray();
         }
 
-        if (selectedFolder is null)
-        {
-            return list;
-        }
-
-        return list
-            .Where(score => InFolder(score.RelativeFolder, selectedFolder))
-            .ToArray();
+        return list;
     }
 
     public static bool InFolder(string relativeFolder, string selectedFolder)
@@ -51,22 +58,15 @@ public static class ScoreSearch
         IReadOnlyDictionary<string, ScoreStats> stats,
         bool reversed = false)
     {
-        IEnumerable<ScoreEntry> result = scores;
-        if (mode == SortMode.Favourites)
+        IEnumerable<ScoreEntry> result = mode switch
         {
-            result = result.Where(score =>
-                stats.TryGetValue(score.CanonicalPath, out var item) && item.Favourite);
-        }
-
-        result = mode switch
-        {
-            SortMode.Recent => result
+            SortMode.Recent => scores
                 .OrderByDescending(score => Stats(stats, score)?.LastPlayedUtc ?? DateTime.MinValue)
                 .ThenBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase),
-            SortMode.MostPlayed => result
+            SortMode.MostPlayed => scores
                 .OrderByDescending(score => Stats(stats, score)?.PlayCount ?? 0)
                 .ThenBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase),
-            _ => result.OrderBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase)
+            _ => scores.OrderBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase)
         };
 
         var list = result.ToArray();

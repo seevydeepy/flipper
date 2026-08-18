@@ -28,15 +28,28 @@
             </Image>
             <TextBlock x:Name="RightError" Grid.Column="1" Text="Cannot draw this page" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
         </Grid>
-        <Grid x:Name="Overlay" Background="#99000000" VerticalAlignment="Top" Padding="12">
+        <Grid x:Name="Overlay" Background="#99000000" VerticalAlignment="Top" Padding="12,12,12,12">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="120" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button x:Name="BackButton" Content="Back" Click="BackButton_Click" />
             <TextBlock x:Name="TitleLabel" Grid.Column="1" Foreground="White" VerticalAlignment="Center" Margin="16,0,16,0" />
             <TextBlock x:Name="PageLabel" Grid.Column="2" Foreground="White" VerticalAlignment="Center" />
         </Grid>
+        <Button
+            x:Name="BackButton"
+            Content="Back"
+            Click="BackButton_Click"
+            PointerReleased="BackButton_PointerReleased"
+            MinWidth="96"
+            MinHeight="48"
+            Padding="20,10"
+            FontSize="20"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Margin="12"
+            Background="#CC000000"
+            Foreground="White" />
     </Grid>
 </Page>

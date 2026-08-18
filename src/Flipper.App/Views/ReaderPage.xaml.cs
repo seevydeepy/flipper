@@ -86,6 +86,8 @@ public sealed partial class ReaderPage : Page
 
     private void BackButton_Click(object sender, RoutedEventArgs e) => App.Current.Window?.ShowLibrary();
 
+    private void BackButton_PointerReleased(object sender, PointerRoutedEventArgs e) => e.Handled = true;
+
     private void ReaderRoot_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key == Windows.System.VirtualKey.Escape)

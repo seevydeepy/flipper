@@ -39,7 +39,7 @@ public sealed class SettingsStore
 
             var json = File.ReadAllText(_path);
             var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
-            settings.Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
+            settings.Normalize();
             return settings;
         }
         catch (JsonException)
