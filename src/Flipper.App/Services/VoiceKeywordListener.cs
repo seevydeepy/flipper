@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using Flipper.Core.Reader;
 using SherpaOnnx;
 using Windows.Devices.Enumeration;
 using Windows.Media;
@@ -29,7 +30,10 @@ public sealed class VoiceKeywordListener : IDisposable
     private OnlineStream? _stream;
     private Action<string>? _onKeyword;
     private DateTime _nextAllowedUtc = DateTime.MinValue;
+    private int _quantum = 160;
     private bool _disposed;
+
+    public float LastRms { get; private set; }
 
     public async Task<string?> StartAsync(string? deviceId, Action<string> onKeyword)
     {
@@ -74,6 +78,7 @@ public sealed class VoiceKeywordListener : IDisposable
             }
 
             _graph = created.Graph;
+            _quantum = Math.Max(1, _graph.SamplesPerQuantum);
             DeviceInformation? device = null;
             if (!string.IsNullOrWhiteSpace(deviceId))
             {
@@ -183,11 +188,19 @@ public sealed class VoiceKeywordListener : IDisposable
             }
 
             var frame = node.GetFrame();
-            var samples = ToFloatMono(frame);
+            var samples = ToFloatMono(frame, _quantum);
             if (samples.Length == 0)
             {
                 return;
             }
+
+            var energy = 0f;
+            for (var i = 0; i < samples.Length; i++)
+            {
+                energy += samples[i] * samples[i];
+            }
+
+            LastRms = MathF.Sqrt(energy / samples.Length);
 
             if (_pending.Count > 50)
             {
@@ -298,7 +311,7 @@ public sealed class VoiceKeywordListener : IDisposable
         }
     }
 
-    private static float[] ToFloatMono(AudioFrame frame)
+    private static float[] ToFloatMono(AudioFrame frame, int quantum)
     {
         using var buffer = frame.LockBuffer(AudioBufferAccessMode.Read);
         if (buffer.Length < 2)
@@ -311,12 +324,23 @@ public sealed class VoiceKeywordListener : IDisposable
         {
             reference.As<IMemoryBufferByteAccess>().GetBuffer(out var data, out var capacity);
             var bytes = (int)Math.Min(buffer.Length, capacity);
-            var count = bytes / 2;
-            var samples = new float[count];
-            for (var i = 0; i < count; i++)
+            var layout = VoicePcmFormat.Inspect(bytes, quantum);
+            var samples = new float[layout.Frames];
+            if (layout.IeeeFloat)
             {
-                var value = (short)(data[i * 2] | (data[(i * 2) + 1] << 8));
-                samples[i] = value / 32768f;
+                for (var i = 0; i < layout.Frames; i++)
+                {
+                    samples[i] = BitConverter.ToSingle(new ReadOnlySpan<byte>(data + (i * layout.Channels * 4), 4));
+                }
+            }
+            else
+            {
+                for (var i = 0; i < layout.Frames; i++)
+                {
+                    var offset = i * layout.Channels * 2;
+                    var value = (short)(data[offset] | (data[offset + 1] << 8));
+                    samples[i] = value / 32768f;
+                }
             }
 
             return samples;

@@ -16,12 +16,14 @@ public sealed partial class ReaderPage : Page
     private DisplayRequest? _displayRequest;
     private readonly DispatcherTimer _overlayTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _heardTimer = new() { Interval = TimeSpan.FromSeconds(1.4) };
+    private readonly DispatcherTimer _levelTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
     private readonly VoiceKeywordListener _voice = new();
     private int _voiceEpoch;
     private int _lowestVisible;
     private bool _swiped;
     private bool _ready;
     private bool _voiceOn;
+    private bool _showingHeard;
 
     public ReaderPage()
     {
@@ -34,9 +36,17 @@ public sealed partial class ReaderPage : Page
         _heardTimer.Tick += (_, _) =>
         {
             _heardTimer.Stop();
+            _showingHeard = false;
             if (_voiceOn)
             {
-                VoiceLabel.Text = "Listening";
+                VoiceLabel.Text = LevelText();
+            }
+        };
+        _levelTimer.Tick += (_, _) =>
+        {
+            if (_voiceOn && !_showingHeard)
+            {
+                VoiceLabel.Text = LevelText();
             }
         };
         Loaded += OnLoaded;
@@ -86,10 +96,14 @@ public sealed partial class ReaderPage : Page
         }
 
         _voiceOn = failure is null;
-        VoiceLabel.Text = failure ?? "Listening";
+        VoiceLabel.Text = failure ?? LevelText();
         if (failure is not null)
         {
             _voice.Stop();
+        }
+        else
+        {
+            _levelTimer.Start();
         }
     }
 
@@ -100,6 +114,7 @@ public sealed partial class ReaderPage : Page
         _voiceEpoch++;
         _voice.Stop();
         _heardTimer.Stop();
+        _levelTimer.Stop();
         _overlayTimer.Stop();
         try
         {
@@ -165,9 +180,22 @@ public sealed partial class ReaderPage : Page
 
     private void ShowHeard(string word)
     {
+        _showingHeard = true;
         VoiceLabel.Text = word;
         _heardTimer.Stop();
         _heardTimer.Start();
+    }
+
+    private string LevelText()
+    {
+        var rms = _voice.LastRms;
+        var bars = 0;
+        if (rms > 0.002)
+        {
+            bars = Math.Clamp((int)MathF.Log10(rms * 400) + 1, 1, 6);
+        }
+
+        return "Listening " + new string('|', bars);
     }
 
     private void BackButton_Click(object sender, RoutedEventArgs e) => App.Current.Window?.ShowLibrary();
