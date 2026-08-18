@@ -44,4 +44,66 @@ public sealed class ScoreSearchTests
         var result = ScoreSearch.Filter([named], query: "chopin", selectedFolder: null);
         Assert.Equal("Nocturne", Assert.Single(result).DisplayName);
     }
+
+    [Fact]
+    public void Filter_Query_IsCaseInsensitive()
+    {
+        var result = ScoreSearch.Filter(Scores, query: "NOC", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_IgnoresWhitespace()
+    {
+        var named = Scores[2] with { Title = "Nocturne in E flat" };
+        var spaced = ScoreSearch.Filter([named], query: "e  flat", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(spaced).DisplayName);
+
+        var glued = ScoreSearch.Filter([named], query: "eflat", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(glued).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_IgnoresAccents()
+    {
+        var named = Scores[2] with { Title = "Nocturne in E flat", Composer = "Frédéric Chopin" };
+        var fromPlain = ScoreSearch.Filter([named], query: "frederic", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(fromPlain).DisplayName);
+
+        var etude = Scores[0] with { Title = "Etude" };
+        var fromAccent = ScoreSearch.Filter([etude], query: "étude", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(fromAccent).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_MapsStrokeLetters()
+    {
+        var named = Scores[0] with { Title = "Funeral Music", Composer = "Witold Lutosławski" };
+        var result = ScoreSearch.Filter([named], query: "lutoslawski", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_MatchesTitle()
+    {
+        var named = Scores[0] with { Title = "Air on the G String" };
+        var result = ScoreSearch.Filter([named], query: "g string", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_MatchesFileNameWhenTitleDiffers()
+    {
+        var named = Scores[0] with { Title = "Orchestral Suite No. 3" };
+        var result = ScoreSearch.Filter([named], query: "air", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_MatchesTokensAcrossTitleAndComposer()
+    {
+        var named = Scores[2] with { Title = "Nocturne in E flat", Composer = "Frédéric Chopin" };
+        var result = ScoreSearch.Filter([named], query: "chopin nocturne", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(result).DisplayName);
+    }
 }
