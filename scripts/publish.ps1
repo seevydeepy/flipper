@@ -25,6 +25,8 @@ function Publish-Rid([string]$rid) {
         throw "Flipper.exe not found for $rid"
     }
     Copy-Item $exe.FullName (Join-Path $out 'Flipper.exe') -Force
+    $icon = Join-Path $root 'src/Flipper.App/Assets/AppIcon.ico'
+    python (Join-Path $root 'scripts/stamp_icon.py') (Join-Path $out 'Flipper.exe') $icon
 }
 
 Publish-Rid 'win-x64'

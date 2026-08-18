@@ -5,8 +5,10 @@ using Flipper.Core.Library;
 using Flipper.Core.Settings;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
+using Windows.UI;
 
 namespace Flipper.App.Views;
 
@@ -18,6 +20,7 @@ public sealed partial class LibraryPage : Page
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private bool _refreshQueued;
     private CancellationTokenSource? _previewCts;
+    private string? _watchedPath;
 
     public LibraryPage()
     {
@@ -147,26 +150,39 @@ public sealed partial class LibraryPage : Page
             FolderList.Items.Clear();
             _cards.Clear();
             _watcher.Stop();
+            _watchedPath = null;
             return;
         }
 
-        _snapshot = LibraryScanner.Scan(libraryPath);
-        if (_snapshot.RootReachable)
+        var next = LibraryScanner.Scan(libraryPath);
+        if (next.RootReachable)
         {
-            OfflineLabel.Visibility = Visibility.Collapsed;
-            _snapshot = new LibrarySnapshot(
-                _snapshot.RootDisplayPath,
-                _snapshot.Scores.Select(App.Current.ApplyCanonical).ToArray(),
+            next = new LibrarySnapshot(
+                next.RootDisplayPath,
+                next.Scores.Select(App.Current.ApplyCanonical).ToArray(),
                 true);
-            _watcher.Start(libraryPath);
+            OfflineLabel.Visibility = Visibility.Collapsed;
+            if (!string.Equals(_watchedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _watcher.Start(libraryPath);
+                _watchedPath = libraryPath;
+            }
         }
         else
         {
             OfflineLabel.Visibility = Visibility.Visible;
-            _snapshot = CachedAsSnapshot(libraryPath);
+            next = CachedAsSnapshot(libraryPath);
             _watcher.Stop();
+            _watchedPath = null;
         }
 
+        if (_snapshot.SameMembership(next))
+        {
+            _snapshot = next;
+            return;
+        }
+
+        _snapshot = next;
         BindFolders();
         ApplyFilter();
     }
@@ -318,7 +334,10 @@ public sealed class ScoreCard : INotifyPropertyChanged
     public ScoreEntry Entry { get; }
     public string Title { get; }
     public string Folder { get; }
-    public string Star => _favourite ? "★" : "☆";
+    public string StarGlyph => _favourite ? "\uE735" : "\uE734";
+    public Brush StarBrush => new SolidColorBrush(_favourite
+        ? Color.FromArgb(255, 241, 196, 15)
+        : Color.FromArgb(255, 107, 124, 134));
 
     public bool IsFavourite
     {
@@ -332,7 +351,8 @@ public sealed class ScoreCard : INotifyPropertyChanged
 
             _favourite = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFavourite)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Star)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StarGlyph)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StarBrush)));
         }
     }
 
