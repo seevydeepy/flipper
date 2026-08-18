@@ -2,14 +2,16 @@ namespace Flipper.Core.Library;
 
 public static class LibraryScanner
 {
-    public static LibrarySnapshot Scan(string? displayRoot)
+    public static LibrarySnapshot Scan(string? displayRoot, ScoreCatalogCache? catalogCache = null)
     {
         if (string.IsNullOrWhiteSpace(displayRoot) || !Directory.Exists(displayRoot))
         {
             return new LibrarySnapshot(displayRoot ?? string.Empty, Array.Empty<ScoreEntry>(), false);
         }
 
-        var catalog = ScoreCatalog.Load(displayRoot);
+        var catalog = catalogCache is null
+            ? ScoreCatalog.Load(displayRoot)
+            : catalogCache.Load(displayRoot);
         var scores = new List<ScoreEntry>();
         ScanDirectory(displayRoot, displayRoot, scores, catalog, isRoot: true);
         return new LibrarySnapshot(displayRoot, scores, true);

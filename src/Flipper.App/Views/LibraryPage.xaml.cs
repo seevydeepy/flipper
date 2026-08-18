@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Flipper.App.Services;
 using Flipper.Core.Library;
@@ -15,13 +16,19 @@ namespace Flipper.App.Views;
 public sealed partial class LibraryPage : Page
 {
     private const double CardSlot = 192;
+    private const int PreviewDecodeWidth = 180;
 
     private readonly LibraryWatcher _watcher = new();
-    private readonly ObservableCollection<ScoreCard> _cards = new();
+    private readonly ResettableCollection<ScoreCard> _cards = new();
+    private readonly ScoreCatalogCache _catalogCache = new();
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private readonly DispatcherTimer _searchTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private bool _refreshQueued;
-    private CancellationTokenSource? _previewCts;
+    private bool _scanBusy;
+    private bool _scanAgain;
+    private int _scanEpoch;
+    private string? _scanPath;
     private string? _watchedPath;
     private string? _selectedFolder;
 
@@ -35,6 +42,11 @@ public sealed partial class LibraryPage : Page
             _refreshTimer.Stop();
             Reload(App.Current.Settings.LibraryPath);
         };
+        _searchTimer.Tick += (_, _) =>
+        {
+            _searchTimer.Stop();
+            ApplyFilter();
+        };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -43,7 +55,14 @@ public sealed partial class LibraryPage : Page
     {
         SelectSort(App.Current.Settings.Sort);
         SyncSortDirectionIcon();
-        Reload(App.Current.Settings.LibraryPath);
+        var path = App.Current.Settings.LibraryPath;
+        if (App.Current.LastSnapshot is { } cached
+            && string.Equals(cached.RootDisplayPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            ApplySnapshot(cached, path);
+        }
+
+        Reload(path);
     }
 
     private void ScoreColumn_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -68,9 +87,11 @@ public sealed partial class LibraryPage : Page
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        _previewCts?.Cancel();
+        _scanEpoch++;
+        _scanAgain = false;
         _watcher.Dispose();
         _refreshTimer.Stop();
+        _searchTimer.Stop();
     }
 
     private void OnWatcherChanged()
@@ -107,10 +128,21 @@ public sealed partial class LibraryPage : Page
 
         App.Current.Settings.LibraryPath = result.Path;
         App.Current.PersistSettings();
+        App.Current.LastSnapshot = null;
+        _selectedFolder = null;
+        _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), true);
+        FolderTree.RootNodes.Clear();
+        _cards.Clear();
         Reload(result.Path);
     }
 
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => QueueSearch();
+
+    private void QueueSearch()
+    {
+        _searchTimer.Stop();
+        _searchTimer.Start();
+    }
 
     private void FolderTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
@@ -180,6 +212,90 @@ public sealed partial class LibraryPage : Page
     private void Reload(string? libraryPath)
     {
         _refreshQueued = false;
+        _scanPath = libraryPath;
+        _ = ScanLoopAsync();
+    }
+
+    private async Task ScanLoopAsync()
+    {
+        if (_scanBusy)
+        {
+            _scanAgain = true;
+            return;
+        }
+
+        _scanBusy = true;
+        try
+        {
+            do
+            {
+                _scanAgain = false;
+                var path = _scanPath;
+                var epoch = ++_scanEpoch;
+                var app = App.Current;
+                LibrarySnapshot next;
+                try
+                {
+                    next = await Task.Run(() => BuildSnapshot(app, path));
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                if (epoch != _scanEpoch)
+                {
+                    continue;
+                }
+
+                if (DispatcherQueue.HasThreadAccess)
+                {
+                    ApplySnapshot(next, path);
+                }
+                else
+                {
+                    var applied = new TaskCompletionSource();
+                    if (!DispatcherQueue.TryEnqueue(() =>
+                    {
+                        ApplySnapshot(next, path);
+                        applied.SetResult();
+                    }))
+                    {
+                        continue;
+                    }
+
+                    await applied.Task;
+                }
+            }
+            while (_scanAgain);
+        }
+        finally
+        {
+            _scanBusy = false;
+        }
+    }
+
+    private LibrarySnapshot BuildSnapshot(App app, string? libraryPath)
+    {
+        if (string.IsNullOrWhiteSpace(libraryPath))
+        {
+            return new LibrarySnapshot(string.Empty, Array.Empty<ScoreEntry>(), false);
+        }
+
+        var next = LibraryScanner.Scan(libraryPath, _catalogCache);
+        if (!next.RootReachable)
+        {
+            return next;
+        }
+
+        return new LibrarySnapshot(
+            next.RootDisplayPath,
+            app.ApplyCanonical(next.Scores, next.RootDisplayPath),
+            true);
+    }
+
+    private void ApplySnapshot(LibrarySnapshot next, string? libraryPath)
+    {
         if (string.IsNullOrWhiteSpace(libraryPath))
         {
             OfflineLabel.Visibility = Visibility.Collapsed;
@@ -187,16 +303,13 @@ public sealed partial class LibraryPage : Page
             _cards.Clear();
             _watcher.Stop();
             _watchedPath = null;
+            _snapshot = next;
+            App.Current.LastSnapshot = null;
             return;
         }
 
-        var next = LibraryScanner.Scan(libraryPath);
         if (next.RootReachable)
         {
-            next = new LibrarySnapshot(
-                next.RootDisplayPath,
-                next.Scores.Select(App.Current.ApplyCanonical).ToArray(),
-                true);
             OfflineLabel.Visibility = Visibility.Collapsed;
             if (!string.Equals(_watchedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
             {
@@ -215,10 +328,12 @@ public sealed partial class LibraryPage : Page
         if (_snapshot.SameMembership(next))
         {
             _snapshot = next;
+            App.Current.LastSnapshot = next;
             return;
         }
 
         _snapshot = next;
+        App.Current.LastSnapshot = next;
         BindFolders();
         ApplyFilter();
     }
@@ -314,65 +429,120 @@ public sealed partial class LibraryPage : Page
             App.Current.Settings.Scores,
             App.Current.Settings.SortReversed);
 
-        _cards.Clear();
+        if (SameCardOrder(rows))
+        {
+            return;
+        }
+
+        var previous = new Dictionary<string, ScoreCard>(StringComparer.OrdinalIgnoreCase);
+        foreach (var card in _cards)
+        {
+            previous[card.Entry.CanonicalPath] = card;
+        }
+
+        var next = new List<ScoreCard>(rows.Count);
         foreach (var score in rows)
         {
             var favourite = App.Current.Settings.Scores.TryGetValue(score.CanonicalPath, out var stats) && stats.Favourite;
-            _cards.Add(new ScoreCard(score, favourite));
+            if (previous.TryGetValue(score.CanonicalPath, out var card)
+                && card.Entry.Length == score.Length
+                && card.Entry.LastWriteUtc == score.LastWriteUtc
+                && card.Title == score.CardTitle
+                && card.Composer == score.CardComposer)
+            {
+                card.IsFavourite = favourite;
+                next.Add(card);
+            }
+            else
+            {
+                next.Add(new ScoreCard(score, favourite));
+            }
         }
 
-        QueuePreviews();
+        _cards.ReplaceAll(next);
     }
 
-    private void QueuePreviews()
+    private bool SameCardOrder(IReadOnlyList<ScoreEntry> rows)
     {
-        _previewCts?.Cancel();
-        _previewCts = new CancellationTokenSource();
-        var token = _previewCts.Token;
-        var cards = _cards.ToArray();
-        _ = LoadPreviewsAsync(cards, token);
-    }
-
-    private async Task LoadPreviewsAsync(IReadOnlyList<ScoreCard> cards, CancellationToken token)
-    {
-        foreach (var card in cards)
+        if (_cards.Count != rows.Count)
         {
-            if (token.IsCancellationRequested)
+            return false;
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (!string.Equals(_cards[i].Entry.CanonicalPath, rows[i].CanonicalPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void ScoreGrid_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is not ScoreCard card)
+        {
+            return;
+        }
+
+        if (args.InRecycleQueue)
+        {
+            card.PreviewEpoch++;
+            card.Preview = null;
+            return;
+        }
+
+        if (card.Preview is not null || args.Phase > 0)
+        {
+            return;
+        }
+
+        var epoch = card.PreviewEpoch;
+        args.RegisterUpdateCallback((_, _) =>
+        {
+            _ = LoadPreviewAsync(card, epoch);
+        });
+    }
+
+    private async Task LoadPreviewAsync(ScoreCard card, int epoch)
+    {
+        if (card.PreviewEpoch != epoch)
+        {
+            return;
+        }
+
+        var thumb = ThumbnailStore.PathFor(card.Entry.CanonicalPath, card.Entry.Length, card.Entry.LastWriteUtc);
+        if (!File.Exists(thumb))
+        {
+            var sourcePath = card.Entry.DisplayFullPath;
+            if (!File.Exists(sourcePath))
             {
                 return;
             }
 
-            var sourcePath = File.Exists(card.Entry.DisplayFullPath)
-                ? card.Entry.DisplayFullPath
-                : null;
-            if (sourcePath is null)
+            var created = await Task.Run(() => PdfPageSource.TrySavePreview(sourcePath, thumb, 360));
+            if (!created || card.PreviewEpoch != epoch)
             {
-                continue;
+                return;
             }
-
-            var thumb = ThumbnailStore.PathFor(card.Entry.CanonicalPath, card.Entry.Length, card.Entry.LastWriteUtc);
-            if (!File.Exists(thumb))
-            {
-                await Task.Run(() => PdfPageSource.TrySavePreview(sourcePath, thumb, 360), token);
-            }
-
-            if (!File.Exists(thumb) || token.IsCancellationRequested)
-            {
-                continue;
-            }
-
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (token.IsCancellationRequested)
-                {
-                    return;
-                }
-
-                var image = new BitmapImage();
-                image.UriSource = new Uri(thumb);
-                card.Preview = image;
-            });
         }
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (card.PreviewEpoch != epoch)
+            {
+                return;
+            }
+
+            var image = new BitmapImage
+            {
+                DecodePixelWidth = PreviewDecodeWidth
+            };
+            image.UriSource = new Uri(thumb);
+            card.Preview = image;
+        });
     }
 
     private void SelectSort(SortMode mode)
@@ -411,6 +581,7 @@ public sealed class ScoreCard : INotifyPropertyChanged
     public ScoreEntry Entry { get; }
     public string Title { get; }
     public string Composer { get; }
+    public int PreviewEpoch { get; set; }
     public string StarGlyph => _favourite ? "\uE735" : "\uE734";
     public Brush StarBrush => new SolidColorBrush(_favourite
         ? Color.FromArgb(255, 241, 196, 15)
@@ -458,4 +629,21 @@ public sealed class FolderMark
     public string? Key { get; }
 
     public override string ToString() => Name;
+}
+
+internal sealed class ResettableCollection<T> : ObservableCollection<T>
+{
+    public void ReplaceAll(IReadOnlyList<T> items)
+    {
+        CheckReentrancy();
+        Items.Clear();
+        foreach (var item in items)
+        {
+            Items.Add(item);
+        }
+
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
 }
