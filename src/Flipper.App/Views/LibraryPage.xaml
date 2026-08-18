@@ -19,7 +19,6 @@
                 <ColumnDefinition Width="280" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Text="Flipper" Style="{ThemeResource TitleTextBlockStyle}" VerticalAlignment="Center" />
             <TextBox x:Name="SearchBox" Grid.Column="1" PlaceholderText="Search" TextChanged="SearchBox_TextChanged" />
@@ -32,7 +31,6 @@
             <Button x:Name="SortDirectionButton" Grid.Column="3" Click="SortDirection_Click" AutomationProperties.Name="Reverse sort">
                 <FontIcon x:Name="SortDirectionIcon" Glyph="&#xE74B;" FontSize="16" />
             </Button>
-            <Button x:Name="ChooseFolderButton" Grid.Column="4" Content="Folder" Click="ChooseFolder_Click" />
         </Grid>
 
         <TextBlock x:Name="OfflineLabel" Grid.Row="1" Text="Library offline" Visibility="Collapsed" />
@@ -42,7 +40,20 @@
                 <ColumnDefinition Width="200" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <ListView x:Name="FolderList" SelectionChanged="FolderList_SelectionChanged" />
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ListView x:Name="FolderList" SelectionChanged="FolderList_SelectionChanged" />
+                <Button
+                    x:Name="ChooseFolderButton"
+                    Grid.Row="1"
+                    Content="Choose Folder"
+                    HorizontalAlignment="Stretch"
+                    Margin="0,12,0,0"
+                    Click="ChooseFolder_Click" />
+            </Grid>
             <GridView
                 x:Name="ScoreGrid"
                 Grid.Column="1"
