@@ -9,12 +9,18 @@ public static class LibraryScanner
             return new LibrarySnapshot(displayRoot ?? string.Empty, Array.Empty<ScoreEntry>(), false);
         }
 
+        var catalog = ScoreCatalog.Load(displayRoot);
         var scores = new List<ScoreEntry>();
-        ScanDirectory(displayRoot, displayRoot, scores, isRoot: true);
+        ScanDirectory(displayRoot, displayRoot, scores, catalog, isRoot: true);
         return new LibrarySnapshot(displayRoot, scores, true);
     }
 
-    private static void ScanDirectory(string root, string current, List<ScoreEntry> scores, bool isRoot)
+    private static void ScanDirectory(
+        string root,
+        string current,
+        List<ScoreEntry> scores,
+        IReadOnlyDictionary<string, ScoreFacts> catalog,
+        bool isRoot)
     {
         DirectoryInfo info;
         try
@@ -50,13 +56,16 @@ public static class LibraryScanner
                     relative = string.Empty;
                 }
 
+                catalog.TryGetValue(ScoreCatalog.Key(relative, file.Name), out var facts);
                 scores.Add(new ScoreEntry(
                     Path.GetFileNameWithoutExtension(file.Name),
                     relative,
                     file.FullName,
                     file.FullName,
                     file.Length,
-                    file.LastWriteTimeUtc));
+                    file.LastWriteTimeUtc,
+                    facts?.Title,
+                    facts?.Composer));
             }
         }
         catch (UnauthorizedAccessException)
@@ -82,7 +91,7 @@ public static class LibraryScanner
 
         foreach (var child in children)
         {
-            ScanDirectory(root, child.FullName, scores, isRoot: false);
+            ScanDirectory(root, child.FullName, scores, catalog, isRoot: false);
         }
     }
 }

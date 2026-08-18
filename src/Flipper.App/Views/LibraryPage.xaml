@@ -102,7 +102,7 @@
                                     </Border>
                                     <TextBlock Grid.Row="1" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
                                     <Grid Grid.Row="2">
-                                        <TextBlock Text="{x:Bind Folder}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Text="{x:Bind Composer}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                         <Button
                                             Style="{StaticResource QuietButton}"
                                             HorizontalAlignment="Right"

@@ -36,4 +36,12 @@ public sealed class ScoreSearchTests
         Assert.Equal("Nocturne", match.DisplayName);
         Assert.Equal("Chopin", match.RelativeFolder);
     }
+
+    [Fact]
+    public void Filter_Query_MatchesComposer()
+    {
+        var named = Scores[2] with { Title = "Nocturne in E flat", Composer = "Frédéric Chopin" };
+        var result = ScoreSearch.Filter([named], query: "chopin", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(result).DisplayName);
+    }
 }
