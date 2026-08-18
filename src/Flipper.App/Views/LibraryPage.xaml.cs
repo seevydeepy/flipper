@@ -23,6 +23,7 @@ public sealed partial class LibraryPage : Page
     private bool _refreshQueued;
     private CancellationTokenSource? _previewCts;
     private string? _watchedPath;
+    private string? _selectedFolder;
 
     public LibraryPage()
     {
@@ -111,7 +112,11 @@ public sealed partial class LibraryPage : Page
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
 
-    private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyFilter();
+    private void FolderTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        _selectedFolder = FolderKey(args.InvokedItem);
+        ApplyFilter();
+    }
 
     private void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -178,7 +183,7 @@ public sealed partial class LibraryPage : Page
         if (string.IsNullOrWhiteSpace(libraryPath))
         {
             OfflineLabel.Visibility = Visibility.Collapsed;
-            FolderList.Items.Clear();
+            FolderTree.RootNodes.Clear();
             _cards.Clear();
             _watcher.Stop();
             _watchedPath = null;
@@ -235,35 +240,70 @@ public sealed partial class LibraryPage : Page
 
     private void BindFolders()
     {
-        var previous = CurrentFolderKey();
-        FolderList.Items.Clear();
-        FolderList.Items.Add("All");
-        foreach (var folder in _snapshot.Folders)
+        var previous = _selectedFolder;
+        FolderTree.RootNodes.Clear();
+        var all = new TreeViewNode { Content = new FolderMark("All", null) };
+        FolderTree.RootNodes.Add(all);
+        if (_snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder)))
         {
-            FolderList.Items.Add(string.IsNullOrEmpty(folder) ? "\\" : folder);
+            FolderTree.RootNodes.Add(new TreeViewNode { Content = new FolderMark("\\", string.Empty) });
         }
 
-        if (previous is null)
+        foreach (var item in Flipper.Core.Library.FolderTree.FromRelativeFolders(_snapshot.Folders))
         {
-            FolderList.SelectedItem = "All";
+            FolderTree.RootNodes.Add(ToNode(item, expand: true));
         }
-        else
-        {
-            var label = previous == string.Empty ? "\\" : previous;
-            FolderList.SelectedItem = FolderList.Items.Contains(label) ? label : "All";
-        }
+
+        var match = FindNode(FolderTree.RootNodes, previous);
+        FolderTree.SelectedNode = match ?? all;
+        _selectedFolder = FolderKey(FolderTree.SelectedNode);
     }
 
-    private string? CurrentFolderKey()
+    private static TreeViewNode ToNode(FolderItem item, bool expand)
     {
-        return FolderList.SelectedItem switch
+        var node = new TreeViewNode
         {
-            null or "All" => null,
-            "\\" => string.Empty,
-            string folder => folder,
+            Content = new FolderMark(item.Name, item.Key),
+            IsExpanded = expand && item.Children.Count > 0
+        };
+        foreach (var child in item.Children)
+        {
+            node.Children.Add(ToNode(child, expand: false));
+        }
+
+        return node;
+    }
+
+    private static TreeViewNode? FindNode(IList<TreeViewNode> nodes, string? key)
+    {
+        foreach (var node in nodes)
+        {
+            if (FolderKey(node) == key || (key is null && FolderKey(node) is null && node.Content is FolderMark mark && mark.Name == "All"))
+            {
+                return node;
+            }
+
+            var child = FindNode(node.Children, key);
+            if (child is not null)
+            {
+                return child;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FolderKey(object? item)
+    {
+        return item switch
+        {
+            TreeViewNode node => FolderKey(node.Content),
+            FolderMark mark => mark.Key,
             _ => null
         };
     }
+
+    private string? CurrentFolderKey() => _selectedFolder;
 
     private void ApplyFilter()
     {
@@ -404,4 +444,18 @@ public sealed class ScoreCard : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+}
+
+public sealed class FolderMark
+{
+    public FolderMark(string name, string? key)
+    {
+        Name = name;
+        Key = key;
+    }
+
+    public string Name { get; }
+    public string? Key { get; }
+
+    public override string ToString() => Name;
 }

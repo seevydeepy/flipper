@@ -24,8 +24,25 @@ public static class ScoreSearch
         }
 
         return list
-            .Where(score => string.Equals(score.RelativeFolder, selectedFolder, StringComparison.OrdinalIgnoreCase))
+            .Where(score => InFolder(score.RelativeFolder, selectedFolder))
             .ToArray();
+    }
+
+    public static bool InFolder(string relativeFolder, string selectedFolder)
+    {
+        if (string.Equals(relativeFolder, selectedFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(selectedFolder))
+        {
+            return false;
+        }
+
+        var prefix = selectedFolder.TrimEnd('\\', '/') + "\\";
+        var normalised = relativeFolder.Replace('/', '\\');
+        return normalised.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     public static IReadOnlyList<ScoreEntry> Sort(
