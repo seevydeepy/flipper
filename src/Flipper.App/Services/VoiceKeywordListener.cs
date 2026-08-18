@@ -2,12 +2,12 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using SherpaOnnx;
 using Windows.Devices.Enumeration;
-using Windows.Foundation;
 using Windows.Media;
 using Windows.Media.Audio;
 using Windows.Media.Capture;
 using Windows.Media.MediaProperties;
 using Windows.Media.Render;
+using WinRT;
 
 namespace Flipper.App.Services;
 
@@ -31,15 +31,24 @@ public sealed class VoiceKeywordListener : IDisposable
     private DateTime _nextAllowedUtc = DateTime.MinValue;
     private bool _disposed;
 
-    public async Task<bool> StartAsync(string? deviceId, Action<string> onKeyword)
+    public async Task<string?> StartAsync(string? deviceId, Action<string> onKeyword)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         Stop();
 
-        var spotter = await Task.Run(TryCreateSpotter).ConfigureAwait(true);
+        KeywordSpotter? spotter;
+        try
+        {
+            spotter = await Task.Run(TryCreateSpotter).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            return "Voice off — " + ShortError(ex);
+        }
+
         if (spotter is null)
         {
-            return false;
+            return "Voice off — missing voice files";
         }
 
         _onKeyword = onKeyword;
@@ -61,7 +70,7 @@ public sealed class VoiceKeywordListener : IDisposable
             if (created.Status != AudioGraphCreationStatus.Success || created.Graph is null)
             {
                 Stop();
-                return false;
+                return "Voice off — cannot start audio";
             }
 
             _graph = created.Graph;
@@ -84,7 +93,7 @@ public sealed class VoiceKeywordListener : IDisposable
             if (input.Status != AudioDeviceNodeCreationStatus.Success || input.DeviceInputNode is null)
             {
                 Stop();
-                return false;
+                return "Voice off — cannot open microphone";
             }
 
             _input = input.DeviceInputNode;
@@ -92,12 +101,12 @@ public sealed class VoiceKeywordListener : IDisposable
             _input.AddOutgoingConnection(_frames);
             _graph.QuantumStarted += OnQuantumStarted;
             _graph.Start();
-            return true;
+            return null;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             Stop();
-            return false;
+            return "Voice off — " + ShortError(ex);
         }
     }
 
@@ -165,26 +174,32 @@ public sealed class VoiceKeywordListener : IDisposable
 
     private void OnQuantumStarted(AudioGraph sender, object args)
     {
-        var node = _frames;
-        if (node is null)
+        try
         {
-            return;
-        }
+            var node = _frames;
+            if (node is null)
+            {
+                return;
+            }
 
-        var frame = node.GetFrame();
-        var samples = ToFloatMono(frame);
-        if (samples.Length == 0)
+            var frame = node.GetFrame();
+            var samples = ToFloatMono(frame);
+            if (samples.Length == 0)
+            {
+                return;
+            }
+
+            if (_pending.Count > 50)
+            {
+                _pending.TryDequeue(out _);
+            }
+
+            _pending.Enqueue(samples);
+            _signal.Set();
+        }
+        catch (Exception)
         {
-            return;
         }
-
-        if (_pending.Count > 50)
-        {
-            _pending.TryDequeue(out _);
-        }
-
-        _pending.Enqueue(samples);
-        _signal.Set();
     }
 
     private void DecodeLoop(KeywordSpotter spotter, CancellationToken token)
@@ -294,7 +309,7 @@ public sealed class VoiceKeywordListener : IDisposable
         using var reference = buffer.CreateReference();
         unsafe
         {
-            ((IMemoryBufferByteAccess)reference).GetBuffer(out var data, out var capacity);
+            reference.As<IMemoryBufferByteAccess>().GetBuffer(out var data, out var capacity);
             var bytes = (int)Math.Min(buffer.Length, capacity);
             var count = bytes / 2;
             var samples = new float[count];
@@ -308,11 +323,22 @@ public sealed class VoiceKeywordListener : IDisposable
         }
     }
 
-    [ComImport]
-    [Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private unsafe interface IMemoryBufferByteAccess
+    private static string ShortError(Exception ex)
     {
-        void GetBuffer(out byte* buffer, out uint capacity);
+        var text = ex.GetBaseException().Message;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return ex.GetType().Name;
+        }
+
+        return text.Length <= 80 ? text : text[..80];
     }
+}
+
+[ComImport]
+[Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal unsafe interface IMemoryBufferByteAccess
+{
+    void GetBuffer(out byte* buffer, out uint capacity);
 }

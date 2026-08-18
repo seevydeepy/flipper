@@ -15,11 +15,13 @@ public sealed partial class ReaderPage : Page
     private PdfPageSource? _pdf;
     private DisplayRequest? _displayRequest;
     private readonly DispatcherTimer _overlayTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _heardTimer = new() { Interval = TimeSpan.FromSeconds(1.4) };
     private readonly VoiceKeywordListener _voice = new();
     private int _voiceEpoch;
     private int _lowestVisible;
     private bool _swiped;
     private bool _ready;
+    private bool _voiceOn;
 
     public ReaderPage()
     {
@@ -28,6 +30,14 @@ public sealed partial class ReaderPage : Page
         {
             _overlayTimer.Stop();
             Overlay.Visibility = Visibility.Collapsed;
+        };
+        _heardTimer.Tick += (_, _) =>
+        {
+            _heardTimer.Stop();
+            if (_voiceOn)
+            {
+                VoiceLabel.Text = "Listening";
+            }
         };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -68,8 +78,16 @@ public sealed partial class ReaderPage : Page
         _displayRequest.RequestActive();
         Draw();
         var epoch = ++_voiceEpoch;
-        var started = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword);
-        if (!started || epoch != _voiceEpoch)
+        var failure = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword);
+        if (epoch != _voiceEpoch)
+        {
+            _voice.Stop();
+            return;
+        }
+
+        _voiceOn = failure is null;
+        VoiceLabel.Text = failure ?? "Listening";
+        if (failure is not null)
         {
             _voice.Stop();
         }
@@ -78,8 +96,10 @@ public sealed partial class ReaderPage : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _ready = false;
+        _voiceOn = false;
         _voiceEpoch++;
         _voice.Stop();
+        _heardTimer.Stop();
         _overlayTimer.Stop();
         try
         {
@@ -110,9 +130,11 @@ public sealed partial class ReaderPage : Page
         switch (VoiceCommandParser.Parse(keyword))
         {
             case VoiceCommand.Next:
+                ShowHeard("next");
                 Turn(1);
                 break;
             case VoiceCommand.Back:
+                ShowHeard("back");
                 if (_lowestVisible <= 0)
                 {
                     App.Current.Window?.ShowLibrary();
@@ -124,6 +146,7 @@ public sealed partial class ReaderPage : Page
 
                 break;
             case VoiceCommand.Restart:
+                ShowHeard("restart");
                 if (_lowestVisible == 0)
                 {
                     return;
@@ -134,9 +157,17 @@ public sealed partial class ReaderPage : Page
                 Draw();
                 break;
             case VoiceCommand.Finish:
+                ShowHeard("finish");
                 App.Current.Window?.ShowLibrary();
                 break;
         }
+    }
+
+    private void ShowHeard(string word)
+    {
+        VoiceLabel.Text = word;
+        _heardTimer.Stop();
+        _heardTimer.Start();
     }
 
     private void BackButton_Click(object sender, RoutedEventArgs e) => App.Current.Window?.ShowLibrary();

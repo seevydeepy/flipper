@@ -37,6 +37,13 @@
             <TextBlock x:Name="TitleLabel" Grid.Column="1" Foreground="White" VerticalAlignment="Center" Margin="16,0,16,0" />
             <TextBlock x:Name="PageLabel" Grid.Column="2" Foreground="White" VerticalAlignment="Center" />
         </Grid>
+        <TextBlock
+            x:Name="VoiceLabel"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Bottom"
+            Margin="16"
+            Foreground="#B3FFFFFF"
+            FontSize="16" />
         <Button
             x:Name="BackButton"
             Content="Back"
