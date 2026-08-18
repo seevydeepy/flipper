@@ -5,6 +5,7 @@ namespace Flipper.Core.Tests;
 public sealed class ScoreLabelTests
 {
     [Theory]
+    [InlineData("Finale 2005b - [Ave Maria.MUS]")]
     [InlineData("Public Domain")]
     [InlineData("Creative Commons Attribution-ShareAlike 3.0")]
     [InlineData("Copyright © 2007.")]

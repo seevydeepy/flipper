@@ -18,7 +18,10 @@ public static class ScoreLabel
         }
 
         var text = value.Trim();
-        return text.Length < 3 || Junk.IsMatch(text);
+        return text.Length < 3
+            || text.Contains('[')
+            || text.Contains(']')
+            || Junk.IsMatch(text);
     }
 
     public static string Title(string? extracted, string fileName)
