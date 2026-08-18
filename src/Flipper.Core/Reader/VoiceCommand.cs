@@ -19,32 +19,24 @@ public static class VoiceCommandParser
         }
 
         var normalised = text.Trim().Replace('_', ' ').ToLowerInvariant();
-        if (HasWord(normalised, "finish") || HasWord(normalised, "end"))
+        if (HasWord(normalised, "finish"))
         {
             return VoiceCommand.Finish;
         }
 
         if (HasWord(normalised, "restart")
-            || HasWord(normalised, "start")
-            || HasWord(normalised, "begin")
-            || HasWord(normalised, "beginning")
-            || HasWord(normalised, "first")
-            || HasWord(normalised, "again")
-            || HasWord(normalised, "reset"))
+            || HasWord(normalised, "beginning"))
         {
             return VoiceCommand.Restart;
         }
 
         if (HasWord(normalised, "back")
-            || HasWord(normalised, "previous")
-            || HasWord(normalised, "backward")
-            || HasWord(normalised, "rewind"))
+            || HasWord(normalised, "previous"))
         {
             return VoiceCommand.Back;
         }
 
         if (HasWord(normalised, "flip")
-            || HasWord(normalised, "turn")
             || HasWord(normalised, "next")
             || HasWord(normalised, "page"))
         {

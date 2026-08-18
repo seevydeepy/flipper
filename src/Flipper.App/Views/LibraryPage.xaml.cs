@@ -150,7 +150,7 @@ public sealed partial class LibraryPage : Page
         panel.Children.Add(box);
         panel.Children.Add(new TextBlock
         {
-            Text = "Turn: flip, turn, next, page. Back: back, previous. First page: start, restart, beginning. Leave: finish, end.",
+            Text = "Turn: flip, next, page. Back: back, previous. First page: restart, beginning. Leave: finish.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["MuteBrush"]
         });
