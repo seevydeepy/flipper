@@ -14,6 +14,8 @@ namespace Flipper.App.Views;
 
 public sealed partial class LibraryPage : Page
 {
+    private const double CardSlot = 192;
+
     private readonly LibraryWatcher _watcher = new();
     private readonly ObservableCollection<ScoreCard> _cards = new();
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
@@ -41,6 +43,26 @@ public sealed partial class LibraryPage : Page
         SelectSort(App.Current.Settings.Sort);
         SyncSortDirectionIcon();
         Reload(App.Current.Settings.LibraryPath);
+    }
+
+    private void ScoreColumn_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        AlignScoreContent(e.NewSize.Width);
+    }
+
+    private void AlignScoreContent(double available)
+    {
+        if (available <= 0)
+        {
+            return;
+        }
+
+        var columns = Math.Max(1, (int)(available / CardSlot));
+        var width = Math.Min(available, columns * CardSlot);
+        if (double.IsNaN(ScoreContent.Width) || Math.Abs(ScoreContent.Width - width) > 0.5)
+        {
+            ScoreContent.Width = width;
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
