@@ -14,10 +14,9 @@ ROOT = Path(r"//Alexandria/Charles/Scores")
 CATALOG = ROOT / ".flipper-catalog.json"
 
 JUNK = re.compile(
-    r"^(www\.|https?://|creative commons|public domain|typeset|sheet music from|"
-    r"mutopia|licensed under|reference:|free to download|created o[nm] |"
-    r"sharing and photocopy|this sheet music|music from the mutopia|"
-    r"piano$|rit\.?$|allegro|andante|adagio$|tempo)",
+    r"public domain|creative commons|mutopia|typeset|licensed under|reference:|"
+    r"free to download|creativecommons|copyright\s*©|this sheet music|"
+    r"sheet music from www|unsaved publication|www\.|https?://|copyright",
     re.I,
 )
 MEASURE = re.compile(r"^\d{1,3}[a-z]?$")
@@ -33,9 +32,9 @@ YEARS = re.compile(r"\s*\(\s*\d{3,4}(?:\s*[-–]\s*\d{2,4})?\s*\)\s*")
 
 
 def clean(text: str) -> str:
-    text = text.replace("\x00", " ")
-    text = re.sub(r"[\t]+", " ", text)
-    text = re.sub(r"\s{2,}", " ", text).strip(" \u00a0-–_|")
+    text = "".join(ch if ch >= " " else " " for ch in text)
+    text = text.replace("•", " ").replace("©", " ")
+    text = re.sub(r"\s+", " ", text).strip(" \u00a0-–_|")
     return text
 
 
@@ -152,8 +151,10 @@ def extract(pdf: Path, rel: Path) -> dict[str, str]:
     if composer and (BAD_COMPOSER.search(composer) or composer.lower() == (title or "").lower()):
         composer = folder_composer(rel)
 
-    if not title:
+    if not title or JUNK.search(title) or len(title) < 3:
         title = pdf.stem
+    if composer and JUNK.search(composer):
+        composer = folder_composer(rel)
 
     title = YEARS.sub("", title).strip(" \"'-")
     composer = YEARS.sub("", composer).strip(" \"'-")

@@ -10,6 +10,6 @@ public sealed record ScoreEntry(
     string? Title = null,
     string? Composer = null)
 {
-    public string CardTitle => string.IsNullOrWhiteSpace(Title) ? DisplayName : Title;
-    public string CardComposer => Composer ?? string.Empty;
+    public string CardTitle => ScoreLabel.Title(Title, DisplayName);
+    public string CardComposer => ScoreLabel.Composer(Composer);
 }
