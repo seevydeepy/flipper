@@ -23,13 +23,24 @@ public sealed record LibrarySnapshot(
             return false;
         }
 
-        var left = Scores.OrderBy(score => score.CanonicalPath, StringComparer.OrdinalIgnoreCase).ToArray();
-        var right = other.Scores.OrderBy(score => score.CanonicalPath, StringComparer.OrdinalIgnoreCase).ToArray();
-        for (var i = 0; i < left.Length; i++)
+        var right = new Dictionary<string, ScoreEntry>(other.Scores.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var score in other.Scores)
         {
-            if (!string.Equals(left[i].CanonicalPath, right[i].CanonicalPath, StringComparison.OrdinalIgnoreCase)
-                || left[i].Length != right[i].Length
-                || left[i].LastWriteUtc != right[i].LastWriteUtc)
+            right[score.CanonicalPath] = score;
+        }
+
+        if (right.Count != other.Scores.Count)
+        {
+            return false;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var left in Scores)
+        {
+            if (!seen.Add(left.CanonicalPath)
+                || !right.TryGetValue(left.CanonicalPath, out var match)
+                || left.Length != match.Length
+                || left.LastWriteUtc != match.LastWriteUtc)
             {
                 return false;
             }

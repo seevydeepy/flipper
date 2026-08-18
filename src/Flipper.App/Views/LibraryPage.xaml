@@ -73,7 +73,13 @@
                         Padding="0"
                         IsItemClickEnabled="True"
                         ItemClick="ScoreGrid_ItemClick"
-                        SelectionMode="None">
+                        SelectionMode="None"
+                        ContainerContentChanging="ScoreGrid_ContainerContentChanging">
+                        <GridView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" CacheLength="1" />
+                            </ItemsPanelTemplate>
+                        </GridView.ItemsPanel>
                         <GridView.ItemContainerStyle>
                             <Style TargetType="GridViewItem">
                                 <Setter Property="Margin" Value="8" />
@@ -83,11 +89,7 @@
                             </Style>
                         </GridView.ItemContainerStyle>
                         <GridView.ItemContainerTransitions>
-                            <TransitionCollection>
-                                <EntranceThemeTransition />
-                                <AddDeleteThemeTransition />
-                                <RepositionThemeTransition />
-                            </TransitionCollection>
+                            <TransitionCollection />
                         </GridView.ItemContainerTransitions>
                         <GridView.ItemTemplate>
                             <DataTemplate x:DataType="local:ScoreCard">

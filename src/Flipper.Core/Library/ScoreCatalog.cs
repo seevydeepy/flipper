@@ -8,6 +8,48 @@ public sealed class ScoreFacts
     public string? Composer { get; set; }
 }
 
+public sealed class ScoreCatalogCache
+{
+    private string? _path;
+    private long _length;
+    private DateTime _lastWriteUtc;
+    private IReadOnlyDictionary<string, ScoreFacts> _map =
+        new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyDictionary<string, ScoreFacts> Load(string root)
+    {
+        var path = Path.Combine(root, ScoreCatalog.FileName);
+        if (!File.Exists(path))
+        {
+            Clear();
+            return _map;
+        }
+
+        var info = new FileInfo(path);
+        if (_path is not null
+            && string.Equals(_path, path, StringComparison.OrdinalIgnoreCase)
+            && _length == info.Length
+            && _lastWriteUtc == info.LastWriteTimeUtc)
+        {
+            return _map;
+        }
+
+        _map = ScoreCatalog.Load(root);
+        _path = path;
+        _length = info.Length;
+        _lastWriteUtc = info.LastWriteTimeUtc;
+        return _map;
+    }
+
+    private void Clear()
+    {
+        _path = null;
+        _length = 0;
+        _lastWriteUtc = default;
+        _map = new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+    }
+}
+
 public static class ScoreCatalog
 {
     public const string FileName = ".flipper-catalog.json";

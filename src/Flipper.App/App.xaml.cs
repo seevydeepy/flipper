@@ -14,6 +14,7 @@ public partial class App : Application
     public AppSettings Settings { get; }
     public ScoreCache Cache { get; } = ScoreCache.ForAppData();
     public string? OpenCanonicalPath { get; set; }
+    public LibrarySnapshot? LastSnapshot { get; set; }
 
     public App()
     {
@@ -37,6 +38,23 @@ public partial class App : Application
     {
         var canonical = Services.PathCanonicalizer.Canonicalize(entry.DisplayFullPath);
         return entry with { CanonicalPath = canonical };
+    }
+
+    public IReadOnlyList<ScoreEntry> ApplyCanonical(IReadOnlyList<ScoreEntry> scores, string displayRoot)
+    {
+        var root = Services.PathCanonicalizer.Canonicalize(displayRoot);
+        var result = new ScoreEntry[scores.Count];
+        for (var i = 0; i < scores.Count; i++)
+        {
+            var entry = scores[i];
+            var name = Path.GetFileName(entry.DisplayFullPath);
+            var canonical = string.IsNullOrEmpty(entry.RelativeFolder)
+                ? Path.Combine(root, name)
+                : Path.Combine(root, entry.RelativeFolder, name);
+            result[i] = entry with { CanonicalPath = canonical };
+        }
+
+        return result;
     }
 
     public void RecordPlay(string canonicalPath)
