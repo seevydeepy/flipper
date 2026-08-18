@@ -14,32 +14,36 @@ public sealed class LibraryWatcher : IDisposable
     public void Start(string path)
     {
         Stop();
-        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        if (string.IsNullOrWhiteSpace(path))
         {
             return;
         }
 
         _fastPoll = PathCanonicalizer.NeedsFastPoll(path);
-        try
+        if (!_fastPoll)
         {
-            _watcher = new FileSystemWatcher(path)
+            try
             {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName
-                    | NotifyFilters.DirectoryName
-                    | NotifyFilters.LastWrite
-                    | NotifyFilters.Size
-            };
-            _watcher.Created += OnFsEvent;
-            _watcher.Deleted += OnFsEvent;
-            _watcher.Renamed += OnFsEvent;
-            _watcher.Changed += OnFsEvent;
-            _watcher.Error += (_, _) => _fastPoll = true;
-            _watcher.EnableRaisingEvents = true;
-        }
-        catch (Exception)
-        {
-            _fastPoll = true;
+                var watcher = new FileSystemWatcher(path)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName
+                        | NotifyFilters.DirectoryName
+                        | NotifyFilters.LastWrite
+                        | NotifyFilters.Size
+                };
+                watcher.Created += OnFsEvent;
+                watcher.Deleted += OnFsEvent;
+                watcher.Renamed += OnFsEvent;
+                watcher.Changed += OnFsEvent;
+                watcher.Error += (_, _) => _fastPoll = true;
+                watcher.EnableRaisingEvents = true;
+                _watcher = watcher;
+            }
+            catch (Exception)
+            {
+                _fastPoll = true;
+            }
         }
 
         _pollCts = new CancellationTokenSource();

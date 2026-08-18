@@ -311,18 +311,17 @@ public sealed partial class LibraryPage : Page
         if (next.RootReachable)
         {
             OfflineLabel.Visibility = Visibility.Collapsed;
-            if (!string.Equals(_watchedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
-            {
-                _watcher.Start(libraryPath);
-                _watchedPath = libraryPath;
-            }
         }
         else
         {
             OfflineLabel.Visibility = Visibility.Visible;
             next = CachedAsSnapshot(libraryPath);
-            _watcher.Stop();
-            _watchedPath = null;
+        }
+
+        if (!string.Equals(_watchedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _watcher.Start(libraryPath);
+            _watchedPath = libraryPath;
         }
 
         if (_snapshot.SameMembership(next))
@@ -517,12 +516,8 @@ public sealed partial class LibraryPage : Page
         if (!File.Exists(thumb))
         {
             var sourcePath = card.Entry.DisplayFullPath;
-            if (!File.Exists(sourcePath))
-            {
-                return;
-            }
-
-            var created = await Task.Run(() => PdfPageSource.TrySavePreview(sourcePath, thumb, 360));
+            var created = await Task.Run(() =>
+                File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, 360));
             if (!created || card.PreviewEpoch != epoch)
             {
                 return;
