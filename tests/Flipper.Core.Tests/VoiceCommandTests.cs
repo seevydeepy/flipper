@@ -6,24 +6,14 @@ public sealed class VoiceCommandTests
 {
     [Theory]
     [InlineData("flip", VoiceCommand.Next)]
-    [InlineData("TURN", VoiceCommand.Next)]
     [InlineData("next", VoiceCommand.Next)]
     [InlineData("page", VoiceCommand.Next)]
     [InlineData("next page", VoiceCommand.Next)]
     [InlineData("back", VoiceCommand.Back)]
     [InlineData("previous", VoiceCommand.Back)]
-    [InlineData("backward", VoiceCommand.Back)]
-    [InlineData("rewind", VoiceCommand.Back)]
     [InlineData("restart", VoiceCommand.Restart)]
-    [InlineData("start", VoiceCommand.Restart)]
-    [InlineData("begin", VoiceCommand.Restart)]
     [InlineData("beginning", VoiceCommand.Restart)]
-    [InlineData("first", VoiceCommand.Restart)]
-    [InlineData("again", VoiceCommand.Restart)]
-    [InlineData("reset", VoiceCommand.Restart)]
     [InlineData("finish", VoiceCommand.Finish)]
-    [InlineData("end", VoiceCommand.Finish)]
-    [InlineData("END", VoiceCommand.Finish)]
     public void Parse_KnownKeyword_MapsToCommand(string text, VoiceCommand expected)
     {
         Assert.Equal(expected, VoiceCommandParser.Parse(text));
@@ -42,6 +32,20 @@ public sealed class VoiceCommandTests
     {
         Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("friend"));
         Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("pages"));
+    }
+
+    [Fact]
+    public void Parse_PrunedNearWords_AreNone()
+    {
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("turn"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("end"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("start"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("begin"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("first"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("again"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("reset"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("backward"));
+        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("rewind"));
     }
 
     [Fact]
