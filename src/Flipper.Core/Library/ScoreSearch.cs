@@ -175,6 +175,7 @@ public static class ScoreSearch
                 builder.Append("oe");
                 return;
             case 'ß':
+            case 'ẞ':
                 builder.Append("ss");
                 return;
             case 'đ':

@@ -92,6 +92,14 @@ public sealed class ScoreSearchTests
     }
 
     [Fact]
+    public void Filter_Query_MapsCapitalSharpS()
+    {
+        var named = Scores[0] with { Title = "STRAẞE" };
+        var result = ScoreSearch.Filter([named], query: "strasse", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
     public void Filter_Query_IgnoresJunkComposer()
     {
         var named = Scores[0] with { Composer = "Public Domain" };
@@ -117,16 +125,26 @@ public sealed class ScoreSearchTests
     [Fact]
     public void Filter_Query_MatchesFileNameWhenTitleDiffers()
     {
-        var named = Scores[0] with { Title = "Orchestral Suite No. 3" };
+        var named = new ScoreEntry(
+            "Suite3",
+            "Bach",
+            @"C:\lib\Bach\Air.pdf",
+            "suite3",
+            1,
+            DateTime.UtcNow,
+            Title: "Orchestral Suite No. 3");
         var result = ScoreSearch.Filter([named], query: "air", selectedFolder: null);
-        Assert.Equal("Air", Assert.Single(result).DisplayName);
+        Assert.Equal("Suite3", Assert.Single(result).DisplayName);
     }
 
     [Fact]
     public void Filter_Query_MatchesTokensAcrossTitleAndComposer()
     {
         var named = Scores[2] with { Title = "Nocturne in E flat", Composer = "Frédéric Chopin" };
-        var result = ScoreSearch.Filter([named], query: "chopin nocturne", selectedFolder: null);
-        Assert.Equal("Nocturne", Assert.Single(result).DisplayName);
+        var both = ScoreSearch.Filter([named, Scores[0]], query: "chopin nocturne", selectedFolder: null);
+        Assert.Equal("Nocturne", Assert.Single(both).DisplayName);
+
+        var missing = ScoreSearch.Filter([named], query: "chopin prelude", selectedFolder: null);
+        Assert.Empty(missing);
     }
 }
