@@ -39,6 +39,7 @@ public sealed partial class LibraryPage : Page
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         SelectSort(App.Current.Settings.Sort);
+        SyncSortDirectionIcon();
         Reload(App.Current.Settings.LibraryPath);
     }
 
@@ -98,6 +99,14 @@ public sealed partial class LibraryPage : Page
             App.Current.PersistSettings();
             ApplyFilter();
         }
+    }
+
+    private void SortDirection_Click(object sender, RoutedEventArgs e)
+    {
+        App.Current.Settings.SortReversed = !App.Current.Settings.SortReversed;
+        App.Current.PersistSettings();
+        SyncSortDirectionIcon();
+        ApplyFilter();
     }
 
     private void Favourite_Click(object sender, RoutedEventArgs e)
@@ -240,7 +249,8 @@ public sealed partial class LibraryPage : Page
         var rows = ScoreSearch.Sort(
             ScoreSearch.Filter(_snapshot.Scores, SearchBox.Text, selected),
             App.Current.Settings.Sort,
-            App.Current.Settings.Scores);
+            App.Current.Settings.Scores,
+            App.Current.Settings.SortReversed);
 
         _cards.Clear();
         foreach (var score in rows)
@@ -315,6 +325,11 @@ public sealed partial class LibraryPage : Page
         }
 
         SortBox.SelectedIndex = 0;
+    }
+
+    private void SyncSortDirectionIcon()
+    {
+        SortDirectionIcon.Glyph = App.Current.Settings.SortReversed ? "\uE74A" : "\uE74B";
     }
 }
 

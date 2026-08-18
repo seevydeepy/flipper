@@ -21,6 +21,7 @@ public sealed class AppSettings
     public string? LastScoreCanonicalPath { get; set; }
     public int LastPageIndex { get; set; }
     public SortMode Sort { get; set; } = SortMode.Name;
+    public bool SortReversed { get; set; }
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public ScoreStats StatsFor(string canonicalPath)
