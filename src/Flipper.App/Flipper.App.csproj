@@ -4,7 +4,9 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>Flipper.App</RootNamespace>
-    <AssemblyName>Flipper</AssemblyName>
+    <AssemblyName>Carousel</AssemblyName>
+    <Product>Carousel</Product>
+    <AssemblyTitle>Carousel</AssemblyTitle>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Nullable>enable</Nullable>

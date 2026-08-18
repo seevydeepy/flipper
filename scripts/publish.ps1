@@ -23,9 +23,9 @@ function Publish-Rid([string]$rid) {
     if ($LASTEXITCODE -ne 0) {
         throw "publish failed for $rid"
     }
-    $exe = Join-Path $out 'Flipper.exe'
+    $exe = Join-Path $out 'Carousel.exe'
     if (-not (Test-Path $exe)) {
-        throw "Flipper.exe not found for $rid"
+        throw "Carousel.exe not found for $rid"
     }
     python $stamp $exe $icon
 }
