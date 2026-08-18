@@ -32,7 +32,12 @@ public sealed class ScoreSortTests
         var most = ScoreSearch.Sort([Air, Nocturne, Prelude], SortMode.MostPlayed, stats);
         Assert.Equal("Nocturne", most[0].DisplayName);
 
-        var fav = ScoreSearch.Sort([Air, Nocturne, Prelude], SortMode.Favourites, stats);
+        var fav = ScoreSearch.Filter(
+            [Air, Nocturne, Prelude],
+            query: null,
+            selectedFolder: null,
+            favouritesOnly: true,
+            stats);
         Assert.Equal("Prelude", Assert.Single(fav).DisplayName);
     }
 
