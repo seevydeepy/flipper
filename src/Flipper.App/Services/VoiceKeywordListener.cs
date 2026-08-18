@@ -300,10 +300,10 @@ public sealed class VoiceKeywordListener : IDisposable
                         Joiner = joiner
                     }
                 },
-                MaxActivePaths = 4,
+                MaxActivePaths = 6,
                 KeywordsFile = keywords,
-                KeywordsScore = 2.0f,
-                KeywordsThreshold = 0.16f
+                KeywordsScore = 2.2f,
+                KeywordsThreshold = 0.13f
             };
 
             SharedSpotter = new KeywordSpotter(config);

@@ -142,14 +142,15 @@ public sealed partial class ReaderPage : Page
             return;
         }
 
+        var heard = keyword.Replace('_', ' ').ToLowerInvariant();
         switch (VoiceCommandParser.Parse(keyword))
         {
             case VoiceCommand.Next:
-                ShowHeard("next");
+                ShowHeard(heard);
                 Turn(1);
                 break;
             case VoiceCommand.Back:
-                ShowHeard("back");
+                ShowHeard(heard);
                 if (_lowestVisible <= 0)
                 {
                     App.Current.Window?.ShowLibrary();
@@ -161,7 +162,7 @@ public sealed partial class ReaderPage : Page
 
                 break;
             case VoiceCommand.Restart:
-                ShowHeard("restart");
+                ShowHeard(heard);
                 if (_lowestVisible == 0)
                 {
                     return;
@@ -172,7 +173,7 @@ public sealed partial class ReaderPage : Page
                 Draw();
                 break;
             case VoiceCommand.Finish:
-                ShowHeard("finish");
+                ShowHeard(heard);
                 App.Current.Window?.ShowLibrary();
                 break;
         }

@@ -24,12 +24,21 @@ public static class VoiceCommandParser
             return VoiceCommand.Finish;
         }
 
-        if (HasWord(normalised, "restart"))
+        if (HasWord(normalised, "restart")
+            || HasWord(normalised, "start")
+            || HasWord(normalised, "begin")
+            || HasWord(normalised, "beginning")
+            || HasWord(normalised, "first")
+            || HasWord(normalised, "again")
+            || HasWord(normalised, "reset"))
         {
             return VoiceCommand.Restart;
         }
 
-        if (HasWord(normalised, "back"))
+        if (HasWord(normalised, "back")
+            || HasWord(normalised, "previous")
+            || HasWord(normalised, "backward")
+            || HasWord(normalised, "rewind"))
         {
             return VoiceCommand.Back;
         }

@@ -150,7 +150,7 @@ public sealed partial class LibraryPage : Page
         panel.Children.Add(box);
         panel.Children.Add(new TextBlock
         {
-            Text = "In full screen, say flip, turn, next, or page to turn. Say back, restart, finish, or end.",
+            Text = "Turn: flip, turn, next, page. Back: back, previous. First page: start, restart, beginning. Leave: finish, end.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["MuteBrush"]
         });
