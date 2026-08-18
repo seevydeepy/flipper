@@ -85,6 +85,11 @@ public sealed partial class LibraryPage : Page
         {
             ScoreContent.Width = width;
         }
+
+        if (double.IsNaN(ScoreHeader.Width) || Math.Abs(ScoreHeader.Width - width) > 0.5)
+        {
+            ScoreHeader.Width = width;
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

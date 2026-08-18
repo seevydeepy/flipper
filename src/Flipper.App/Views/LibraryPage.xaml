@@ -27,99 +27,115 @@
                     <ColumnDefinition Width="240" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
                 <Border
+                    Grid.RowSpan="2"
                     Background="{StaticResource PanelBrush}"
                     BorderBrush="{StaticResource GoldSoftBrush}"
                     BorderThickness="1"
-                    CornerRadius="16"
-                    Padding="14">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <StackPanel Margin="0,0,0,16">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock
-                                    Text="𝄞"
-                                    FontFamily="Segoe UI Symbol"
-                                    FontSize="40"
-                                    Foreground="{StaticResource GoldBrush}"
-                                    VerticalAlignment="Center"
-                                    Margin="0,6,10,0" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <TextBlock
-                                        Text="Flipper"
-                                        FontFamily="Cambria"
-                                        FontSize="32"
-                                        FontWeight="SemiBold"
-                                        Foreground="{StaticResource InkBrush}" />
-                                    <Grid Height="16" Margin="0,6,20,0">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="*" />
-                                        </Grid.RowDefinitions>
-                                        <Rectangle Grid.Row="0" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                                        <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                                        <Rectangle Grid.Row="2" Height="1.4" Fill="{StaticResource GoldBrush}" VerticalAlignment="Center" Opacity="0.7" />
-                                        <Rectangle Grid.Row="3" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                                        <Rectangle Grid.Row="4" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-                        <TreeView
-                            x:Name="FolderTree"
-                            Grid.Row="1"
-                            SelectionMode="Single"
-                            ItemInvoked="FolderTree_ItemInvoked" />
-                        <Button
-                            x:Name="ChooseFolderButton"
-                            Grid.Row="2"
-                            Content="Choose Folder"
-                            HorizontalAlignment="Stretch"
-                            Margin="0,12,0,0"
-                            Click="ChooseFolder_Click" />
-                    </Grid>
-                </Border>
+                    CornerRadius="16" />
 
-                <Grid x:Name="ScoreColumn" Grid.Column="1" SizeChanged="ScoreColumn_SizeChanged">
+                <Grid
+                    Padding="14"
+                    VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Text="𝄞"
+                        FontFamily="Segoe UI Symbol"
+                        FontSize="40"
+                        Foreground="{StaticResource GoldBrush}"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0" />
+                    <TextBlock
+                        Grid.Column="1"
+                        Text="Flipper"
+                        FontFamily="Cambria"
+                        FontSize="32"
+                        FontWeight="SemiBold"
+                        Foreground="{StaticResource InkBrush}"
+                        VerticalAlignment="Center" />
+                    <Canvas
+                        Grid.Column="1"
+                        Height="0"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,20,0">
+                        <Grid Canvas.Top="6" Width="140" Height="16">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Rectangle Grid.Row="0" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
+                            <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
+                            <Rectangle Grid.Row="2" Height="1.4" Fill="{StaticResource GoldBrush}" VerticalAlignment="Center" Opacity="0.7" />
+                            <Rectangle Grid.Row="3" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
+                            <Rectangle Grid.Row="4" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Canvas>
+                </Grid>
+
+                <Grid
+                    x:Name="ScoreHeaderHost"
+                    Grid.Column="1"
+                    Padding="0,14"
+                    VerticalAlignment="Center"
+                    SizeChanged="ScoreColumn_SizeChanged">
+                    <Grid
+                        x:Name="ScoreHeader"
+                        HorizontalAlignment="Left"
+                        ColumnSpacing="12"
+                        Padding="8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SearchBox" PlaceholderText="Search" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged" />
+                        <ComboBox x:Name="SortBox" Grid.Column="1" MinWidth="160" VerticalAlignment="Center" SelectionChanged="SortBox_SelectionChanged">
+                            <ComboBoxItem Content="A–Z" Tag="Name" />
+                            <ComboBoxItem Content="Recent" Tag="Recent" />
+                            <ComboBoxItem Content="Most played" Tag="MostPlayed" />
+                        </ComboBox>
+                        <Button x:Name="SortDirectionButton" Grid.Column="2" VerticalAlignment="Center" Click="SortDirection_Click" AutomationProperties.Name="Reverse sort">
+                            <FontIcon x:Name="SortDirectionIcon" Glyph="&#xE74B;" FontSize="16" />
+                        </Button>
+                    </Grid>
+                </Grid>
+
+                <Grid Grid.Row="1" Padding="14,22,14,14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TreeView
+                        x:Name="FolderTree"
+                        SelectionMode="Single"
+                        ItemInvoked="FolderTree_ItemInvoked" />
+                    <Button
+                        x:Name="ChooseFolderButton"
+                        Grid.Row="1"
+                        Content="Choose Folder"
+                        HorizontalAlignment="Stretch"
+                        Margin="0,12,0,0"
+                        Click="ChooseFolder_Click" />
+                </Grid>
+
+                <Grid x:Name="ScoreColumn" Grid.Row="1" Grid.Column="1" SizeChanged="ScoreColumn_SizeChanged">
                     <Grid
                         x:Name="ScoreContent"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Stretch">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <Grid ColumnSpacing="12" Padding="8,0,8,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="SearchBox" PlaceholderText="Search" TextChanged="SearchBox_TextChanged" />
-                            <ComboBox x:Name="SortBox" Grid.Column="1" MinWidth="160" SelectionChanged="SortBox_SelectionChanged">
-                                <ComboBoxItem Content="A–Z" Tag="Name" />
-                                <ComboBoxItem Content="Recent" Tag="Recent" />
-                                <ComboBoxItem Content="Most played" Tag="MostPlayed" />
-                            </ComboBox>
-                            <Button x:Name="SortDirectionButton" Grid.Column="2" Click="SortDirection_Click" AutomationProperties.Name="Reverse sort">
-                                <FontIcon x:Name="SortDirectionIcon" Glyph="&#xE74B;" FontSize="16" />
-                            </Button>
-                        </Grid>
                         <GridView
                             x:Name="ScoreGrid"
-                            Grid.Row="1"
                             Padding="0"
                             Background="Transparent"
                             IsItemClickEnabled="True"
