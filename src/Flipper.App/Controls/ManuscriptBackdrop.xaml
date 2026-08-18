@@ -6,17 +6,40 @@
     IsHitTestVisible="False"
     IsTabStop="False">
     <Grid>
-        <Image x:Name="PaperImage" Stretch="Fill" />
+        <Grid.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#F7EFE0" Offset="0" />
+                <GradientStop Color="#F3E8D6" Offset="0.45" />
+                <GradientStop Color="#E6D3B5" Offset="1" />
+            </LinearGradientBrush>
+        </Grid.Background>
+
+        <Ellipse
+            Width="900"
+            Height="700"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Margin="-180,-220,0,0"
+            Opacity="0.35">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#FFF8EE" Offset="0" />
+                    <GradientStop Color="#00F3E8D6" Offset="1" />
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <Canvas x:Name="StaffCanvas" />
 
         <TextBlock
             Text="𝄞"
             FontFamily="Segoe UI Symbol"
             FontSize="460"
             Foreground="{StaticResource GoldBrush}"
-            Opacity="0.11"
+            Opacity="0.16"
             HorizontalAlignment="Right"
             VerticalAlignment="Center"
-            Margin="0,40,36,0" />
+            Margin="0,40,48,0" />
 
         <TextBlock
             Text="♪"
@@ -37,7 +60,7 @@
             FontFamily="Segoe UI Symbol"
             FontSize="52"
             Foreground="{StaticResource GoldBrush}"
-            Opacity="0.10"
+            Opacity="0.12"
             HorizontalAlignment="Right"
             VerticalAlignment="Bottom"
             Margin="0,0,88,56">
@@ -52,13 +75,13 @@
             RadiusY="10"
             Stroke="{StaticResource GoldBrush}"
             StrokeThickness="1.6"
-            Opacity="0.42" />
+            Opacity="0.45" />
         <Rectangle
             Margin="15"
             RadiusX="8"
             RadiusY="8"
             Stroke="{StaticResource GoldBrush}"
             StrokeThickness="0.8"
-            Opacity="0.24" />
+            Opacity="0.28" />
     </Grid>
 </UserControl>
