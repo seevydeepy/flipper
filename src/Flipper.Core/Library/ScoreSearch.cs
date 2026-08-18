@@ -84,7 +84,7 @@ public static class ScoreSearch
         var tokens = Tokenize(query);
         if (tokens.Count == 0)
         {
-            return true;
+            return false;
         }
 
         var fields = new[]
