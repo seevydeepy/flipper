@@ -84,6 +84,29 @@ public sealed class ScoreSearchTests
     }
 
     [Fact]
+    public void Filter_Query_MapsOSlash()
+    {
+        var named = Scores[0] with { Title = "Søren" };
+        var result = ScoreSearch.Filter([named], query: "soren", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
+    public void Filter_Query_IgnoresJunkComposer()
+    {
+        var named = Scores[0] with { Composer = "Public Domain" };
+        var result = ScoreSearch.Filter([named], query: "public", selectedFolder: null);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void Filter_Query_WithOnlyMarks_MatchesNothing()
+    {
+        var result = ScoreSearch.Filter(Scores, query: "\u0301", selectedFolder: "Bach");
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public void Filter_Query_MatchesTitle()
     {
         var named = Scores[0] with { Title = "Air on the G String" };
