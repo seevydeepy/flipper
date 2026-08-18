@@ -157,27 +157,39 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Border Background="#E8E0D4" CornerRadius="8" Margin="0,0,0,8">
                                             <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
                                         </Border>
-                                        <TextBlock
-                                            Grid.Row="1"
-                                            Text="{x:Bind Title}"
-                                            Foreground="{StaticResource InkBrush}"
-                                            TextTrimming="CharacterEllipsis" />
-                                        <Grid Grid.Row="2">
-                                            <TextBlock
-                                                Text="{x:Bind Composer}"
+                                        <Grid Grid.Row="1" ColumnSpacing="4" RowSpacing="2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <controls:ScrollingText
+                                                Text="{x:Bind Title, Mode=OneWay}"
+                                                Foreground="{StaticResource InkBrush}"
+                                                VerticalAlignment="Center" />
+                                            <controls:ScrollingText
+                                                Grid.Row="1"
+                                                Text="{x:Bind Composer, Mode=OneWay}"
                                                 Foreground="{StaticResource MuteBrush}"
-                                                TextTrimming="CharacterEllipsis"
                                                 VerticalAlignment="Center" />
                                             <Button
+                                                Grid.Column="1"
+                                                Grid.RowSpan="2"
                                                 Style="{StaticResource QuietButton}"
-                                                HorizontalAlignment="Right"
+                                                Padding="4"
+                                                MinWidth="32"
+                                                MinHeight="32"
+                                                VerticalAlignment="Center"
                                                 Click="Favourite_Click"
-                                                Tag="{x:Bind}">
+                                                Tag="{x:Bind}"
+                                                AutomationProperties.Name="Favourite">
                                                 <FontIcon
                                                     Glyph="{x:Bind StarGlyph, Mode=OneWay}"
                                                     Foreground="{x:Bind StarBrush, Mode=OneWay}"
