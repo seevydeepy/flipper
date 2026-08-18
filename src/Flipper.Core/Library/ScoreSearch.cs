@@ -14,7 +14,7 @@ public static class ScoreSearch
         {
             var needle = query.Trim();
             return list
-                .Where(score => score.DisplayName.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                .Where(score => Matches(score, needle))
                 .ToArray();
         }
 
@@ -62,11 +62,11 @@ public static class ScoreSearch
         {
             SortMode.Recent => result
                 .OrderByDescending(score => Stats(stats, score)?.LastPlayedUtc ?? DateTime.MinValue)
-                .ThenBy(score => score.DisplayName, StringComparer.OrdinalIgnoreCase),
+                .ThenBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase),
             SortMode.MostPlayed => result
                 .OrderByDescending(score => Stats(stats, score)?.PlayCount ?? 0)
-                .ThenBy(score => score.DisplayName, StringComparer.OrdinalIgnoreCase),
-            _ => result.OrderBy(score => score.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase),
+            _ => result.OrderBy(score => score.CardTitle, StringComparer.OrdinalIgnoreCase)
         };
 
         var list = result.ToArray();
@@ -76,6 +76,14 @@ public static class ScoreSearch
         }
 
         return list;
+    }
+
+    private static bool Matches(ScoreEntry score, string needle)
+    {
+        return score.CardTitle.Contains(needle, StringComparison.OrdinalIgnoreCase)
+            || score.DisplayName.Contains(needle, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrEmpty(score.Composer)
+                && score.Composer.Contains(needle, StringComparison.OrdinalIgnoreCase));
     }
 
     private static ScoreStats? Stats(IReadOnlyDictionary<string, ScoreStats> stats, ScoreEntry score)

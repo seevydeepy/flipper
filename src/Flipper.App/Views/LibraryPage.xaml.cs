@@ -403,14 +403,14 @@ public sealed class ScoreCard : INotifyPropertyChanged
     public ScoreCard(ScoreEntry entry, bool favourite)
     {
         Entry = entry;
-        Title = entry.DisplayName;
-        Folder = string.IsNullOrEmpty(entry.RelativeFolder) ? "\\" : entry.RelativeFolder;
+        Title = entry.CardTitle;
+        Composer = entry.CardComposer;
         _favourite = favourite;
     }
 
     public ScoreEntry Entry { get; }
     public string Title { get; }
-    public string Folder { get; }
+    public string Composer { get; }
     public string StarGlyph => _favourite ? "\uE735" : "\uE734";
     public Brush StarBrush => new SolidColorBrush(_favourite
         ? Color.FromArgb(255, 241, 196, 15)

@@ -6,4 +6,10 @@ public sealed record ScoreEntry(
     string DisplayFullPath,
     string CanonicalPath,
     long Length,
-    DateTime LastWriteUtc);
+    DateTime LastWriteUtc,
+    string? Title = null,
+    string? Composer = null)
+{
+    public string CardTitle => string.IsNullOrWhiteSpace(Title) ? DisplayName : Title;
+    public string CardComposer => Composer ?? string.Empty;
+}
