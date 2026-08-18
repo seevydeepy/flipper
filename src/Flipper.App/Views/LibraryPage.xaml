@@ -67,11 +67,15 @@
                             <Grid Grid.Row="2">
                                 <TextBlock Text="{x:Bind Folder}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 <Button
-                                    Content="{x:Bind Star, Mode=OneWay}"
                                     Style="{StaticResource QuietButton}"
                                     HorizontalAlignment="Right"
                                     Click="Favourite_Click"
-                                    Tag="{x:Bind}" />
+                                    Tag="{x:Bind}">
+                                    <FontIcon
+                                        Glyph="{x:Bind StarGlyph, Mode=OneWay}"
+                                        Foreground="{x:Bind StarBrush, Mode=OneWay}"
+                                        FontSize="16" />
+                                </Button>
                             </Grid>
                         </Grid>
                     </DataTemplate>
