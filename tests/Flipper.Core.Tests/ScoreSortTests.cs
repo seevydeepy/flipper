@@ -35,4 +35,13 @@ public sealed class ScoreSortTests
         var fav = ScoreSearch.Sort([Air, Nocturne, Prelude], SortMode.Favourites, stats);
         Assert.Equal("Prelude", Assert.Single(fav).DisplayName);
     }
+
+    [Fact]
+    public void Sort_Reversed_FlipsDefaultOrder()
+    {
+        var forward = ScoreSearch.Sort([Prelude, Air, Nocturne], SortMode.Name, new Dictionary<string, ScoreStats>());
+        var reversed = ScoreSearch.Sort([Prelude, Air, Nocturne], SortMode.Name, new Dictionary<string, ScoreStats>(), reversed: true);
+        Assert.Equal(["Prelude", "Nocturne", "Air"], reversed.Select(score => score.DisplayName));
+        Assert.Equal(forward.Reverse().Select(score => score.DisplayName), reversed.Select(score => score.DisplayName));
+    }
 }

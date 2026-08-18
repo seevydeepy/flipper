@@ -31,7 +31,8 @@ public static class ScoreSearch
     public static IReadOnlyList<ScoreEntry> Sort(
         IEnumerable<ScoreEntry> scores,
         SortMode mode,
-        IReadOnlyDictionary<string, ScoreStats> stats)
+        IReadOnlyDictionary<string, ScoreStats> stats,
+        bool reversed = false)
     {
         IEnumerable<ScoreEntry> result = scores;
         if (mode == SortMode.Favourites)
@@ -51,7 +52,13 @@ public static class ScoreSearch
             _ => result.OrderBy(score => score.DisplayName, StringComparer.OrdinalIgnoreCase)
         };
 
-        return result.ToArray();
+        var list = result.ToArray();
+        if (reversed)
+        {
+            Array.Reverse(list);
+        }
+
+        return list;
     }
 
     private static ScoreStats? Stats(IReadOnlyDictionary<string, ScoreStats> stats, ScoreEntry score)
