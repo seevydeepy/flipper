@@ -1,0 +1,318 @@
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+using SherpaOnnx;
+using Windows.Devices.Enumeration;
+using Windows.Foundation;
+using Windows.Media;
+using Windows.Media.Audio;
+using Windows.Media.Capture;
+using Windows.Media.MediaProperties;
+using Windows.Media.Render;
+
+namespace Flipper.App.Services;
+
+public sealed class VoiceKeywordListener : IDisposable
+{
+    private const int SampleRate = 16000;
+    private const int CooldownMs = 900;
+
+    private static readonly object SpotterGate = new();
+    private static KeywordSpotter? SharedSpotter;
+
+    private readonly ConcurrentQueue<float[]> _pending = new();
+    private readonly AutoResetEvent _signal = new(false);
+    private CancellationTokenSource? _cts;
+    private Task? _worker;
+    private AudioGraph? _graph;
+    private AudioDeviceInputNode? _input;
+    private AudioFrameOutputNode? _frames;
+    private OnlineStream? _stream;
+    private Action<string>? _onKeyword;
+    private DateTime _nextAllowedUtc = DateTime.MinValue;
+    private bool _disposed;
+
+    public async Task<bool> StartAsync(string? deviceId, Action<string> onKeyword)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Stop();
+
+        var spotter = await Task.Run(TryCreateSpotter).ConfigureAwait(true);
+        if (spotter is null)
+        {
+            return false;
+        }
+
+        _onKeyword = onKeyword;
+        _stream = spotter.CreateStream();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+        _worker = Task.Run(() => DecodeLoop(spotter, token), token);
+
+        try
+        {
+            var settings = new AudioGraphSettings(AudioRenderCategory.Speech)
+            {
+                EncodingProperties = AudioEncodingProperties.CreatePcm(SampleRate, 1, 16),
+                QuantumSizeSelectionMode = QuantumSizeSelectionMode.ClosestToDesired,
+                DesiredSamplesPerQuantum = 320
+            };
+
+            var created = await AudioGraph.CreateAsync(settings);
+            if (created.Status != AudioGraphCreationStatus.Success || created.Graph is null)
+            {
+                Stop();
+                return false;
+            }
+
+            _graph = created.Graph;
+            DeviceInformation? device = null;
+            if (!string.IsNullOrWhiteSpace(deviceId))
+            {
+                try
+                {
+                    device = await DeviceInformation.CreateFromIdAsync(deviceId);
+                }
+                catch (Exception)
+                {
+                    device = null;
+                }
+            }
+
+            var input = device is null
+                ? await _graph.CreateDeviceInputNodeAsync(MediaCategory.Speech, _graph.EncodingProperties)
+                : await _graph.CreateDeviceInputNodeAsync(MediaCategory.Speech, _graph.EncodingProperties, device);
+            if (input.Status != AudioDeviceNodeCreationStatus.Success || input.DeviceInputNode is null)
+            {
+                Stop();
+                return false;
+            }
+
+            _input = input.DeviceInputNode;
+            _frames = _graph.CreateFrameOutputNode(_graph.EncodingProperties);
+            _input.AddOutgoingConnection(_frames);
+            _graph.QuantumStarted += OnQuantumStarted;
+            _graph.Start();
+            return true;
+        }
+        catch (Exception)
+        {
+            Stop();
+            return false;
+        }
+    }
+
+    public void Stop()
+    {
+        var graph = _graph;
+        if (graph is not null)
+        {
+            try
+            {
+                graph.QuantumStarted -= OnQuantumStarted;
+                graph.Stop();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            _worker?.Wait(TimeSpan.FromSeconds(1));
+        }
+        catch (Exception)
+        {
+        }
+
+        _worker = null;
+        _cts?.Dispose();
+        _cts = null;
+        _signal.Set();
+
+        _input?.Dispose();
+        _input = null;
+        _frames?.Dispose();
+        _frames = null;
+        graph?.Dispose();
+        _graph = null;
+        _stream?.Dispose();
+        _stream = null;
+        _onKeyword = null;
+        while (_pending.TryDequeue(out _))
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Stop();
+        _signal.Dispose();
+    }
+
+    private void OnQuantumStarted(AudioGraph sender, object args)
+    {
+        var node = _frames;
+        if (node is null)
+        {
+            return;
+        }
+
+        var frame = node.GetFrame();
+        var samples = ToFloatMono(frame);
+        if (samples.Length == 0)
+        {
+            return;
+        }
+
+        if (_pending.Count > 50)
+        {
+            _pending.TryDequeue(out _);
+        }
+
+        _pending.Enqueue(samples);
+        _signal.Set();
+    }
+
+    private void DecodeLoop(KeywordSpotter spotter, CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                _signal.WaitOne(80);
+                var stream = _stream;
+                if (stream is null)
+                {
+                    continue;
+                }
+
+                while (_pending.TryDequeue(out var samples))
+                {
+                    stream.AcceptWaveform(SampleRate, samples);
+                }
+
+                while (spotter.IsReady(stream))
+                {
+                    spotter.Decode(stream);
+                    var keyword = spotter.GetResult(stream).Keyword;
+                    if (string.IsNullOrWhiteSpace(keyword))
+                    {
+                        continue;
+                    }
+
+                    spotter.Reset(stream);
+                    var now = DateTime.UtcNow;
+                    if (now < _nextAllowedUtc)
+                    {
+                        continue;
+                    }
+
+                    _nextAllowedUtc = now.AddMilliseconds(CooldownMs);
+                    _onKeyword?.Invoke(keyword);
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static KeywordSpotter? TryCreateSpotter()
+    {
+        lock (SpotterGate)
+        {
+            if (SharedSpotter is not null)
+            {
+                return SharedSpotter;
+            }
+
+            var dir = Path.Combine(AppContext.BaseDirectory, "Voice");
+            var encoder = Path.Combine(dir, "encoder.int8.onnx");
+            var decoder = Path.Combine(dir, "decoder.onnx");
+            var joiner = Path.Combine(dir, "joiner.int8.onnx");
+            var tokens = Path.Combine(dir, "tokens.txt");
+            var keywords = Path.Combine(dir, "keywords.txt");
+            if (!File.Exists(encoder) || !File.Exists(decoder) || !File.Exists(joiner)
+                || !File.Exists(tokens) || !File.Exists(keywords))
+            {
+                return null;
+            }
+
+            var config = new KeywordSpotterConfig
+            {
+                FeatConfig =
+                {
+                    SampleRate = SampleRate,
+                    FeatureDim = 80
+                },
+                ModelConfig =
+                {
+                    Tokens = tokens,
+                    Provider = "cpu",
+                    NumThreads = 1,
+                    Debug = 0,
+                    Transducer =
+                    {
+                        Encoder = encoder,
+                        Decoder = decoder,
+                        Joiner = joiner
+                    }
+                },
+                MaxActivePaths = 4,
+                KeywordsFile = keywords,
+                KeywordsScore = 2.0f,
+                KeywordsThreshold = 0.16f
+            };
+
+            SharedSpotter = new KeywordSpotter(config);
+            return SharedSpotter;
+        }
+    }
+
+    private static float[] ToFloatMono(AudioFrame frame)
+    {
+        using var buffer = frame.LockBuffer(AudioBufferAccessMode.Read);
+        if (buffer.Length < 2)
+        {
+            return [];
+        }
+
+        using var reference = buffer.CreateReference();
+        unsafe
+        {
+            ((IMemoryBufferByteAccess)reference).GetBuffer(out var data, out var capacity);
+            var bytes = (int)Math.Min(buffer.Length, capacity);
+            var count = bytes / 2;
+            var samples = new float[count];
+            for (var i = 0; i < count; i++)
+            {
+                var value = (short)(data[i * 2] | (data[(i * 2) + 1] << 8));
+                samples[i] = value / 32768f;
+            }
+
+            return samples;
+        }
+    }
+
+    [ComImport]
+    [Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private unsafe interface IMemoryBufferByteAccess
+    {
+        void GetBuffer(out byte* buffer, out uint capacity);
+    }
+}

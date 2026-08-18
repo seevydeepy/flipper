@@ -115,6 +115,57 @@ public sealed partial class LibraryPage : Page
         });
     }
 
+    private async void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        var mics = await MicrophoneCatalog.ListAsync();
+        var box = new ComboBox
+        {
+            MinWidth = 280,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        foreach (var mic in mics)
+        {
+            box.Items.Add(mic);
+        }
+
+        var current = App.Current.Settings.MicrophoneDeviceId ?? MicrophoneCatalog.SystemDefaultId;
+        box.SelectedItem = mics.FirstOrDefault(item => item.Id == current) ?? mics[0];
+        box.SelectionChanged += (_, _) =>
+        {
+            if (box.SelectedItem is not MicrophoneOption option)
+            {
+                return;
+            }
+
+            App.Current.Settings.MicrophoneDeviceId = option.Id;
+            App.Current.PersistSettings();
+        };
+
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Microphone",
+            Foreground = (Brush)Application.Current.Resources["InkBrush"]
+        });
+        panel.Children.Add(box);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "In full screen, say flip, turn, next, or page to turn. Say back, restart, finish, or end.",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["MuteBrush"]
+        });
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Settings",
+            Content = panel,
+            CloseButtonText = "Close",
+            RequestedTheme = ElementTheme.Light
+        };
+        await dialog.ShowAsync();
+    }
+
     private async void ChooseFolder_Click(object sender, RoutedEventArgs e)
     {
         var window = App.Current.Window;

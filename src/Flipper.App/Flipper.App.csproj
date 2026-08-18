@@ -25,6 +25,7 @@
     <PlatformTarget Condition="'$(Platform)' == 'ARM64'">ARM64</PlatformTarget>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -34,11 +35,16 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <EmbeddedResource Include="Assets\AppIcon.ico" />
+    <Content Include="Voice\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.5" />
     <PackageReference Include="PDFtoImage" Version="5.4.0" />
   </ItemGroup>
 

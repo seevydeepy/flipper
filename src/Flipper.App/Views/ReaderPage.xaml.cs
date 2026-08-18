@@ -15,6 +15,8 @@ public sealed partial class ReaderPage : Page
     private PdfPageSource? _pdf;
     private DisplayRequest? _displayRequest;
     private readonly DispatcherTimer _overlayTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly VoiceKeywordListener _voice = new();
+    private int _voiceEpoch;
     private int _lowestVisible;
     private bool _swiped;
     private bool _ready;
@@ -58,17 +60,26 @@ public sealed partial class ReaderPage : Page
         }
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         _ready = true;
         ReaderRoot.Focus(FocusState.Programmatic);
         _displayRequest = new DisplayRequest();
         _displayRequest.RequestActive();
         Draw();
+        var epoch = ++_voiceEpoch;
+        var started = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword);
+        if (!started || epoch != _voiceEpoch)
+        {
+            _voice.Stop();
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _ready = false;
+        _voiceEpoch++;
+        _voice.Stop();
         _overlayTimer.Stop();
         try
         {
@@ -82,6 +93,50 @@ public sealed partial class ReaderPage : Page
         _pdf?.Dispose();
         _pdf = null;
         App.Current.OpenCanonicalPath = null;
+    }
+
+    private void OnVoiceKeyword(string keyword)
+    {
+        DispatcherQueue.TryEnqueue(() => ApplyVoice(keyword));
+    }
+
+    private void ApplyVoice(string keyword)
+    {
+        if (!_ready)
+        {
+            return;
+        }
+
+        switch (VoiceCommandParser.Parse(keyword))
+        {
+            case VoiceCommand.Next:
+                Turn(1);
+                break;
+            case VoiceCommand.Back:
+                if (_lowestVisible <= 0)
+                {
+                    App.Current.Window?.ShowLibrary();
+                }
+                else
+                {
+                    Turn(-1);
+                }
+
+                break;
+            case VoiceCommand.Restart:
+                if (_lowestVisible == 0)
+                {
+                    return;
+                }
+
+                _lowestVisible = 0;
+                PersistPage();
+                Draw();
+                break;
+            case VoiceCommand.Finish:
+                App.Current.Window?.ShowLibrary();
+                break;
+        }
     }
 
     private void BackButton_Click(object sender, RoutedEventArgs e) => App.Current.Window?.ShowLibrary();

@@ -226,5 +226,18 @@
                 Foreground="{StaticResource InkBrush}"
                 Visibility="Collapsed" />
         </Grid>
+        <Button
+            x:Name="SettingsButton"
+            Style="{StaticResource QuietButton}"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="12"
+            Padding="8"
+            MinWidth="40"
+            MinHeight="40"
+            Click="Settings_Click"
+            AutomationProperties.Name="Settings">
+            <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{StaticResource InkBrush}" />
+        </Button>
     </Grid>
 </Page>
