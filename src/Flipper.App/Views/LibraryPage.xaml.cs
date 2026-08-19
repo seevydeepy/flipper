@@ -857,6 +857,8 @@ public sealed partial class LibraryPage : Page
 
         _assignmentCard = null;
         _assignmentHits.Clear();
+        SelectionShadeSoft.Data = null;
+        SelectionShadeMid.Data = null;
         SelectionShadePath.Data = null;
         SelectionShade.Visibility = Visibility.Collapsed;
         HideTrashDrop();
@@ -1039,14 +1041,81 @@ public sealed partial class LibraryPage : Page
             AddHit(card, AssignmentHitKind.SelectedCard);
         }
 
+        SelectionShadeSoft.Data = ShadeMask(width, height, holes, inflate: 12, radius: 24);
+        SelectionShadeMid.Data = ShadeMask(width, height, holes, inflate: 7, radius: 18);
+        SelectionShadePath.Data = ShadeMask(width, height, holes, inflate: 0, radius: 12);
+    }
+
+    private static Geometry ShadeMask(double width, double height, IReadOnlyList<Rect> holes, double inflate, double radius)
+    {
         var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
         group.Children.Add(new RectangleGeometry { Rect = new Rect(0, 0, width, height) });
         foreach (var hole in holes)
         {
-            group.Children.Add(new RectangleGeometry { Rect = ClipToShade(hole, width, height) });
+            var rect = ClipToShade(Inflate(hole, inflate), width, height);
+            if (rect.Width < 1 || rect.Height < 1)
+            {
+                continue;
+            }
+
+            group.Children.Add(RoundedRect(rect, radius));
         }
 
-        SelectionShadePath.Data = group;
+        return group;
+    }
+
+    private static Geometry RoundedRect(Rect rect, double radius)
+    {
+        var cap = Math.Min(rect.Width, rect.Height) / 2;
+        radius = Math.Min(Math.Max(0, radius), cap);
+        if (radius < 0.5)
+        {
+            return new RectangleGeometry { Rect = rect };
+        }
+
+        var left = rect.X;
+        var top = rect.Y;
+        var right = rect.X + rect.Width;
+        var bottom = rect.Y + rect.Height;
+        var size = new Size(radius, radius);
+        var figure = new PathFigure
+        {
+            StartPoint = new Point(left + radius, top),
+            IsClosed = true,
+            IsFilled = true
+        };
+        figure.Segments.Add(new LineSegment { Point = new Point(right - radius, top) });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = new Point(right, top + radius),
+            Size = size,
+            SweepDirection = SweepDirection.Clockwise
+        });
+        figure.Segments.Add(new LineSegment { Point = new Point(right, bottom - radius) });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = new Point(right - radius, bottom),
+            Size = size,
+            SweepDirection = SweepDirection.Clockwise
+        });
+        figure.Segments.Add(new LineSegment { Point = new Point(left + radius, bottom) });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = new Point(left, bottom - radius),
+            Size = size,
+            SweepDirection = SweepDirection.Clockwise
+        });
+        figure.Segments.Add(new LineSegment { Point = new Point(left, top + radius) });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = new Point(left + radius, top),
+            Size = size,
+            SweepDirection = SweepDirection.Clockwise
+        });
+
+        var path = new PathGeometry();
+        path.Figures.Add(figure);
+        return path;
     }
 
     private static Rect ElementRect(FrameworkElement element, UIElement relativeTo)

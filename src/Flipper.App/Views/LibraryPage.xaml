@@ -335,8 +335,16 @@
             RightTapped="SelectionShade_RightTapped"
             SizeChanged="SelectionShade_SizeChanged">
             <Path
+                x:Name="SelectionShadeSoft"
+                Fill="#33000000"
+                IsHitTestVisible="False" />
+            <Path
+                x:Name="SelectionShadeMid"
+                Fill="#33000000"
+                IsHitTestVisible="False" />
+            <Path
                 x:Name="SelectionShadePath"
-                Fill="#99000000"
+                Fill="#33000000"
                 IsHitTestVisible="False" />
         </Grid>
     </Grid>
