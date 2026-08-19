@@ -32,6 +32,7 @@ public sealed partial class LibraryPage : Page
     private string? _watchedPath;
     private string? _selectedFolder;
     private bool _showFavourites;
+    private bool _hydrating;
 
     public LibraryPage()
     {
@@ -54,9 +55,13 @@ public sealed partial class LibraryPage : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        SelectSort(App.Current.Settings.Sort);
-        SyncSortDirectionIcon();
-        _showFavourites = App.Current.Settings.ShowFavourites;
+        _hydrating = true;
+        RestoreGridChrome();
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            RestoreGridChrome();
+            _hydrating = false;
+        });
         var path = App.Current.Settings.LibraryPath;
         if (App.Current.LastSnapshot is { } cached
             && string.Equals(cached.RootDisplayPath, path, StringComparison.OrdinalIgnoreCase))
@@ -94,6 +99,7 @@ public sealed partial class LibraryPage : Page
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        PersistSearchIfChanged();
         _scanEpoch++;
         _scanAgain = false;
         _watcher.Dispose();
@@ -228,6 +234,11 @@ public sealed partial class LibraryPage : Page
 
     private void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_hydrating)
+        {
+            return;
+        }
+
         if (SortBox.SelectedItem is ComboBoxItem item && item.Tag is string tag && Enum.TryParse<SortMode>(tag, out var mode))
         {
             App.Current.Settings.Sort = mode;
@@ -266,6 +277,7 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        PersistSearchIfChanged();
         ErrorLabel.Visibility = Visibility.Collapsed;
         var livePath = File.Exists(card.Entry.DisplayFullPath) ? card.Entry.DisplayFullPath : null;
         var cachePath = App.Current.Cache.TryOpen(
@@ -517,8 +529,35 @@ public sealed partial class LibraryPage : Page
 
     private string? CurrentFolderKey() => _selectedFolder;
 
+    private void RestoreGridChrome()
+    {
+        var settings = App.Current.Settings;
+        var query = settings.SearchQuery ?? string.Empty;
+        if (SearchBox.Text != query)
+        {
+            SearchBox.Text = query;
+        }
+
+        SelectSort(settings.Sort);
+        SyncSortDirectionIcon();
+        _showFavourites = settings.ShowFavourites;
+    }
+
+    private void PersistSearchIfChanged()
+    {
+        var query = SearchBox.Text ?? string.Empty;
+        if (string.Equals(App.Current.Settings.SearchQuery, query, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        App.Current.Settings.SearchQuery = query;
+        App.Current.PersistSettings();
+    }
+
     private void ApplyFilter()
     {
+        PersistSearchIfChanged();
         var selected = _showFavourites ? null : CurrentFolderKey();
         var rows = ScoreSearch.Sort(
             ScoreSearch.Filter(

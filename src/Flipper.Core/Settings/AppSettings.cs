@@ -22,6 +22,7 @@ public sealed class AppSettings
     public int LastPageIndex { get; set; }
     public SortMode Sort { get; set; } = SortMode.Name;
     public bool SortReversed { get; set; }
+    public string? SearchQuery { get; set; }
     public bool ShowFavourites { get; set; }
     public string? MicrophoneDeviceId { get; set; }
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -29,6 +30,7 @@ public sealed class AppSettings
     public void Normalize()
     {
         Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
+        SearchQuery ??= string.Empty;
         if (Sort == SortMode.Favourites)
         {
             ShowFavourites = true;
