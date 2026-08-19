@@ -299,7 +299,7 @@
         <Grid
             x:Name="TrashDrop"
             HorizontalAlignment="Left"
-            Width="40"
+            Width="60"
             AllowDrop="True"
             Visibility="Collapsed"
             DragOver="TrashDrop_DragOver"

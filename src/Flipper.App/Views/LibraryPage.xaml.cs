@@ -25,7 +25,7 @@ public sealed partial class LibraryPage : Page
 {
     private const double CardSlot = 192;
     private const double TrashGap = 8;
-    private const double TrashZoneWidth = 40;
+    private const double TrashZoneWidth = 60;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const double PlaylistDeleteSize = 32;
