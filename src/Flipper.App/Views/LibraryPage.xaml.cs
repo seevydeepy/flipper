@@ -24,6 +24,8 @@ namespace Flipper.App.Views;
 public sealed partial class LibraryPage : Page
 {
     private const double CardSlot = 192;
+    private const double TrashGap = 8;
+    private const double TrashZoneWidth = 40;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const double PlaylistDeleteSize = 32;
@@ -106,8 +108,9 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        var columns = Math.Max(1, (int)(available / CardSlot));
-        var width = Math.Min(available, columns * CardSlot);
+        var usable = Math.Max(0, available - TrashGap - TrashZoneWidth);
+        var columns = Math.Max(1, (int)(usable / CardSlot));
+        var width = Math.Min(usable, columns * CardSlot);
         if (double.IsNaN(ScoreContent.Width) || Math.Abs(ScoreContent.Width - width) > 0.5)
         {
             ScoreContent.Width = width;
@@ -116,6 +119,27 @@ public sealed partial class LibraryPage : Page
         if (double.IsNaN(ScoreHeader.Width) || Math.Abs(ScoreHeader.Width - width) > 0.5)
         {
             ScoreHeader.Width = width;
+        }
+
+        PositionTrashDrop(width);
+    }
+
+    private void PositionTrashDrop(double scoreWidth)
+    {
+        if (TrashDrop.Parent is not UIElement host)
+        {
+            return;
+        }
+
+        var left = ScoreContent.TransformToVisual(host).TransformPoint(new Point(scoreWidth, 0)).X + TrashGap;
+        if (Math.Abs(TrashDrop.Margin.Left - left) > 0.5)
+        {
+            TrashDrop.Margin = new Thickness(left, 0, 0, 0);
+        }
+
+        if (double.IsNaN(TrashDrop.Width) || Math.Abs(TrashDrop.Width - TrashZoneWidth) > 0.5)
+        {
+            TrashDrop.Width = TrashZoneWidth;
         }
     }
 
@@ -719,6 +743,10 @@ public sealed partial class LibraryPage : Page
     {
         TrashDrop.Visibility = Visibility.Visible;
         TrashDrop.UpdateLayout();
+        if (!double.IsNaN(ScoreContent.Width) && ScoreContent.Width > 0)
+        {
+            PositionTrashDrop(ScoreContent.Width);
+        }
     }
 
     private void HideTrashDrop()

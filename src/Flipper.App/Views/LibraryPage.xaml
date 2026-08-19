@@ -9,12 +9,7 @@
     Background="{StaticResource PaperBrush}">
     <Grid>
         <controls:ManuscriptBackdrop />
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="120" />
-            </Grid.ColumnDefinitions>
-        <Grid Padding="20" RowSpacing="14">
+        <Grid Padding="20,20,0,20" RowSpacing="14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -303,7 +298,8 @@
         </Grid>
         <Grid
             x:Name="TrashDrop"
-            Grid.Column="1"
+            HorizontalAlignment="Left"
+            Width="40"
             AllowDrop="True"
             Visibility="Collapsed"
             DragOver="TrashDrop_DragOver"
@@ -315,8 +311,8 @@
                 StrokeThickness="2"
                 StrokeDashArray="6,4" />
             <Viewbox
-                MaxWidth="56"
-                MaxHeight="56"
+                MaxWidth="24"
+                MaxHeight="24"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center">
                 <Path
@@ -325,7 +321,6 @@
                     Fill="#C62828"
                     Data="M9,3 H15 L16,5 H21 V7 H3 V5 H8 Z M6,8 H18 L16.8,22 H7.2 Z" />
             </Viewbox>
-        </Grid>
         </Grid>
         <Grid
             x:Name="SelectionShade"
