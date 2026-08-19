@@ -15,13 +15,15 @@ public sealed class SettingsStoreTests
             {
                 SearchQuery = "chopin",
                 Sort = SortMode.Recent,
-                SortReversed = true
+                SortReversed = true,
+                UiScalePercent = 150
             });
 
             var loaded = store.Load();
             Assert.Equal("chopin", loaded.SearchQuery);
             Assert.Equal(SortMode.Recent, loaded.Sort);
             Assert.True(loaded.SortReversed);
+            Assert.Equal(150, loaded.UiScalePercent);
         }
         finally
         {
@@ -42,11 +44,28 @@ public sealed class SettingsStoreTests
             Assert.Equal(string.Empty, loaded.SearchQuery);
             Assert.Equal(SortMode.MostPlayed, loaded.Sort);
             Assert.True(loaded.SortReversed);
+            Assert.Equal(100, loaded.UiScalePercent);
         }
         finally
         {
             DeleteParent(path);
         }
+    }
+
+    [Fact]
+    public void Normalize_SnapsUiScaleToNearestStop()
+    {
+        var settings = new AppSettings { UiScalePercent = 110 };
+        settings.Normalize();
+        Assert.Equal(100, settings.UiScalePercent);
+
+        settings.UiScalePercent = 190;
+        settings.Normalize();
+        Assert.Equal(200, settings.UiScalePercent);
+
+        settings.UiScalePercent = 0;
+        settings.Normalize();
+        Assert.Equal(100, settings.UiScalePercent);
     }
 
     private static void DeleteParent(string path)
