@@ -48,7 +48,10 @@ public sealed partial class LibraryPage : Page
     private bool _showFavourites;
     private bool _showTrash;
     private ScoreCard? _assignmentCard;
+    private ScoreCard? _dragCard;
     private readonly List<AssignmentHit> _assignmentHits = [];
+
+    private ScoreCard? ShadeCard => _assignmentCard ?? _dragCard;
     private bool _hydrating;
     private bool _bindingFolders;
     private bool _suppressItemClick;
@@ -445,12 +448,12 @@ public sealed partial class LibraryPage : Page
 
         e.Data.SetData(ScoreDragFormat, card.Entry.CanonicalPath);
         e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
-        ShowTrashDrop();
+        BeginDragChrome(card);
     }
 
     private void ScoreGrid_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
     {
-        HideTrashDrop();
+        EndDragChrome();
     }
 
     private void ShowTrashDrop()
@@ -480,7 +483,7 @@ public sealed partial class LibraryPage : Page
 
     private void HideTrashDrop()
     {
-        if (_assignmentCard is not null)
+        if (_assignmentCard is not null || _dragCard is not null)
         {
             return;
         }
@@ -581,7 +584,7 @@ public sealed partial class LibraryPage : Page
 
     private void FolderTree_DragOver(object sender, DragEventArgs e)
     {
-        e.AcceptedOperation = PlaylistNodeFromPoint(e.GetPosition(FolderTree)) is not null
+        e.AcceptedOperation = SidebarDropNode(e.GetPosition(FolderTree)) is not null
             && e.DataView.Contains(ScoreDragFormat)
             ? DataPackageOperation.Copy
             : DataPackageOperation.None;
@@ -591,8 +594,8 @@ public sealed partial class LibraryPage : Page
     private async void FolderTree_Drop(object sender, DragEventArgs e)
     {
         e.Handled = true;
-        var node = PlaylistNodeFromPoint(e.GetPosition(FolderTree));
-        if (node?.Content is not FolderMark { PlaylistId: { } id } || !e.DataView.Contains(ScoreDragFormat))
+        var node = SidebarDropNode(e.GetPosition(FolderTree));
+        if (node?.Content is not FolderMark mark || !e.DataView.Contains(ScoreDragFormat))
         {
             return;
         }
@@ -603,7 +606,13 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        if (!App.Current.AddToPlaylist(id, path))
+        if (mark.Favourites)
+        {
+            ApplyFavouriteDrop(path);
+            return;
+        }
+
+        if (mark.PlaylistId is not { } id || !App.Current.AddToPlaylist(id, path))
         {
             return;
         }
@@ -614,10 +623,32 @@ public sealed partial class LibraryPage : Page
         }
     }
 
-    private TreeViewNode? PlaylistNodeFromPoint(Point point)
+    private void ApplyFavouriteDrop(string path)
+    {
+        if (!App.Current.AddFavourite(path))
+        {
+            return;
+        }
+
+        var card = _cards.FirstOrDefault(item =>
+            string.Equals(item.Entry.CanonicalPath, path, StringComparison.OrdinalIgnoreCase));
+        if (card is not null)
+        {
+            card.IsFavourite = true;
+        }
+
+        if (_showFavourites)
+        {
+            ApplyFilter();
+        }
+    }
+
+    private TreeViewNode? SidebarDropNode(Point point)
     {
         var node = NodeFromPoint(point);
-        return node?.Content is FolderMark { PlaylistId: not null } ? node : null;
+        return node?.Content is FolderMark mark && (mark.Favourites || mark.PlaylistId is not null)
+            ? node
+            : null;
     }
 
     private TreeViewNode? NodeFromPoint(Point point)
@@ -699,30 +730,60 @@ public sealed partial class LibraryPage : Page
         UpdateAssignmentShade();
     }
 
+    private void BeginDragChrome(ScoreCard card)
+    {
+        _dragCard = card;
+        ShowAssignmentChrome(interactive: false);
+    }
+
+    private void EndDragChrome()
+    {
+        _dragCard = null;
+        if (_assignmentCard is not null)
+        {
+            return;
+        }
+
+        HideAssignmentChrome();
+    }
+
     private void EnterAssignment(ScoreCard card)
     {
         _assignmentCard = card;
+        ShowAssignmentChrome(interactive: true);
+    }
+
+    private void ExitAssignment()
+    {
+        if (_assignmentCard is null && _dragCard is null && SelectionShade.Visibility == Visibility.Collapsed)
+        {
+            return;
+        }
+
+        _assignmentCard = null;
+        _dragCard = null;
+        HideAssignmentChrome();
+    }
+
+    private void ShowAssignmentChrome(bool interactive)
+    {
         HidePlaylistDelete();
         ShowTrashDrop();
+        SelectionShade.IsHitTestVisible = interactive;
         SelectionShade.Visibility = Visibility.Visible;
         SelectionShade.UpdateLayout();
         UpdateAssignmentShade();
         DispatcherQueue.TryEnqueue(UpdateAssignmentShade);
     }
 
-    private void ExitAssignment()
+    private void HideAssignmentChrome()
     {
-        if (_assignmentCard is null && SelectionShade.Visibility == Visibility.Collapsed)
-        {
-            return;
-        }
-
-        _assignmentCard = null;
         _assignmentHits.Clear();
         SelectionShadeSoft.Data = null;
         SelectionShadeMid.Data = null;
         SelectionShadePath.Data = null;
         SelectionShade.Visibility = Visibility.Collapsed;
+        SelectionShade.IsHitTestVisible = true;
         HideTrashDrop();
     }
 
@@ -776,15 +837,7 @@ public sealed partial class LibraryPage : Page
 
                 return;
             case AssignmentHitKind.Favourites:
-                if (App.Current.AddFavourite(card.Entry.CanonicalPath))
-                {
-                    card.IsFavourite = true;
-                    if (_showFavourites)
-                    {
-                        ApplyFilter();
-                    }
-                }
-
+                ApplyFavouriteDrop(card.Entry.CanonicalPath);
                 return;
             case AssignmentHitKind.Trash:
                 await ApplyTrashZoneAsync(card.Entry);
@@ -818,7 +871,7 @@ public sealed partial class LibraryPage : Page
 
     private void UpdateAssignmentShade()
     {
-        if (_assignmentCard is null || SelectionShade.Visibility != Visibility.Visible)
+        if (ShadeCard is null || SelectionShade.Visibility != Visibility.Visible)
         {
             return;
         }
@@ -896,7 +949,7 @@ public sealed partial class LibraryPage : Page
             AddHit(trash, AssignmentHitKind.Trash);
         }
 
-        if (ScoreGrid.ContainerFromItem(_assignmentCard) is GridViewItem cardItem)
+        if (ScoreGrid.ContainerFromItem(ShadeCard) is GridViewItem cardItem)
         {
             var card = ElementRect(cardItem, SelectionShade);
             AddHole(card);
