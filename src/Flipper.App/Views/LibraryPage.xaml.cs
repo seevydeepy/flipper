@@ -26,6 +26,7 @@ public sealed partial class LibraryPage : Page
     private const double CardSlot = 192;
     private const double TrashGap = 8;
     private const double TrashZoneWidth = 60;
+    private const double TrashInsetVertical = 24;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const double PlaylistDeleteSize = 32;
@@ -133,9 +134,12 @@ public sealed partial class LibraryPage : Page
         }
 
         var left = ScoreContent.TransformToVisual(host).TransformPoint(new Point(scoreWidth, 0)).X + TrashGap;
-        if (Math.Abs(TrashDrop.Margin.Left - left) > 0.5)
+        var margin = new Thickness(left, TrashInsetVertical, 0, TrashInsetVertical);
+        if (Math.Abs(TrashDrop.Margin.Left - margin.Left) > 0.5
+            || Math.Abs(TrashDrop.Margin.Top - margin.Top) > 0.5
+            || Math.Abs(TrashDrop.Margin.Bottom - margin.Bottom) > 0.5)
         {
-            TrashDrop.Margin = new Thickness(left, 0, 0, 0);
+            TrashDrop.Margin = margin;
         }
 
         if (double.IsNaN(TrashDrop.Width) || Math.Abs(TrashDrop.Width - TrashZoneWidth) > 0.5)

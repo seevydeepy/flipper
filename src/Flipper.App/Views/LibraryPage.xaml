@@ -300,6 +300,7 @@
             x:Name="TrashDrop"
             HorizontalAlignment="Left"
             Width="60"
+            Margin="0,24,0,24"
             AllowDrop="True"
             Visibility="Collapsed"
             DragOver="TrashDrop_DragOver"
@@ -307,6 +308,8 @@
             AutomationProperties.Name="Trash">
             <Rectangle
                 x:Name="TrashDropFill"
+                RadiusX="12"
+                RadiusY="12"
                 Fill="#F5C6C6"
                 Stroke="#C62828"
                 StrokeThickness="2"
