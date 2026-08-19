@@ -17,11 +17,7 @@ public static class ScoreSearch
     {
         IReadOnlyList<ScoreEntry> list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
         list = list.Where(score => !ScoreTrash.IsHiddenFolder(score.RelativeFolder)).ToArray();
-        if (!string.IsNullOrWhiteSpace(query))
-        {
-            list = list.Where(score => Matches(score, query)).ToArray();
-        }
-        else if (playlistCanonicalPaths is not null)
+        if (playlistCanonicalPaths is not null)
         {
             list = list
                 .Where(score => playlistCanonicalPaths.Contains(score.CanonicalPath))
@@ -30,6 +26,11 @@ public static class ScoreSearch
         else if (selectedFolder is not null)
         {
             list = list.Where(score => InFolder(score.RelativeFolder, selectedFolder)).ToArray();
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            list = list.Where(score => Matches(score, query)).ToArray();
         }
 
         if (excludedCanonicalPaths is { Count: > 0 })
