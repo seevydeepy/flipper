@@ -25,6 +25,7 @@ public sealed partial class LibraryPage : Page
     private const double CardSlot = 192;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
+    private const double PlaylistDeleteSize = 32;
 
     private readonly LibraryWatcher _watcher = new();
     private readonly ResettableCollection<ScoreCard> _cards = new();
@@ -357,7 +358,9 @@ public sealed partial class LibraryPage : Page
 
         _armedPlaylistId = id;
         DeletePlaylistButton.Visibility = Visibility.Visible;
-        DispatcherQueue.TryEnqueue(() => PositionArmedDelete(node));
+        PlaylistDeleteHost.UpdateLayout();
+        DeletePlaylistButton.UpdateLayout();
+        PositionArmedDelete(node);
     }
 
     private void PositionArmedDelete(TreeViewNode node)
@@ -373,9 +376,14 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        var point = item.TransformToVisual(PlaylistDeleteHost).TransformPoint(new Point(0, 0));
-        var top = point.Y + Math.Max(0, (item.ActualHeight - DeletePlaylistButton.ActualHeight) / 2);
-        DeletePlaylistButton.Margin = new Thickness(0, top, 0, 0);
+        item.UpdateLayout();
+        var bounds = item.TransformToVisual(PlaylistDeleteHost)
+            .TransformBounds(new Rect(0, 0, item.ActualWidth, item.ActualHeight));
+        var height = DeletePlaylistButton.ActualHeight > 1
+            ? DeletePlaylistButton.ActualHeight
+            : PlaylistDeleteSize;
+        var top = bounds.Y + ((bounds.Height - height) / 2);
+        DeletePlaylistButton.Margin = new Thickness(0, Math.Max(0, top), 0, 0);
     }
 
     private void HidePlaylistDelete()
