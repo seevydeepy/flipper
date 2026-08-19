@@ -116,6 +116,19 @@ public partial class App : Application
         PersistSettings();
     }
 
+    public bool AddFavourite(string canonicalPath)
+    {
+        var stats = Settings.StatsFor(canonicalPath);
+        if (stats.Favourite)
+        {
+            return false;
+        }
+
+        stats.Favourite = true;
+        PersistSettings();
+        return true;
+    }
+
     public Playlist? TryCreatePlaylist(string name)
     {
         if (!PlaylistBook.TryCreate(Settings.Playlists, name, out var playlist))

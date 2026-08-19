@@ -222,6 +222,9 @@
                                         BorderBrush="{StaticResource GoldSoftBrush}"
                                         BorderThickness="1"
                                         CornerRadius="12"
+                                        IsHoldingEnabled="True"
+                                        Holding="ScoreCard_Holding"
+                                        RightTapped="ScoreCard_RightTapped"
                                         Tapped="ScoreCard_Tapped"
                                         Tag="{x:Bind}">
                                         <Grid.RowDefinitions>
@@ -323,6 +326,18 @@
                     Data="M9,3 H15 L16,5 H21 V7 H3 V5 H8 Z M6,8 H18 L16.8,22 H7.2 Z" />
             </Viewbox>
         </Grid>
+        </Grid>
+        <Grid
+            x:Name="SelectionShade"
+            Background="Transparent"
+            Visibility="Collapsed"
+            Tapped="SelectionShade_Tapped"
+            RightTapped="SelectionShade_RightTapped"
+            SizeChanged="SelectionShade_SizeChanged">
+            <Path
+                x:Name="SelectionShadePath"
+                Fill="#99000000"
+                IsHitTestVisible="False" />
         </Grid>
     </Grid>
 </Page>

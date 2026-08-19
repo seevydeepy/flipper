@@ -45,6 +45,8 @@ public sealed partial class LibraryPage : Page
     private string? _armedPlaylistId;
     private bool _showFavourites;
     private bool _showTrash;
+    private ScoreCard? _assignmentCard;
+    private readonly List<AssignmentHit> _assignmentHits = [];
     private bool _hydrating;
     private bool _bindingFolders;
     private bool _suppressItemClick;
@@ -116,6 +118,7 @@ public sealed partial class LibraryPage : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         PersistSearchIfChanged();
+        ExitAssignment();
         _scanEpoch++;
         _scanAgain = false;
         _watcher.Dispose();
@@ -356,6 +359,7 @@ public sealed partial class LibraryPage : Page
         _selectedPlaylistId = null;
         App.Current.Settings.SelectedPlaylistId = null;
         App.Current.LastSnapshot = null;
+        ExitAssignment();
         HidePlaylistDelete();
         _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), true);
         FolderTree.RootNodes.Clear();
@@ -601,7 +605,7 @@ public sealed partial class LibraryPage : Page
 
     private void ScoreGrid_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
-        if (e.Items.Count != 1 || e.Items[0] is not ScoreCard card)
+        if (_assignmentCard is not null || e.Items.Count != 1 || e.Items[0] is not ScoreCard card)
         {
             e.Cancel = true;
             return;
@@ -620,10 +624,16 @@ public sealed partial class LibraryPage : Page
     private void ShowTrashDrop()
     {
         TrashDrop.Visibility = Visibility.Visible;
+        TrashDrop.UpdateLayout();
     }
 
     private void HideTrashDrop()
     {
+        if (_assignmentCard is not null)
+        {
+            return;
+        }
+
         TrashDrop.Visibility = Visibility.Collapsed;
     }
 
@@ -657,6 +667,11 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        await ApplyScoreRemovalAsync(entry);
+    }
+
+    private async Task ApplyScoreRemovalAsync(ScoreEntry entry)
+    {
         if (_selectedPlaylistId is not null && !_showTrash)
         {
             App.Current.RemoveFromPlaylist(_selectedPlaylistId, entry.CanonicalPath);
@@ -774,6 +789,300 @@ public sealed partial class LibraryPage : Page
         return null;
     }
 
+    private void ScoreCard_Holding(object sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Completed
+            || sender is not FrameworkElement { Tag: ScoreCard card })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        _suppressItemClick = true;
+        EnterAssignment(card);
+    }
+
+    private void ScoreCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (e.PointerDeviceType != PointerDeviceType.Mouse)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (sender is not FrameworkElement { Tag: ScoreCard card })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        _suppressItemClick = true;
+        EnterAssignment(card);
+    }
+
+    private void SelectionShade_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        HandleAssignmentPoint(e.GetPosition(SelectionShade));
+    }
+
+    private void SelectionShade_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        HandleAssignmentPoint(e.GetPosition(SelectionShade));
+    }
+
+    private void SelectionShade_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateAssignmentShade();
+    }
+
+    private void EnterAssignment(ScoreCard card)
+    {
+        _assignmentCard = card;
+        HidePlaylistDelete();
+        ShowTrashDrop();
+        SelectionShade.Visibility = Visibility.Visible;
+        SelectionShade.UpdateLayout();
+        UpdateAssignmentShade();
+        DispatcherQueue.TryEnqueue(UpdateAssignmentShade);
+    }
+
+    private void ExitAssignment()
+    {
+        if (_assignmentCard is null && SelectionShade.Visibility == Visibility.Collapsed)
+        {
+            return;
+        }
+
+        _assignmentCard = null;
+        _assignmentHits.Clear();
+        SelectionShadePath.Data = null;
+        SelectionShade.Visibility = Visibility.Collapsed;
+        HideTrashDrop();
+    }
+
+    private void HandleAssignmentPoint(Point point)
+    {
+        if (_assignmentCard is null)
+        {
+            return;
+        }
+
+        var stay = false;
+        foreach (var hit in _assignmentHits)
+        {
+            if (!hit.Bounds.Contains(point))
+            {
+                continue;
+            }
+
+            if (hit.Kind == AssignmentHitKind.Stay)
+            {
+                stay = true;
+                continue;
+            }
+
+            _ = ApplyAssignmentHitAsync(hit);
+            return;
+        }
+
+        if (!stay)
+        {
+            ExitAssignment();
+        }
+    }
+
+    private async Task ApplyAssignmentHitAsync(AssignmentHit hit)
+    {
+        var card = _assignmentCard;
+        if (card is null)
+        {
+            return;
+        }
+
+        switch (hit.Kind)
+        {
+            case AssignmentHitKind.Playlist when hit.PlaylistId is { } playlistId:
+                App.Current.AddToPlaylist(playlistId, card.Entry.CanonicalPath);
+                if (string.Equals(_selectedPlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyFilter();
+                }
+
+                return;
+            case AssignmentHitKind.Favourites:
+                if (App.Current.AddFavourite(card.Entry.CanonicalPath))
+                {
+                    card.IsFavourite = true;
+                    if (_showFavourites)
+                    {
+                        ApplyFilter();
+                    }
+                }
+
+                return;
+            case AssignmentHitKind.Trash:
+                await ApplyScoreRemovalAsync(card.Entry);
+                ExitAssignment();
+                return;
+            default:
+                ExitAssignment();
+                return;
+        }
+    }
+
+    private void RetainAssignment()
+    {
+        if (_assignmentCard is null)
+        {
+            return;
+        }
+
+        var path = _assignmentCard.Entry.CanonicalPath;
+        var next = _cards.FirstOrDefault(card =>
+            string.Equals(card.Entry.CanonicalPath, path, StringComparison.OrdinalIgnoreCase));
+        if (next is null)
+        {
+            ExitAssignment();
+            return;
+        }
+
+        _assignmentCard = next;
+        UpdateAssignmentShade();
+    }
+
+    private void UpdateAssignmentShade()
+    {
+        if (_assignmentCard is null || SelectionShade.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        var width = SelectionShade.ActualWidth;
+        var height = SelectionShade.ActualHeight;
+        if (width < 1 || height < 1)
+        {
+            return;
+        }
+
+        _assignmentHits.Clear();
+        var holes = new List<Rect>();
+        Rect? playlistSection = null;
+
+        void AddHit(Rect rect, AssignmentHitKind kind, string? playlistId = null)
+        {
+            if (rect.Width < 1 || rect.Height < 1)
+            {
+                return;
+            }
+
+            _assignmentHits.Add(new AssignmentHit(Inflate(rect, 2), kind, playlistId));
+        }
+
+        void AddHole(Rect rect)
+        {
+            if (rect.Width < 1 || rect.Height < 1)
+            {
+                return;
+            }
+
+            holes.Add(Inflate(rect, 4));
+        }
+
+        foreach (var node in FolderTree.RootNodes)
+        {
+            if (node.Content is not FolderMark mark
+                || FolderTree.ContainerFromNode(node) is not TreeViewItem item)
+            {
+                continue;
+            }
+
+            var rect = ElementRect(item, SelectionShade);
+            if (mark.Favourites)
+            {
+                AddHole(rect);
+                AddHit(rect, AssignmentHitKind.Favourites);
+                continue;
+            }
+
+            if (mark.Section && mark.Name == "Playlists")
+            {
+                playlistSection = Union(playlistSection, rect);
+                continue;
+            }
+
+            if (mark.PlaylistId is { } playlistId)
+            {
+                playlistSection = Union(playlistSection, rect);
+                AddHit(rect, AssignmentHitKind.Playlist, playlistId);
+            }
+        }
+
+        if (playlistSection is { } section)
+        {
+            AddHole(section);
+            AddHit(section, AssignmentHitKind.Stay);
+        }
+
+        if (TrashDrop.Visibility == Visibility.Visible)
+        {
+            var trash = ElementRect(TrashDrop, SelectionShade);
+            AddHole(trash);
+            AddHit(trash, AssignmentHitKind.Trash);
+        }
+
+        if (ScoreGrid.ContainerFromItem(_assignmentCard) is GridViewItem cardItem)
+        {
+            var card = ElementRect(cardItem, SelectionShade);
+            AddHole(card);
+            AddHit(card, AssignmentHitKind.SelectedCard);
+        }
+
+        var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
+        group.Children.Add(new RectangleGeometry { Rect = new Rect(0, 0, width, height) });
+        foreach (var hole in holes)
+        {
+            group.Children.Add(new RectangleGeometry { Rect = ClipToShade(hole, width, height) });
+        }
+
+        SelectionShadePath.Data = group;
+    }
+
+    private static Rect ElementRect(FrameworkElement element, UIElement relativeTo)
+    {
+        return element.TransformToVisual(relativeTo)
+            .TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+    }
+
+    private static Rect Inflate(Rect rect, double amount)
+    {
+        return new Rect(rect.X - amount, rect.Y - amount, rect.Width + (amount * 2), rect.Height + (amount * 2));
+    }
+
+    private static Rect ClipToShade(Rect rect, double width, double height)
+    {
+        var x = Math.Max(0, rect.X);
+        var y = Math.Max(0, rect.Y);
+        var right = Math.Min(width, rect.X + rect.Width);
+        var bottom = Math.Min(height, rect.Y + rect.Height);
+        return new Rect(x, y, Math.Max(0, right - x), Math.Max(0, bottom - y));
+    }
+
+    private static Rect Union(Rect? current, Rect next)
+    {
+        if (current is not { } rect)
+        {
+            return next;
+        }
+
+        var x = Math.Min(rect.X, next.X);
+        var y = Math.Min(rect.Y, next.Y);
+        var right = Math.Max(rect.X + rect.Width, next.X + next.Width);
+        var bottom = Math.Max(rect.Y + rect.Height, next.Y + next.Height);
+        return new Rect(x, y, right - x, bottom - y);
+    }
+
     private void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_hydrating)
@@ -799,7 +1108,9 @@ public sealed partial class LibraryPage : Page
 
     private void Favourite_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || button.Tag is not ScoreCard card)
+        if (_assignmentCard is not null
+            || sender is not Button button
+            || button.Tag is not ScoreCard card)
         {
             return;
         }
@@ -835,6 +1146,11 @@ public sealed partial class LibraryPage : Page
 
     private void OpenScore(ScoreCard card)
     {
+        if (_assignmentCard is not null)
+        {
+            return;
+        }
+
         if (_suppressItemClick)
         {
             _suppressItemClick = false;
@@ -1108,6 +1424,7 @@ public sealed partial class LibraryPage : Page
             FolderTree.UpdateLayout();
             StyleSidebarRows();
             DispatcherQueue.TryEnqueue(StyleSidebarRows);
+            RetainAssignment();
         }
         finally
         {
@@ -1424,6 +1741,7 @@ public sealed partial class LibraryPage : Page
         }
 
         _cards.ReplaceAll(next);
+        RetainAssignment();
     }
 
     private bool SameCardOrder(IReadOnlyList<ScoreEntry> rows)
@@ -1526,7 +1844,9 @@ public sealed partial class LibraryPage : Page
 
     private async void Restore_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || button.Tag is not ScoreCard card)
+        if (_assignmentCard is not null
+            || sender is not Button button
+            || button.Tag is not ScoreCard card)
         {
             return;
         }
@@ -1673,4 +1993,15 @@ internal sealed class ResettableCollection<T> : ObservableCollection<T>
         OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
         OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
     }
+}
+
+internal readonly record struct AssignmentHit(Rect Bounds, AssignmentHitKind Kind, string? PlaylistId);
+
+internal enum AssignmentHitKind
+{
+    Stay,
+    Playlist,
+    Favourites,
+    Trash,
+    SelectedCard
 }
