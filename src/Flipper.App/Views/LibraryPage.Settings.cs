@@ -3,10 +3,10 @@ using Flipper.Core.Settings;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Foundation;
 using Windows.System;
 using Windows.UI;
 
@@ -17,17 +17,117 @@ public sealed partial class LibraryPage
     private const string KoFiUrl = "https://ko-fi.com/seevydeepy";
     private const string KoFiNormalAsset = "kofi-support.png";
     private const string KoFiHoverAsset = "kofi-support-hover.png";
+    private const double SettingsGap = 16;
+    private const double SettingsCardMinWidth = 360;
+    private const double SettingsCardWidth = 540;
+    private const double SettingsCardMargin = 48;
+    private const double SettingsCardPadding = 24;
+    private const double SettingsBodyMinHeight = 200;
+
+    private static readonly (string Action, string Words)[] VoiceCommands =
+    [
+        ("Next page", "flip, turn, next, page"),
+        ("Previous page", "back, previous"),
+        ("First page", "restart, beginning"),
+        ("Back to library", "finish")
+    ];
 
     private Grid? _settingsOverlay;
 
     private async void Settings_Click(object sender, RoutedEventArgs e)
     {
-        var mics = await MicrophoneCatalog.ListAsync();
-        var box = new ComboBox
+        var body = new StackPanel { Spacing = SettingsGap };
+        body.Children.Add(CreateLibraryFolderSection());
+        body.Children.Add(CreateSettingsRule());
+        body.Children.Add(CreateUiScaleSection());
+        body.Children.Add(CreateSettingsRule());
+        body.Children.Add(await CreateVoiceSectionAsync());
+        body.Children.Add(CreateSettingsRule());
+        body.Children.Add(CreateUpdateSection());
+
+        ShowSettingsOverlay(CreateSettingsHeader(CloseSettings), body);
+    }
+
+    private FrameworkElement CreateLibraryFolderSection()
+    {
+        var path = CreateSettingsValue(string.Empty);
+        var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(CreateSettingsLabel("Library folder"));
+        text.Children.Add(path);
+        ShowLibraryPath(path);
+
+        var change = new Button
         {
-            MinWidth = 280,
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            Content = "Change",
+            VerticalAlignment = VerticalAlignment.Center
         };
+        AutomationProperties.SetName(change, "Change library folder");
+        change.Click += async (_, _) =>
+        {
+            await ChooseFolderAsync();
+            ShowLibraryPath(path);
+        };
+
+        var section = new Grid { ColumnSpacing = 12 };
+        section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        section.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        section.Children.Add(text);
+        Grid.SetColumn(change, 1);
+        section.Children.Add(change);
+        return section;
+    }
+
+    private static void ShowLibraryPath(TextBlock path)
+    {
+        var chosen = App.Current.Settings.LibraryPath;
+        var missing = string.IsNullOrWhiteSpace(chosen);
+        path.Text = missing ? "No folder chosen" : chosen;
+        path.FontStyle = missing ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal;
+        ToolTipService.SetToolTip(path, missing ? null : chosen);
+    }
+
+    private static FrameworkElement CreateUiScaleSection()
+    {
+        var selected = AppSettings.SnapUiScalePercent(App.Current.Settings.UiScalePercent);
+        var stops = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        AutomationProperties.SetName(stops, "UI scale");
+        foreach (var stop in AppSettings.UiScaleStops)
+        {
+            var option = new RadioButton
+            {
+                Content = $"{stop}%",
+                GroupName = "SettingsUiScale",
+                MinWidth = 0,
+                IsChecked = stop == selected
+            };
+            option.Checked += (_, _) =>
+            {
+                if (App.Current.Settings.UiScalePercent == stop)
+                {
+                    return;
+                }
+
+                App.Current.Settings.UiScalePercent = stop;
+                App.Current.PersistSettings();
+                App.Current.Window?.ApplyUiScale();
+            };
+            stops.Children.Add(option);
+        }
+
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(CreateSettingsLabel("UI scale"));
+        section.Children.Add(stops);
+        return section;
+    }
+
+    private static async Task<FrameworkElement> CreateVoiceSectionAsync()
+    {
+        var mics = await MicrophoneCatalog.ListAsync();
+        var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var mic in mics)
         {
             box.Items.Add(mic);
@@ -35,6 +135,7 @@ public sealed partial class LibraryPage
 
         var current = App.Current.Settings.MicrophoneDeviceId ?? MicrophoneCatalog.SystemDefaultId;
         box.SelectedItem = mics.FirstOrDefault(item => item.Id == current) ?? mics[0];
+        AutomationProperties.SetName(box, "Microphone");
         box.SelectionChanged += (_, _) =>
         {
             if (box.SelectedItem is not MicrophoneOption option)
@@ -46,89 +147,56 @@ public sealed partial class LibraryPage
             App.Current.PersistSettings();
         };
 
-        var scalePercent = AppSettings.SnapUiScalePercent(App.Current.Settings.UiScalePercent);
-        var scaleLabel = new TextBlock
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(CreateSettingsLabel("Microphone"));
+        section.Children.Add(box);
+        section.Children.Add(new StackPanel
         {
-            Text = $"UI scale  {scalePercent}%",
-            Foreground = (Brush)Application.Current.Resources["InkBrush"]
-        };
-        var scaleSlider = new Slider
-        {
-            Minimum = 0,
-            Maximum = AppSettings.UiScaleStops.Length - 1,
-            StepFrequency = 1,
-            TickFrequency = 1,
-            SnapsTo = SliderSnapsTo.Ticks,
-            TickPlacement = TickPlacement.Outside,
-            Value = AppSettings.IndexOfUiScale(scalePercent)
-        };
-        AutomationProperties.SetName(scaleSlider, "UI scale");
-        scaleSlider.ValueChanged += (_, args) =>
-        {
-            var index = (int)Math.Clamp(Math.Round(args.NewValue), 0, AppSettings.UiScaleStops.Length - 1);
-            var next = AppSettings.UiScaleStops[index];
-            scaleLabel.Text = $"UI scale  {next}%";
-            if (App.Current.Settings.UiScalePercent == next)
+            Spacing = 6,
+            Margin = new Thickness(0, 10, 0, 0),
+            Children =
             {
-                return;
+                CreateSettingsLabel("Voice commands"),
+                CreateVoiceCommandList()
             }
-
-            App.Current.Settings.UiScalePercent = next;
-            App.Current.PersistSettings();
-            App.Current.Window?.ApplyUiScale();
-        };
-
-        var panel = new StackPanel { Spacing = 10 };
-        var folderPath = new TextBlock
-        {
-            Text = App.Current.Settings.LibraryPath ?? string.Empty,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["MuteBrush"]
-        };
-        var folderButton = new Button
-        {
-            Content = "Choose Folder",
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-        folderButton.Click += async (_, _) =>
-        {
-            await ChooseFolderAsync();
-            folderPath.Text = App.Current.Settings.LibraryPath ?? string.Empty;
-        };
-        panel.Children.Add(folderButton);
-        panel.Children.Add(folderPath);
-        panel.Children.Add(scaleLabel);
-        panel.Children.Add(scaleSlider);
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Microphone",
-            Foreground = (Brush)Application.Current.Resources["InkBrush"]
         });
-        panel.Children.Add(box);
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Turn: flip, turn, next, page. Back: back, previous. First page: restart, beginning. Leave: finish.",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["MuteBrush"]
-        });
+        return section;
+    }
 
-        var status = new TextBlock
+    private static FrameworkElement CreateVoiceCommandList()
+    {
+        var list = new Grid { ColumnSpacing = 14, RowSpacing = 4 };
+        list.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        list.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var row = 0; row < VoiceCommands.Length; row++)
         {
-            Text = "",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["InkBrush"]
-        };
+            list.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var action = new TextBlock
+            {
+                Text = VoiceCommands[row].Action,
+                Foreground = (Brush)Application.Current.Resources["InkBrush"]
+            };
+            var words = CreateSettingsValue(VoiceCommands[row].Words);
+            Grid.SetRow(action, row);
+            Grid.SetRow(words, row);
+            Grid.SetColumn(words, 1);
+            list.Children.Add(action);
+            list.Children.Add(words);
+        }
+
+        return list;
+    }
+
+    private static FrameworkElement CreateUpdateSection()
+    {
+        var status = CreateSettingsValue(string.Empty);
+        status.VerticalAlignment = VerticalAlignment.Center;
         var install = new Button
         {
             Content = "Install update",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
             Visibility = Visibility.Collapsed
         };
-        var check = new Button
-        {
-            Content = "Check for updates",
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var check = new Button { Content = "Check for updates" };
         UpdateOffer? offer = null;
         check.Click += async (_, _) =>
         {
@@ -201,12 +269,46 @@ public sealed partial class LibraryPage
                 check.IsEnabled = true;
             }
         };
-        panel.Children.Add(status);
-        panel.Children.Add(install);
 
-        var title = CreateSettingsTitle(check, CloseSettings);
-        ShowSettingsOverlay(title, panel);
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        buttons.Children.Add(check);
+        buttons.Children.Add(install);
+
+        var section = new Grid { ColumnSpacing = 12 };
+        section.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        section.Children.Add(buttons);
+        Grid.SetColumn(status, 1);
+        section.Children.Add(status);
+        return section;
     }
+
+    private static TextBlock CreateSettingsLabel(string text) => new()
+    {
+        Text = text,
+        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        Foreground = (Brush)Application.Current.Resources["InkBrush"]
+    };
+
+    private static TextBlock CreateSettingsValue(string text) => new()
+    {
+        Text = text,
+        TextWrapping = TextWrapping.Wrap,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        MaxLines = 2,
+        Foreground = (Brush)Application.Current.Resources["MuteBrush"]
+    };
+
+    private static Border CreateSettingsRule() => new()
+    {
+        Height = 1,
+        Background = (Brush)Application.Current.Resources["GoldSoftBrush"]
+    };
 
     private void CloseSettings()
     {
@@ -218,7 +320,7 @@ public sealed partial class LibraryPage
         _settingsOverlay = null;
     }
 
-    private void ShowSettingsOverlay(FrameworkElement title, FrameworkElement body)
+    private void ShowSettingsOverlay(FrameworkElement header, FrameworkElement body)
     {
         CloseSettings();
         if (Content is not Panel root)
@@ -226,22 +328,29 @@ public sealed partial class LibraryPage
             return;
         }
 
-        var layout = new Grid { RowSpacing = 12 };
+        var scroll = new ScrollViewer
+        {
+            Content = body,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollMode = ScrollMode.Auto
+        };
+
+        var layout = new Grid { RowSpacing = SettingsGap };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        layout.Children.Add(title);
-        Grid.SetRow(body, 1);
-        layout.Children.Add(body);
+        layout.Children.Add(header);
+        Grid.SetRow(scroll, 1);
+        layout.Children.Add(scroll);
 
         var card = new Border
         {
             Background = (Brush)Application.Current.Resources["CardBrush"],
             BorderBrush = (Brush)Application.Current.Resources["GoldSoftBrush"],
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(12),
             Padding = new Thickness(24),
-            MinWidth = 320,
-            MaxWidth = 548,
+            MinWidth = SettingsCardMinWidth,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             Child = layout
@@ -267,20 +376,38 @@ public sealed partial class LibraryPage
             args.Handled = true;
             CloseSettings();
         };
-        body.SizeChanged += (_, _) =>
-        {
-            if (body.ActualWidth > 0)
-            {
-                title.Width = body.ActualWidth;
-            }
-        };
+        overlay.SizeChanged += (_, args) => FitSettingsCard(card, header, scroll, args.NewSize);
+        FitSettingsCard(card, header, scroll, new Size(ActualWidth, ActualHeight));
 
         _settingsOverlay = overlay;
         root.Children.Add(overlay);
         overlay.Focus(FocusState.Programmatic);
     }
 
-    private static FrameworkElement CreateSettingsTitle(Button check, Action close)
+    private static void FitSettingsCard(
+        Border card,
+        FrameworkElement header,
+        ScrollViewer scroll,
+        Size available)
+    {
+        if (available.Width > 0)
+        {
+            card.Width = Math.Clamp(
+                available.Width - SettingsCardMargin,
+                SettingsCardMinWidth,
+                SettingsCardWidth);
+        }
+
+        if (available.Height <= 0)
+        {
+            return;
+        }
+
+        var chrome = SettingsCardMargin + (SettingsCardPadding * 2) + header.ActualHeight + SettingsGap;
+        scroll.MaxHeight = Math.Max(SettingsBodyMinHeight, available.Height - chrome);
+    }
+
+    private static FrameworkElement CreateSettingsHeader(Action close)
     {
         var back = new Button
         {
@@ -288,7 +415,6 @@ public sealed partial class LibraryPage
             Padding = new Thickness(4),
             MinWidth = 40,
             MinHeight = 40,
-            Margin = new Thickness(0, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Content = new FontIcon
             {
@@ -304,33 +430,35 @@ public sealed partial class LibraryPage
         {
             Text = "Settings",
             VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 20,
+            Margin = new Thickness(6, 0, 0, 0),
+            FontFamily = new FontFamily("Cambria"),
+            FontSize = 24,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = (Brush)Application.Current.Resources["InkBrush"]
         };
 
-        check.VerticalAlignment = VerticalAlignment.Center;
-
-        var title = new Grid();
-        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        title.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        title.Children.Add(back);
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(back);
         Grid.SetColumn(titleText, 1);
-        title.Children.Add(titleText);
-        Grid.SetColumn(check, 2);
-        title.Children.Add(check);
+        row.Children.Add(titleText);
 
         var kofi = CreateKofiButton();
         if (kofi is not null)
         {
-            kofi.Margin = new Thickness(8, 0, 0, 0);
-            Grid.SetColumn(kofi, 3);
-            title.Children.Add(kofi);
+            Grid.SetColumn(kofi, 2);
+            row.Children.Add(kofi);
         }
 
-        return title;
+        return new Border
+        {
+            BorderBrush = (Brush)Application.Current.Resources["GoldSoftBrush"],
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(0, 0, 0, SettingsGap),
+            Child = row
+        };
     }
 
     private static Button? CreateKofiButton()
@@ -345,7 +473,7 @@ public sealed partial class LibraryPage
         {
             Source = normal,
             Stretch = Stretch.Uniform,
-            Height = 40
+            Height = 32
         };
         var button = new Button
         {
