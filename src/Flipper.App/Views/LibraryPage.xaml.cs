@@ -741,12 +741,27 @@ public sealed partial class LibraryPage : Page
 
     private void ShowTrashDrop()
     {
+        SkinTrashDrop();
         TrashDrop.Visibility = Visibility.Visible;
         TrashDrop.UpdateLayout();
         if (!double.IsNaN(ScoreContent.Width) && ScoreContent.Width > 0)
         {
             PositionTrashDrop(ScoreContent.Width);
         }
+    }
+
+    private void SkinTrashDrop()
+    {
+        var restore = _showTrash;
+        TrashDropFill.Fill = new SolidColorBrush(restore
+            ? Color.FromArgb(255, 198, 245, 198)
+            : Color.FromArgb(255, 245, 198, 198));
+        TrashDropFill.Stroke = new SolidColorBrush(restore
+            ? Color.FromArgb(255, 46, 125, 50)
+            : Color.FromArgb(255, 198, 40, 40));
+        TrashDropDeleteIcon.Visibility = restore ? Visibility.Collapsed : Visibility.Visible;
+        TrashDropRestoreIcon.Visibility = restore ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetName(TrashDrop, restore ? "Restore" : "Trash");
     }
 
     private void HideTrashDrop()
@@ -786,6 +801,17 @@ public sealed partial class LibraryPage : Page
             string.Equals(score.CanonicalPath, path, StringComparison.OrdinalIgnoreCase));
         if (entry is null)
         {
+            return;
+        }
+
+        await ApplyTrashZoneAsync(entry);
+    }
+
+    private async Task ApplyTrashZoneAsync(ScoreEntry entry)
+    {
+        if (_showTrash)
+        {
+            await RestoreScoreAsync(entry);
             return;
         }
 
@@ -1047,7 +1073,7 @@ public sealed partial class LibraryPage : Page
 
                 return;
             case AssignmentHitKind.Trash:
-                await ApplyScoreRemovalAsync(card.Entry);
+                await ApplyTrashZoneAsync(card.Entry);
                 ExitAssignment();
                 return;
             default:
@@ -1883,6 +1909,7 @@ public sealed partial class LibraryPage : Page
 
     private void ApplyFilter()
     {
+        SkinTrashDrop();
         PersistSearchIfChanged();
         var selected = _showFavourites || _showTrash || _selectedPlaylistId is not null ? null : CurrentFolderKey();
         IReadOnlySet<string>? playlistPaths = null;

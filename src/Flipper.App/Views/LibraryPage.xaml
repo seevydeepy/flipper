@@ -306,11 +306,13 @@
             Drop="TrashDrop_Drop"
             AutomationProperties.Name="Trash">
             <Rectangle
+                x:Name="TrashDropFill"
                 Fill="#F5C6C6"
                 Stroke="#C62828"
                 StrokeThickness="2"
                 StrokeDashArray="6,4" />
             <Viewbox
+                x:Name="TrashDropDeleteIcon"
                 MaxWidth="24"
                 MaxHeight="24"
                 HorizontalAlignment="Center"
@@ -320,6 +322,18 @@
                     Height="24"
                     Fill="#C62828"
                     Data="M9,3 H15 L16,5 H21 V7 H3 V5 H8 Z M6,8 H18 L16.8,22 H7.2 Z" />
+            </Viewbox>
+            <Viewbox
+                x:Name="TrashDropRestoreIcon"
+                MaxWidth="24"
+                MaxHeight="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Visibility="Collapsed">
+                <FontIcon
+                    Glyph="&#xE10E;"
+                    FontSize="20"
+                    Foreground="#2E7D32" />
             </Viewbox>
         </Grid>
         <Grid
