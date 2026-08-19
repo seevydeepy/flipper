@@ -189,8 +189,12 @@ public sealed partial class LibraryPage
 
     private static FrameworkElement CreateUpdateSection()
     {
-        var status = CreateSettingsValue(string.Empty);
-        status.VerticalAlignment = VerticalAlignment.Center;
+        var status = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)Application.Current.Resources["InkBrush"]
+        };
         var install = new Button
         {
             Content = "Install update",
