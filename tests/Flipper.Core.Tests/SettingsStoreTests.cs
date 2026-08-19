@@ -70,7 +70,35 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
-    public void SaveLoad_RoundTripsPlaylistsAndSelection()
+    public void Load_OldSettingsFile_StillReadsPlaylistsForMigration()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, """
+                {
+                  "SelectedPlaylistId": "gig1",
+                  "Playlists": [
+                    { "Id": "gig1", "Name": "Gig", "CanonicalPaths": ["C:\\lib\\Air.pdf"] }
+                  ]
+                }
+                """);
+
+            var loaded = new SettingsStore(path).Load();
+            Assert.Equal("gig1", loaded.SelectedPlaylistId);
+            var playlist = Assert.Single(loaded.Playlists);
+            Assert.Equal("Gig", playlist.Name);
+            Assert.Equal(@"C:\lib\Air.pdf", Assert.Single(playlist.CanonicalPaths));
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void SaveLoad_KeepsSelectionAndDropsPlaylists()
     {
         var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
         try
@@ -92,10 +120,7 @@ public sealed class SettingsStoreTests
 
             var loaded = store.Load();
             Assert.Equal("gig1", loaded.SelectedPlaylistId);
-            var playlist = Assert.Single(loaded.Playlists);
-            Assert.Equal("gig1", playlist.Id);
-            Assert.Equal("Gig", playlist.Name);
-            Assert.Equal(@"C:\lib\Air.pdf", Assert.Single(playlist.CanonicalPaths));
+            Assert.Empty(loaded.Playlists);
         }
         finally
         {
