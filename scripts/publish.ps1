@@ -7,6 +7,11 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 function Get-NextVersion {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & git fetch origin --tags --quiet
+    $ErrorActionPreference = $prev
+
     $parsed = @()
     $tags = & git tag --list 'v*'
     foreach ($tag in $tags) {
