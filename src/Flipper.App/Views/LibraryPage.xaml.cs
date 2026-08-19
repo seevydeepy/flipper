@@ -275,7 +275,7 @@ public sealed partial class LibraryPage : Page
         var check = new Button
         {
             Content = "Check for updates",
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            VerticalAlignment = VerticalAlignment.Center
         };
         UpdateOffer? offer = null;
         check.Click += async (_, _) =>
@@ -349,20 +349,22 @@ public sealed partial class LibraryPage : Page
                 check.IsEnabled = true;
             }
         };
-        panel.Children.Add(check);
         panel.Children.Add(status);
         panel.Children.Add(install);
 
-        var title = CreateSettingsTitle();
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = title,
             Content = panel,
-            CloseButtonText = "Close",
             RequestedTheme = ElementTheme.Light
         };
-        dialog.Opened += (_, _) => FitSettingsTitle(dialog, title);
+        var title = CreateSettingsTitle(check, dialog.Hide);
+        dialog.Title = title;
+        dialog.Opened += (_, _) =>
+        {
+            FitSettingsTitle(dialog, title);
+            EnableSettingsLightDismiss(dialog);
+        };
         if (panel is FrameworkElement content)
         {
             content.SizeChanged += (_, _) => FitSettingsTitle(dialog, title);
@@ -370,18 +372,70 @@ public sealed partial class LibraryPage : Page
         await dialog.ShowAsync();
     }
 
-    private static void FitSettingsTitle(ContentDialog dialog, object title)
+    private static void FitSettingsTitle(ContentDialog dialog, FrameworkElement titleBar)
     {
-        if (title is FrameworkElement titleBar &&
-            dialog.Content is FrameworkElement content &&
-            content.ActualWidth > 0)
+        if (dialog.Content is FrameworkElement content && content.ActualWidth > 0)
         {
             titleBar.Width = content.ActualWidth;
         }
     }
 
-    private static object CreateSettingsTitle()
+    private static void EnableSettingsLightDismiss(ContentDialog dialog)
     {
+        var smoke = FindNamedDescendant(dialog, "SmokeLayerBackground");
+        if (smoke is null)
+        {
+            return;
+        }
+
+        smoke.Tapped += (_, args) =>
+        {
+            args.Handled = true;
+            dialog.Hide();
+        };
+    }
+
+    private static FrameworkElement? FindNamedDescendant(DependencyObject root, string name)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is FrameworkElement element && element.Name == name)
+            {
+                return element;
+            }
+
+            var match = FindNamedDescendant(child, name);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static FrameworkElement CreateSettingsTitle(Button check, Action close)
+    {
+        var back = new Button
+        {
+            Style = (Style)Application.Current.Resources["QuietButton"],
+            Padding = new Thickness(4),
+            MinWidth = 40,
+            MinHeight = 40,
+            Margin = new Thickness(0, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon
+            {
+                Glyph = "\uE72B",
+                FontSize = 18,
+                Foreground = (Brush)Application.Current.Resources["InkBrush"]
+            }
+        };
+        AutomationProperties.SetName(back, "Back");
+        back.Click += (_, _) => close();
+
         var titleText = new TextBlock
         {
             Text = "Settings",
@@ -390,18 +444,28 @@ public sealed partial class LibraryPage : Page
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = (Brush)Application.Current.Resources["InkBrush"]
         };
-        var kofi = CreateKofiButton();
-        if (kofi is null)
-        {
-            return "Settings";
-        }
+
+        check.VerticalAlignment = VerticalAlignment.Center;
 
         var title = new Grid();
+        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         title.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        title.Children.Add(back);
+        Grid.SetColumn(titleText, 1);
         title.Children.Add(titleText);
-        Grid.SetColumn(kofi, 1);
-        title.Children.Add(kofi);
+        Grid.SetColumn(check, 2);
+        title.Children.Add(check);
+
+        var kofi = CreateKofiButton();
+        if (kofi is not null)
+        {
+            kofi.Margin = new Thickness(8, 0, 0, 0);
+            Grid.SetColumn(kofi, 3);
+            title.Children.Add(kofi);
+        }
+
         return title;
     }
 
