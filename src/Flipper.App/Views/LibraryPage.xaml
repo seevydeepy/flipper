@@ -116,10 +116,11 @@
                     </Grid>
                 </Grid>
 
-                <Grid Grid.Row="1" Padding="14,22,14,14">
+                <Grid Grid.Row="1" Padding="14,22,14,8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Button
                         x:Name="AddPlaylistButton"
@@ -127,7 +128,7 @@
                         HorizontalAlignment="Stretch"
                         Margin="0,0,0,12"
                         Click="AddPlaylist_Click" />
-                    <Grid x:Name="PlaylistDeleteHost" Grid.Row="1">
+                    <Grid x:Name="PlaylistDeleteHost" Grid.Row="1" Margin="0,0,0,8">
                         <TreeView
                             x:Name="FolderTree"
                             SelectionMode="Single"
@@ -162,6 +163,19 @@
                             <FontIcon Glyph="&#xE74D;" FontSize="16" />
                         </Button>
                     </Grid>
+                    <Button
+                        x:Name="SettingsButton"
+                        Grid.Row="2"
+                        Style="{StaticResource QuietButton}"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Bottom"
+                        Padding="8"
+                        MinWidth="40"
+                        MinHeight="40"
+                        Click="Settings_Click"
+                        AutomationProperties.Name="Settings">
+                        <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{StaticResource InkBrush}" />
+                    </Button>
                 </Grid>
 
                 <Grid x:Name="ScoreColumn" Grid.Row="1" Grid.Column="1" SizeChanged="ScoreColumn_SizeChanged">
@@ -310,18 +324,5 @@
             </Viewbox>
         </Grid>
         </Grid>
-        <Button
-            x:Name="SettingsButton"
-            Style="{StaticResource QuietButton}"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Top"
-            Margin="12,12,132,12"
-            Padding="8"
-            MinWidth="40"
-            MinHeight="40"
-            Click="Settings_Click"
-            AutomationProperties.Name="Settings">
-            <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{StaticResource InkBrush}" />
-        </Button>
     </Grid>
 </Page>
