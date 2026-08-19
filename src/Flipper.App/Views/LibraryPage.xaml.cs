@@ -322,6 +322,7 @@ public sealed partial class LibraryPage : Page
             _selectedPlaylistId = playlist.Id;
             App.Current.Settings.ShowFavourites = false;
             App.Current.Settings.SelectedPlaylistId = playlist.Id;
+            App.Current.PersistSettings();
             BindFolders();
             ApplyFilter();
         };
