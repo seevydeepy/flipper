@@ -203,25 +203,40 @@ public sealed partial class ReaderPage : Page
 
     private void BackButton_PointerReleased(object sender, PointerRoutedEventArgs e) => e.Handled = true;
 
-    private void ReaderRoot_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void ReaderPage_KeyDown(object sender, KeyRoutedEventArgs e) => TryHandleTurnKey(e);
+
+    private void ReaderRoot_KeyDown(object sender, KeyRoutedEventArgs e) => TryHandleTurnKey(e);
+
+    public void TryHandleTurnKey(KeyRoutedEventArgs e)
     {
-        if (e.Key == Windows.System.VirtualKey.Escape)
+        if (e.Handled || !_ready)
         {
-            App.Current.Window?.ShowLibrary();
-            e.Handled = true;
             return;
         }
 
-        if (e.Key is Windows.System.VirtualKey.Right or Windows.System.VirtualKey.PageDown or Windows.System.VirtualKey.Space)
+        var command = PageTurnKeys.FromVirtualKey((int)e.OriginalKey, e.KeyStatus.WasKeyDown);
+        if (command == PageTurnCommand.None && e.Key != e.OriginalKey)
         {
-            Turn(1);
-            e.Handled = true;
+            command = PageTurnKeys.FromVirtualKey((int)e.Key, e.KeyStatus.WasKeyDown);
         }
-        else if (e.Key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.PageUp)
+
+        switch (command)
         {
-            Turn(-1);
-            e.Handled = true;
+            case PageTurnCommand.Next:
+                Turn(1);
+                break;
+            case PageTurnCommand.Back:
+                Turn(-1);
+                break;
+            case PageTurnCommand.Close:
+                App.Current.Window?.ShowLibrary();
+                break;
+            default:
+                return;
         }
+
+        e.Handled = true;
+        ReaderRoot.Focus(FocusState.Programmatic);
     }
 
     private void ReaderRoot_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
@@ -233,6 +248,7 @@ public sealed partial class ReaderPage : Page
 
         _swiped = true;
         Turn(e.Cumulative.Translation.X < 0 ? 1 : -1);
+        ReaderRoot.Focus(FocusState.Programmatic);
     }
 
     private void ReaderRoot_PointerReleased(object sender, PointerRoutedEventArgs e)
@@ -240,6 +256,7 @@ public sealed partial class ReaderPage : Page
         if (_swiped)
         {
             _swiped = false;
+            ReaderRoot.Focus(FocusState.Programmatic);
             return;
         }
 
@@ -253,16 +270,19 @@ public sealed partial class ReaderPage : Page
         if (point.X <= width * 0.20)
         {
             Turn(-1);
+            ReaderRoot.Focus(FocusState.Programmatic);
             return;
         }
 
         if (point.X >= width * 0.80)
         {
             Turn(1);
+            ReaderRoot.Focus(FocusState.Programmatic);
             return;
         }
 
         ToggleOverlay();
+        ReaderRoot.Focus(FocusState.Programmatic);
     }
 
     private void ReaderRoot_SizeChanged(object sender, SizeChangedEventArgs e)

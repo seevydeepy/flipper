@@ -4,8 +4,11 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="Black"
-    ManipulationMode="TranslateX">
+    IsTabStop="True"
+    ManipulationMode="TranslateX"
+    KeyDown="ReaderPage_KeyDown">
     <Grid x:Name="ReaderRoot" Background="Black"
+          IsTabStop="True"
           PointerReleased="ReaderRoot_PointerReleased"
           ManipulationCompleted="ReaderRoot_ManipulationCompleted"
           SizeChanged="ReaderRoot_SizeChanged"
@@ -49,6 +52,8 @@
             Content="Back"
             Click="BackButton_Click"
             PointerReleased="BackButton_PointerReleased"
+            IsTabStop="False"
+            AllowFocusOnInteraction="False"
             MinWidth="96"
             MinHeight="48"
             Padding="20,10"

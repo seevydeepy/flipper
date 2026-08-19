@@ -7,9 +7,9 @@
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
-    <Grid x:Name="WindowRoot" SizeChanged="WindowRoot_SizeChanged">
+    <Grid x:Name="WindowRoot" SizeChanged="WindowRoot_SizeChanged" KeyDown="WindowRoot_KeyDown">
         <Grid x:Name="ScaleHost">
-            <Frame x:Name="RootFrame">
+            <Frame x:Name="RootFrame" IsTabStop="False">
                 <Frame.ContentTransitions>
                     <TransitionCollection>
                         <NavigationThemeTransition />

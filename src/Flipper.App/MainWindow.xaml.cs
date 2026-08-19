@@ -4,6 +4,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
 namespace Flipper.App;
@@ -61,6 +62,14 @@ public sealed partial class MainWindow : Window
     private void WindowRoot_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ApplyUiScale();
+    }
+
+    private void WindowRoot_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (RootFrame.Content is ReaderPage reader)
+        {
+            reader.TryHandleTurnKey(e);
+        }
     }
 
     public void ShowLibrary()
