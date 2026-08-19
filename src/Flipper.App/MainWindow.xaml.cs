@@ -21,6 +21,46 @@ public sealed partial class MainWindow : Window
         {
             AppWindow.SetIcon(icon);
         }
+
+        ApplyUiScale();
+    }
+
+    public void ApplyUiScale()
+    {
+        var scale = App.Current.Settings.UiScalePercent / 100.0;
+        var width = WindowRoot.ActualWidth;
+        var height = WindowRoot.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        WindowRoot.Clip = new RectangleGeometry
+        {
+            Rect = new Windows.Foundation.Rect(0, 0, width, height)
+        };
+
+        if (Math.Abs(scale - 1.0) < 0.001)
+        {
+            ScaleHost.RenderTransform = null;
+            ScaleHost.Width = double.NaN;
+            ScaleHost.Height = double.NaN;
+            ScaleHost.HorizontalAlignment = HorizontalAlignment.Stretch;
+            ScaleHost.VerticalAlignment = VerticalAlignment.Stretch;
+            return;
+        }
+
+        ScaleHost.HorizontalAlignment = HorizontalAlignment.Left;
+        ScaleHost.VerticalAlignment = VerticalAlignment.Top;
+        ScaleHost.Width = width / scale;
+        ScaleHost.Height = height / scale;
+        ScaleHost.RenderTransformOrigin = new Windows.Foundation.Point(0, 0);
+        ScaleHost.RenderTransform = new ScaleTransform { ScaleX = scale, ScaleY = scale };
+    }
+
+    private void WindowRoot_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ApplyUiScale();
     }
 
     public void ShowLibrary()

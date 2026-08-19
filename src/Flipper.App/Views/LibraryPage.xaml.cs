@@ -9,6 +9,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -152,7 +153,41 @@ public sealed partial class LibraryPage : Page
             App.Current.PersistSettings();
         };
 
+        var scalePercent = AppSettings.SnapUiScalePercent(App.Current.Settings.UiScalePercent);
+        var scaleLabel = new TextBlock
+        {
+            Text = $"UI scale  {scalePercent}%",
+            Foreground = (Brush)Application.Current.Resources["InkBrush"]
+        };
+        var scaleSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = AppSettings.UiScaleStops.Length - 1,
+            StepFrequency = 1,
+            TickFrequency = 1,
+            SnapsTo = SliderSnapsTo.Ticks,
+            TickPlacement = TickPlacement.Outside,
+            Value = AppSettings.IndexOfUiScale(scalePercent)
+        };
+        AutomationProperties.SetName(scaleSlider, "UI scale");
+        scaleSlider.ValueChanged += (_, args) =>
+        {
+            var index = (int)Math.Clamp(Math.Round(args.NewValue), 0, AppSettings.UiScaleStops.Length - 1);
+            var next = AppSettings.UiScaleStops[index];
+            scaleLabel.Text = $"UI scale  {next}%";
+            if (App.Current.Settings.UiScalePercent == next)
+            {
+                return;
+            }
+
+            App.Current.Settings.UiScalePercent = next;
+            App.Current.PersistSettings();
+            App.Current.Window?.ApplyUiScale();
+        };
+
         var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(scaleLabel);
+        panel.Children.Add(scaleSlider);
         panel.Children.Add(new TextBlock
         {
             Text = "Microphone",

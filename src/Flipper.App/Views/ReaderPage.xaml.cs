@@ -330,7 +330,7 @@ public sealed partial class ReaderPage : Page
         var portrait = PageLayout.IsPortrait(ReaderRoot.ActualWidth, ReaderRoot.ActualHeight);
         var pages = PageLayout.For(_pdf.PageCount, _lowestVisible, portrait);
         _lowestVisible = pages.FirstIndex;
-        var scale = XamlRoot?.RasterizationScale ?? 1;
+        var scale = (XamlRoot?.RasterizationScale ?? 1) * App.Current.Settings.UiScalePercent / 100.0;
         var slotWidth = PagesGrid.ActualWidth > 0 ? PagesGrid.ActualWidth : ReaderRoot.ActualWidth;
         if (pages.SecondIndex is not null)
         {
