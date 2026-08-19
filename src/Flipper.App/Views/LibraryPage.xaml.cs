@@ -1461,9 +1461,7 @@ public sealed partial class LibraryPage : Page
                 {
                     item.MinHeight = 24;
                     item.Padding = new Thickness(0, 10, 8, 2);
-                    item.Margin = HideSidebarChevron(item)
-                        ? new Thickness(0, 6, 0, 0)
-                        : new Thickness(-40, 6, 0, 0);
+                    item.Margin = new Thickness(-12, 6, 0, 0);
                     item.IsHitTestVisible = false;
                     item.IsSelected = false;
                     item.Foreground = mute;
@@ -1473,7 +1471,6 @@ public sealed partial class LibraryPage : Page
                 }
                 else
                 {
-                    ShowSidebarChevron(item);
                     item.ClearValue(TreeViewItem.MinHeightProperty);
                     item.ClearValue(TreeViewItem.PaddingProperty);
                     item.ClearValue(TreeViewItem.MarginProperty);
@@ -1487,49 +1484,6 @@ public sealed partial class LibraryPage : Page
 
             StyleSidebarRows(node.Children);
         }
-    }
-
-    private static bool HideSidebarChevron(TreeViewItem item)
-    {
-        if (FindNamedDescendant(item, "ExpandCollapseChevron") is not FrameworkElement chevron)
-        {
-            return false;
-        }
-
-        chevron.Visibility = Visibility.Collapsed;
-        chevron.Width = 0;
-        return true;
-    }
-
-    private static void ShowSidebarChevron(TreeViewItem item)
-    {
-        if (FindNamedDescendant(item, "ExpandCollapseChevron") is not FrameworkElement chevron)
-        {
-            return;
-        }
-
-        chevron.ClearValue(UIElement.VisibilityProperty);
-        chevron.ClearValue(FrameworkElement.WidthProperty);
-    }
-
-    private static FrameworkElement? FindNamedDescendant(DependencyObject root, string name)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is FrameworkElement element && element.Name == name)
-            {
-                return element;
-            }
-
-            if (FindNamedDescendant(child, name) is { } match)
-            {
-                return match;
-            }
-        }
-
-        return null;
     }
 
     private TreeViewNode ToNode(FolderItem item, bool defaultExpanded)
