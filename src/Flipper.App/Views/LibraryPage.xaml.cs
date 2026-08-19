@@ -44,6 +44,7 @@ public sealed partial class LibraryPage : Page
     private string? _armedPlaylistId;
     private bool _showFavourites;
     private bool _hydrating;
+    private bool _bindingFolders;
     private bool _suppressItemClick;
 
     public LibraryPage()
@@ -294,6 +295,36 @@ public sealed partial class LibraryPage : Page
         App.Current.Settings.SelectedPlaylistId = _selectedPlaylistId;
         App.Current.PersistSettings();
         ApplyFilter();
+    }
+
+    private void FolderTree_Expanding(TreeView sender, TreeViewExpandingEventArgs args)
+    {
+        PersistFolderExpanded(args.Node, true);
+    }
+
+    private void FolderTree_Collapsed(TreeView sender, TreeViewCollapsedEventArgs args)
+    {
+        PersistFolderExpanded(args.Node, false);
+    }
+
+    private void PersistFolderExpanded(TreeViewNode node, bool expanded)
+    {
+        if (_bindingFolders || _hydrating)
+        {
+            return;
+        }
+
+        if (node.Content is not FolderMark mark || string.IsNullOrEmpty(mark.Key))
+        {
+            return;
+        }
+
+        if (!App.Current.Settings.SetFolderExpanded(mark.Key, expanded))
+        {
+            return;
+        }
+
+        App.Current.PersistSettings();
     }
 
     private async void AddPlaylist_Click(object sender, RoutedEventArgs e)
@@ -860,60 +891,69 @@ public sealed partial class LibraryPage : Page
         HidePlaylistDelete();
         var previousFolder = _selectedFolder;
         var previousPlaylist = _selectedPlaylistId;
-        FolderTree.RootNodes.Clear();
-        var all = new TreeViewNode { Content = new FolderMark("All", null) };
-        var favourites = new TreeViewNode { Content = new FolderMark("Favourites", null, favourites: true) };
-        FolderTree.RootNodes.Add(all);
-        FolderTree.RootNodes.Add(favourites);
-        foreach (var playlist in App.Current.Settings.Playlists
-            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+        _bindingFolders = true;
+        try
         {
-            FolderTree.RootNodes.Add(new TreeViewNode
+            FolderTree.RootNodes.Clear();
+            var all = new TreeViewNode { Content = new FolderMark("All", null) };
+            var favourites = new TreeViewNode { Content = new FolderMark("Favourites", null, favourites: true) };
+            FolderTree.RootNodes.Add(all);
+            FolderTree.RootNodes.Add(favourites);
+            foreach (var playlist in App.Current.Settings.Playlists
+                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
             {
-                Content = new FolderMark(playlist.Name, null, playlistId: playlist.Id)
-            });
-        }
+                FolderTree.RootNodes.Add(new TreeViewNode
+                {
+                    Content = new FolderMark(playlist.Name, null, playlistId: playlist.Id)
+                });
+            }
 
-        if (_snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder)))
-        {
-            FolderTree.RootNodes.Add(new TreeViewNode { Content = new FolderMark("\\", string.Empty) });
-        }
+            if (_snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder)))
+            {
+                FolderTree.RootNodes.Add(new TreeViewNode { Content = new FolderMark("\\", string.Empty) });
+            }
 
-        foreach (var item in Flipper.Core.Library.FolderTree.FromRelativeFolders(_snapshot.Folders))
-        {
-            FolderTree.RootNodes.Add(ToNode(item, expand: true));
-        }
+            foreach (var item in Flipper.Core.Library.FolderTree.FromRelativeFolders(_snapshot.Folders))
+            {
+                FolderTree.RootNodes.Add(ToNode(item, defaultExpanded: true));
+            }
 
-        TreeViewNode? match;
-        if (_showFavourites)
-        {
-            match = FindNode(FolderTree.RootNodes, key: null, favourites: true);
-        }
-        else if (previousPlaylist is not null)
-        {
-            match = FindPlaylistNode(FolderTree.RootNodes, previousPlaylist);
-        }
-        else
-        {
-            match = FindNode(FolderTree.RootNodes, previousFolder, favourites: false);
-        }
+            TreeViewNode? match;
+            if (_showFavourites)
+            {
+                match = FindNode(FolderTree.RootNodes, key: null, favourites: true);
+            }
+            else if (previousPlaylist is not null)
+            {
+                match = FindPlaylistNode(FolderTree.RootNodes, previousPlaylist);
+            }
+            else
+            {
+                match = FindNode(FolderTree.RootNodes, previousFolder, favourites: false);
+            }
 
-        FolderTree.SelectedNode = match ?? all;
-        ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
+            FolderTree.SelectedNode = match ?? all;
+            ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
+        }
+        finally
+        {
+            _bindingFolders = false;
+        }
     }
 
-    private static TreeViewNode ToNode(FolderItem item, bool expand)
+    private TreeViewNode ToNode(FolderItem item, bool defaultExpanded)
     {
         var node = new TreeViewNode
         {
-            Content = new FolderMark(item.Name, item.Key),
-            IsExpanded = expand && item.Children.Count > 0
+            Content = new FolderMark(item.Name, item.Key)
         };
         foreach (var child in item.Children)
         {
-            node.Children.Add(ToNode(child, expand: false));
+            node.Children.Add(ToNode(child, defaultExpanded: false));
         }
 
+        node.IsExpanded = item.Children.Count > 0
+            && App.Current.Settings.FolderIsExpanded(item.Key, defaultExpanded);
         return node;
     }
 

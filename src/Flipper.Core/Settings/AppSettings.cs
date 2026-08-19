@@ -31,6 +31,7 @@ public sealed class AppSettings
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Playlist> Playlists { get; set; } = new();
     public string? SelectedPlaylistId { get; set; }
+    public Dictionary<string, bool> FolderExpanded { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public const int DefaultUiScalePercent = 100;
     public static readonly int[] UiScaleStops = new[] { 75, 100, 125, 150, 200 };
@@ -39,8 +40,13 @@ public sealed class AppSettings
     {
         Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
         Playlists ??= new List<Playlist>();
+        FolderExpanded ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         SearchQuery ??= string.Empty;
         UiScalePercent = SnapUiScalePercent(UiScalePercent);
+        FolderExpanded = FolderExpanded
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
+            .GroupBy(pair => pair.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.OrdinalIgnoreCase);
         Playlists = Playlists
             .Where(playlist => !string.IsNullOrWhiteSpace(playlist.Id) && !string.IsNullOrWhiteSpace(playlist.Name))
             .Select(DistinctPaths)
@@ -82,6 +88,32 @@ public sealed class AppSettings
     public static int IndexOfUiScale(int percent)
     {
         return Array.IndexOf(UiScaleStops, SnapUiScalePercent(percent));
+    }
+
+    public bool FolderIsExpanded(string? key, bool defaultExpanded)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return defaultExpanded;
+        }
+
+        return FolderExpanded.TryGetValue(key, out var expanded) ? expanded : defaultExpanded;
+    }
+
+    public bool SetFolderExpanded(string? key, bool expanded)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return false;
+        }
+
+        if (FolderExpanded.TryGetValue(key, out var current) && current == expanded)
+        {
+            return false;
+        }
+
+        FolderExpanded[key] = expanded;
+        return true;
     }
 
     public ScoreStats StatsFor(string canonicalPath)
