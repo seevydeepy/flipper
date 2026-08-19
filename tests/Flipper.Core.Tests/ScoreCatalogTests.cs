@@ -36,4 +36,18 @@ public sealed class ScoreCatalogTests
         Assert.NotSame(first, third);
         Assert.Equal("Prelude", third["A.pdf"].Title);
     }
+
+    [Fact]
+    public void TryRewriteRootFolder_RewritesKeysOnDisk()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"Downloads\\Air.pdf":{"title":"Air","composer":"Bach"},"Corpus\\Suite.pdf":{"title":"Suite"}}""");
+
+        Assert.True(ScoreCatalog.TryRewriteRootFolder(root.Path, "Downloads", "K's Collection"));
+        var catalog = ScoreCatalog.Load(root.Path);
+        Assert.Equal("Air", catalog[@"K's Collection\Air.pdf"].Title);
+        Assert.Equal("Suite", catalog[@"Corpus\Suite.pdf"].Title);
+        Assert.False(catalog.ContainsKey(@"Downloads\Air.pdf"));
+    }
 }

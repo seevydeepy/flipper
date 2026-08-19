@@ -178,4 +178,19 @@ public sealed class ScoreSearchTests
         var match = Assert.Single(result);
         Assert.Equal("Nocturne", match.DisplayName);
     }
+
+    [Fact]
+    public void Filter_TrashFolder_IsExcludedFromSearch()
+    {
+        var trashed = new ScoreEntry(
+            "Nocturne",
+            "trash",
+            @"C:\lib\trash\Nocturne.pdf",
+            @"C:\lib\trash\Nocturne.pdf",
+            1,
+            DateTime.UtcNow);
+        var result = ScoreSearch.Filter([..Scores, trashed], query: "noc", selectedFolder: null);
+        var match = Assert.Single(result);
+        Assert.Equal(Scores[2].CanonicalPath, match.CanonicalPath);
+    }
 }
