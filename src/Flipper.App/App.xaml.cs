@@ -21,7 +21,13 @@ public partial class App : Application
     {
         InitializeComponent();
         Settings = SettingsStore.Load();
+        var playlistsMoved = PlaylistLibrary.Hydrate(Settings);
         MaybeRewriteCollectionFolder();
+        PersistPlaylists();
+        if (playlistsMoved)
+        {
+            PersistSettings();
+        }
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -50,12 +56,25 @@ public partial class App : Application
         if (LibraryPathRewrite.RewriteRootFolder(Settings, LibraryFolders.LegacyCollectionName, LibraryFolders.CollectionName))
         {
             PersistSettings();
+            PersistPlaylists();
         }
     }
 
     public void PersistSettings()
     {
         SettingsStore.Save(Settings);
+    }
+
+    public void PersistPlaylists()
+    {
+        PlaylistLibrary.Save(Settings.LibraryPath, Settings.Playlists);
+    }
+
+    public void UseLibraryPath(string path)
+    {
+        PlaylistLibrary.BindToRoot(Settings, path);
+        PersistPlaylists();
+        PersistSettings();
     }
 
     public ScoreEntry ApplyCanonical(ScoreEntry entry)
@@ -104,6 +123,7 @@ public partial class App : Application
             return null;
         }
 
+        PersistPlaylists();
         PersistSettings();
         return playlist;
     }
@@ -116,7 +136,7 @@ public partial class App : Application
             return false;
         }
 
-        PersistSettings();
+        PersistPlaylists();
         return true;
     }
 
@@ -128,7 +148,7 @@ public partial class App : Application
             return false;
         }
 
-        PersistSettings();
+        PersistPlaylists();
         return true;
     }
 
@@ -144,6 +164,7 @@ public partial class App : Application
             Settings.SelectedPlaylistId = null;
         }
 
+        PersistPlaylists();
         PersistSettings();
         return true;
     }
@@ -158,6 +179,7 @@ public partial class App : Application
             Settings.LastScoreCanonicalPath = null;
         }
 
+        PersistPlaylists();
         PersistSettings();
         var thumb = Services.ThumbnailStore.PathFor(commit.CanonicalPath, commit.Length, commit.LastWriteUtc);
         if (!File.Exists(thumb))

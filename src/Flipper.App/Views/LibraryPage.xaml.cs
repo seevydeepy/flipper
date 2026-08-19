@@ -30,6 +30,7 @@ public sealed partial class LibraryPage : Page
     private readonly LibraryWatcher _watcher = new();
     private readonly ResettableCollection<ScoreCard> _cards = new();
     private readonly ScoreCatalogCache _catalogCache = new();
+    private readonly PlaylistLibraryCache _playlistCache = new();
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _searchTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
@@ -349,11 +350,10 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        App.Current.Settings.LibraryPath = result.Path;
+        App.Current.UseLibraryPath(result.Path);
         _selectedFolder = null;
         _selectedPlaylistId = null;
         App.Current.Settings.SelectedPlaylistId = null;
-        App.Current.PersistSettings();
         App.Current.LastSnapshot = null;
         HidePlaylistDelete();
         _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), true);
@@ -1006,7 +1006,8 @@ public sealed partial class LibraryPage : Page
             _watchedPath = libraryPath;
         }
 
-        if (_snapshot.SameMembership(next))
+        var playlistsChanged = _playlistCache.TryRefresh(App.Current.Settings);
+        if (_snapshot.SameMembership(next) && !playlistsChanged)
         {
             _snapshot = next;
             App.Current.LastSnapshot = next;

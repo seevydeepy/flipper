@@ -47,11 +47,9 @@ public sealed class AppSettings
             .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
             .GroupBy(pair => pair.Key.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.OrdinalIgnoreCase);
-        Playlists = Playlists
-            .Where(playlist => !string.IsNullOrWhiteSpace(playlist.Id) && !string.IsNullOrWhiteSpace(playlist.Name))
-            .Select(DistinctPaths)
-            .ToList();
+        Playlists = PlaylistBook.Sanitize(Playlists);
         if (SelectedPlaylistId is not null
+            && Playlists.Count > 0
             && Playlists.All(playlist => !string.Equals(playlist.Id, SelectedPlaylistId, StringComparison.OrdinalIgnoreCase)))
         {
             SelectedPlaylistId = null;
@@ -125,15 +123,5 @@ public sealed class AppSettings
         }
 
         return stats;
-    }
-
-    private static Playlist DistinctPaths(Playlist playlist)
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        playlist.CanonicalPaths ??= new List<string>();
-        playlist.CanonicalPaths = playlist.CanonicalPaths
-            .Where(path => !string.IsNullOrEmpty(path) && seen.Add(path))
-            .ToList();
-        return playlist;
     }
 }

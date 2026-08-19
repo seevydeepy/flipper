@@ -89,4 +89,22 @@ public static class PlaylistBook
 
         return false;
     }
+
+    public static List<Playlist> Sanitize(IEnumerable<Playlist>? list)
+    {
+        return (list ?? [])
+            .Where(playlist => !string.IsNullOrWhiteSpace(playlist.Id) && !string.IsNullOrWhiteSpace(playlist.Name))
+            .Select(DistinctPaths)
+            .ToList();
+    }
+
+    private static Playlist DistinctPaths(Playlist playlist)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        playlist.CanonicalPaths ??= new List<string>();
+        playlist.CanonicalPaths = playlist.CanonicalPaths
+            .Where(path => !string.IsNullOrEmpty(path) && seen.Add(path))
+            .ToList();
+        return playlist;
+    }
 }

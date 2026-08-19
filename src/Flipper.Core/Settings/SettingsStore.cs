@@ -60,9 +60,18 @@ public sealed class SettingsStore
             Directory.CreateDirectory(dir);
         }
 
-        var json = JsonSerializer.Serialize(settings, JsonOptions);
-        var tmp = _path + ".tmp";
-        File.WriteAllText(tmp, json);
-        File.Move(tmp, _path, overwrite: true);
+        var playlists = settings.Playlists;
+        settings.Playlists = [];
+        try
+        {
+            var json = JsonSerializer.Serialize(settings, JsonOptions);
+            var tmp = _path + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, _path, overwrite: true);
+        }
+        finally
+        {
+            settings.Playlists = playlists;
+        }
     }
 }
