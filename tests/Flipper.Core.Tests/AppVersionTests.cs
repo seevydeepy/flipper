@@ -18,9 +18,16 @@ public sealed class AppVersionTests
     [InlineData("")]
     [InlineData("nope")]
     [InlineData("v")]
+    [InlineData("1.1.0rc1")]
     public void TryParse_RejectsGarbage(string text)
     {
         Assert.False(AppVersion.TryParse(text, out _));
+    }
+
+    [Fact]
+    public void FromTags_IgnoresGluedPrereleaseButKeepsHyphenSuffix()
+    {
+        Assert.Equal(new Version(1, 1, 0), AppVersion.FromTags(new[] { "v1.0.0", "1.1.0rc1", "v1.1.0-rc1" }));
     }
 
     [Fact]
