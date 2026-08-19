@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test
+        run: dotnet test Flipper.sln -c Release
+
+      - name: Publish
+        run: pwsh -File scripts/publish.ps1
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content artifacts/VERSION.txt -Raw).Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'VERSION.txt is empty'
+          }
+          $tag = "v$version"
+          git tag $tag
+          git push origin $tag
+          gh release create $tag `
+            artifacts/Carousel-win-x64.zip `
+            artifacts/Carousel-win-arm64.zip `
+            artifacts/Carousel.Setup-win-x64.exe `
+            artifacts/Carousel.Setup-win-arm64.exe `
+            --generate-notes
+        shell: pwsh
