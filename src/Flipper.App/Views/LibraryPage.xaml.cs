@@ -16,6 +16,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
+using Windows.System;
 using Windows.UI;
 
 namespace Flipper.App.Views;
@@ -26,6 +27,9 @@ public sealed partial class LibraryPage : Page
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const double PlaylistDeleteSize = 32;
+    private const string KoFiUrl = "https://ko-fi.com/seevydeepy";
+    private const string KoFiNormalAsset = "kofi-support.png";
+    private const string KoFiHoverAsset = "kofi-support-hover.png";
 
     private readonly LibraryWatcher _watcher = new();
     private readonly ResettableCollection<ScoreCard> _cards = new();
@@ -325,15 +329,105 @@ public sealed partial class LibraryPage : Page
         panel.Children.Add(status);
         panel.Children.Add(install);
 
+        var title = CreateSettingsTitle();
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "Settings",
+            Title = title,
             Content = panel,
             CloseButtonText = "Close",
             RequestedTheme = ElementTheme.Light
         };
+        dialog.Opened += (_, _) => FitSettingsTitle(dialog, title);
+        if (panel is FrameworkElement content)
+        {
+            content.SizeChanged += (_, _) => FitSettingsTitle(dialog, title);
+        }
         await dialog.ShowAsync();
+    }
+
+    private static void FitSettingsTitle(ContentDialog dialog, object title)
+    {
+        if (title is FrameworkElement titleBar &&
+            dialog.Content is FrameworkElement content &&
+            content.ActualWidth > 0)
+        {
+            titleBar.Width = content.ActualWidth;
+        }
+    }
+
+    private static object CreateSettingsTitle()
+    {
+        var titleText = new TextBlock
+        {
+            Text = "Settings",
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["InkBrush"]
+        };
+        var kofi = CreateKofiButton();
+        if (kofi is null)
+        {
+            return "Settings";
+        }
+
+        var title = new Grid();
+        title.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        title.Children.Add(titleText);
+        Grid.SetColumn(kofi, 1);
+        title.Children.Add(kofi);
+        return title;
+    }
+
+    private static Button? CreateKofiButton()
+    {
+        if (!TryLoadAssetImage(KoFiNormalAsset, out var normal) ||
+            !TryLoadAssetImage(KoFiHoverAsset, out var hover))
+        {
+            return null;
+        }
+
+        var image = new Image
+        {
+            Source = normal,
+            Stretch = Stretch.Uniform,
+            Height = 40
+        };
+        var button = new Button
+        {
+            Content = image,
+            Style = (Style)Application.Current.Resources["ImageButton"],
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        AutomationProperties.SetName(button, "Support me on Ko-fi");
+        button.PointerEntered += (_, _) => image.Source = hover;
+        button.PointerExited += (_, _) => image.Source = normal;
+        button.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler((_, _) => image.Source = hover),
+            true);
+        button.AddHandler(
+            UIElement.PointerReleasedEvent,
+            new PointerEventHandler((_, _) => image.Source = button.IsPointerOver ? hover : normal),
+            true);
+        button.Click += (_, _) => _ = Launcher.LaunchUriAsync(new Uri(KoFiUrl));
+        return button;
+    }
+
+    private static bool TryLoadAssetImage(string fileName, out BitmapImage image)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", fileName);
+        if (!File.Exists(path))
+        {
+            image = null!;
+            return false;
+        }
+
+        image = new BitmapImage(new Uri(path));
+        return true;
     }
 
     private async Task ChooseFolderAsync()
