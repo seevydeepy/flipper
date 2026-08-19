@@ -37,6 +37,7 @@ public static class VoiceCommandParser
         }
 
         if (HasWord(normalised, "flip")
+            || HasWord(normalised, "turn")
             || HasWord(normalised, "next")
             || HasWord(normalised, "page"))
         {
