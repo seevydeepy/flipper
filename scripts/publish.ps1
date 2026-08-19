@@ -6,20 +6,55 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+function ConvertFrom-GitTag([string]$tag) {
+    $text = $tag.Trim()
+    if ($text.StartsWith('v') -or $text.StartsWith('V')) {
+        $text = $text.Substring(1)
+    }
+
+    $cut = $text.IndexOfAny([char[]]@('+', '-'))
+    if ($cut -ge 0) {
+        $text = $text.Substring(0, $cut)
+    }
+
+    if ($text -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
+        return $null
+    }
+
+    return [version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+}
+
+function Get-ParsedTags([string[]]$tags) {
+    $parsed = @()
+    foreach ($tag in $tags) {
+        if ([string]::IsNullOrWhiteSpace($tag)) {
+            continue
+        }
+
+        $version = ConvertFrom-GitTag $tag
+        if ($null -ne $version) {
+            $parsed += $version
+        }
+    }
+
+    return $parsed
+}
+
 function Get-NextVersion {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     & git fetch origin --tags --quiet
     $ErrorActionPreference = $prev
 
-    $parsed = @()
-    $tags = & git tag --list 'v*'
-    foreach ($tag in $tags) {
-        if ($tag -match '^v?(\d+)\.(\d+)\.(\d+)') {
-            $parsed += [version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
-        }
+    $headTags = [string[]](& git tag --points-at HEAD --list 'v*')
+    $headParsed = Get-ParsedTags $headTags
+    if ($headParsed.Count -gt 0) {
+        $existing = $headParsed | Sort-Object | Select-Object -Last 1
+        return '{0}.{1}.{2}' -f $existing.Major, $existing.Minor, $existing.Build
     }
 
+    $allTags = [string[]](& git tag --list 'v*')
+    $parsed = Get-ParsedTags $allTags
     if ($parsed.Count -eq 0) {
         return '1.0.0'
     }

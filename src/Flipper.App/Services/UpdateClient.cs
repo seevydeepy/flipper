@@ -60,6 +60,10 @@ public sealed class UpdateClient
         {
             return (null, "Could not check");
         }
+        catch (UnauthorizedAccessException)
+        {
+            return (null, "Could not check");
+        }
 
         if (!GitHubReleaseParser.TryParse(json, out var release) || !AppVersion.TryParse(release.TagName, out var remote))
         {
@@ -108,6 +112,10 @@ public sealed class UpdateClient
         {
             return null;
         }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     public static bool StartSetup(string setupPath, string zipPath, string targetDir)
@@ -133,6 +141,10 @@ public sealed class UpdateClient
             return false;
         }
         catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
         {
             return false;
         }

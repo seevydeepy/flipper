@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -43,8 +47,26 @@ jobs:
             throw 'VERSION.txt is empty'
           }
           $tag = "v$version"
-          git tag $tag
+          $head = (git rev-parse HEAD).Trim()
+          $existing = git rev-parse --verify --quiet $tag
+          if ($LASTEXITCODE -eq 0) {
+            if ($existing.Trim() -ne $head) {
+              throw "tag $tag already points at $($existing.Trim())"
+            }
+          }
+          else {
+            git tag $tag
+          }
           git push origin $tag
+          $viewPrev = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          gh release view $tag 1>$null 2>$null
+          $releaseExists = ($LASTEXITCODE -eq 0)
+          $ErrorActionPreference = $viewPrev
+          if ($releaseExists) {
+            Write-Host "release $tag already exists"
+            return
+          }
           gh release create $tag `
             artifacts/Carousel-win-x64.zip `
             artifacts/Carousel-win-arm64.zip `

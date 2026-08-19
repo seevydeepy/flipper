@@ -246,6 +246,10 @@ public sealed partial class LibraryPage : Page
             {
                 status.Text = "Could not check";
             }
+            catch (Exception)
+            {
+                status.Text = "Could not check";
+            }
             finally
             {
                 check.IsEnabled = true;
@@ -281,6 +285,10 @@ public sealed partial class LibraryPage : Page
                 App.Current.Window?.Close();
             }
             catch (HttpRequestException)
+            {
+                status.Text = "Could not download";
+            }
+            catch (Exception)
             {
                 status.Text = "Could not download";
             }
