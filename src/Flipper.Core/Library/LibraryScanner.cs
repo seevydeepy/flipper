@@ -12,8 +12,10 @@ public static class LibraryScanner
         var catalog = catalogCache is null
             ? ScoreCatalog.Load(displayRoot)
             : catalogCache.Load(displayRoot);
+        ScoreTrash.Ensure(displayRoot);
+        var trashIndex = ScoreTrash.LoadIndex(displayRoot);
         var scores = new List<ScoreEntry>();
-        ScanDirectory(displayRoot, displayRoot, scores, catalog, isRoot: true);
+        ScanDirectory(displayRoot, displayRoot, scores, catalog, trashIndex, isRoot: true);
         return new LibrarySnapshot(displayRoot, scores, true);
     }
 
@@ -22,6 +24,7 @@ public static class LibraryScanner
         string current,
         List<ScoreEntry> scores,
         IReadOnlyDictionary<string, ScoreFacts> catalog,
+        IReadOnlyList<TrashRecord> trashIndex,
         bool isRoot)
     {
         DirectoryInfo info;
@@ -58,7 +61,18 @@ public static class LibraryScanner
                     relative = string.Empty;
                 }
 
-                catalog.TryGetValue(ScoreCatalog.Key(relative, file.Name), out var facts);
+                var catalogKey = ScoreCatalog.Key(relative, file.Name);
+                if (ScoreTrash.IsHiddenFolder(relative))
+                {
+                    var record = trashIndex.FirstOrDefault(item =>
+                        string.Equals(item.FileName, file.Name, StringComparison.OrdinalIgnoreCase));
+                    if (record is not null && !string.IsNullOrWhiteSpace(record.OriginalRelativePath))
+                    {
+                        catalogKey = record.OriginalRelativePath.Replace('/', '\\');
+                    }
+                }
+
+                catalog.TryGetValue(catalogKey, out var facts);
                 scores.Add(new ScoreEntry(
                     Path.GetFileNameWithoutExtension(file.Name),
                     relative,
@@ -93,13 +107,7 @@ public static class LibraryScanner
 
         foreach (var child in children)
         {
-            var relative = Path.GetRelativePath(root, child.FullName);
-            if (ScoreTrash.IsHiddenFolder(relative))
-            {
-                continue;
-            }
-
-            ScanDirectory(root, child.FullName, scores, catalog, isRoot: false);
+            ScanDirectory(root, child.FullName, scores, catalog, trashIndex, isRoot: false);
         }
     }
 }

@@ -15,6 +15,7 @@ public sealed record LibrarySnapshot(
 
     public IReadOnlyList<string> Folders => Scores
         .Select(score => score.RelativeFolder)
+        .Where(folder => !ScoreTrash.IsHiddenFolder(folder))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase)
         .ToArray();

@@ -66,6 +66,20 @@ public static class PlaylistBook
         return true;
     }
 
+    public static IReadOnlyList<string> IdsContaining(IEnumerable<Playlist> list, string? canonicalPath)
+    {
+        if (string.IsNullOrEmpty(canonicalPath))
+        {
+            return [];
+        }
+
+        return list
+            .Where(playlist => playlist.CanonicalPaths.Any(path =>
+                string.Equals(path, canonicalPath, StringComparison.OrdinalIgnoreCase)))
+            .Select(playlist => playlist.Id)
+            .ToArray();
+    }
+
     public static void RemovePath(IList<Playlist> list, string canonicalPath)
     {
         foreach (var playlist in list)

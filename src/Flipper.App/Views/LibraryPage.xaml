@@ -245,10 +245,28 @@
                                                 VerticalAlignment="Center"
                                                 Click="Favourite_Click"
                                                 Tag="{x:Bind}"
+                                                Visibility="{x:Bind FavouriteVisibility}"
                                                 AutomationProperties.Name="Favourite">
                                                 <FontIcon
                                                     Glyph="{x:Bind StarGlyph, Mode=OneWay}"
                                                     Foreground="{x:Bind StarBrush, Mode=OneWay}"
+                                                    FontSize="16" />
+                                            </Button>
+                                            <Button
+                                                Grid.Column="1"
+                                                Grid.RowSpan="2"
+                                                Style="{StaticResource QuietButton}"
+                                                Padding="4"
+                                                MinWidth="32"
+                                                MinHeight="32"
+                                                VerticalAlignment="Center"
+                                                Click="Restore_Click"
+                                                Tag="{x:Bind}"
+                                                Visibility="{x:Bind RestoreVisibility}"
+                                                AutomationProperties.Name="Restore">
+                                                <FontIcon
+                                                    Glyph="&#xE10E;"
+                                                    Foreground="{StaticResource InkBrush}"
                                                     FontSize="16" />
                                             </Button>
                                         </Grid>

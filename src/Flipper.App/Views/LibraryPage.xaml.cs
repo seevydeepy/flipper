@@ -44,6 +44,7 @@ public sealed partial class LibraryPage : Page
     private string? _selectedPlaylistId;
     private string? _armedPlaylistId;
     private bool _showFavourites;
+    private bool _showTrash;
     private bool _hydrating;
     private bool _bindingFolders;
     private bool _suppressItemClick;
@@ -386,18 +387,28 @@ public sealed partial class LibraryPage : Page
         if (mark?.Favourites == true)
         {
             _showFavourites = true;
+            _showTrash = false;
+            _selectedFolder = null;
+            _selectedPlaylistId = null;
+        }
+        else if (mark?.Trash == true)
+        {
+            _showFavourites = false;
+            _showTrash = true;
             _selectedFolder = null;
             _selectedPlaylistId = null;
         }
         else if (mark?.PlaylistId is { } playlistId)
         {
             _showFavourites = false;
+            _showTrash = false;
             _selectedFolder = null;
             _selectedPlaylistId = playlistId;
         }
         else
         {
             _showFavourites = false;
+            _showTrash = false;
             _selectedFolder = FolderKey(args.InvokedItem);
             _selectedPlaylistId = null;
         }
@@ -409,6 +420,7 @@ public sealed partial class LibraryPage : Page
         }
 
         App.Current.Settings.ShowFavourites = _showFavourites;
+        App.Current.Settings.ShowTrash = _showTrash;
         App.Current.Settings.SelectedPlaylistId = _selectedPlaylistId;
         App.Current.PersistSettings();
         ApplyFilter();
@@ -467,9 +479,11 @@ public sealed partial class LibraryPage : Page
             }
 
             _showFavourites = false;
+            _showTrash = false;
             _selectedFolder = null;
             _selectedPlaylistId = playlist.Id;
             App.Current.Settings.ShowFavourites = false;
+            App.Current.Settings.ShowTrash = false;
             App.Current.Settings.SelectedPlaylistId = playlist.Id;
             App.Current.PersistSettings();
             BindFolders();
@@ -576,6 +590,7 @@ public sealed partial class LibraryPage : Page
         {
             _selectedPlaylistId = null;
             _showFavourites = false;
+            _showTrash = false;
             _selectedFolder = null;
         }
 
@@ -642,6 +657,18 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        if (_selectedPlaylistId is not null && !_showTrash)
+        {
+            App.Current.RemoveFromPlaylist(_selectedPlaylistId, entry.CanonicalPath);
+            ApplyFilter();
+            return;
+        }
+
+        if (_showTrash)
+        {
+            return;
+        }
+
         await TrashScoreAsync(entry);
     }
 
@@ -661,7 +688,8 @@ public sealed partial class LibraryPage : Page
         }
 
         ApplyFilter();
-        var moved = await Task.Run(() => ScoreTrash.TryMove(entry.DisplayFullPath, library, out _));
+        var playlistIds = PlaylistBook.IdsContaining(App.Current.Settings.Playlists, entry.CanonicalPath);
+        var moved = await Task.Run(() => ScoreTrash.TryMove(entry.DisplayFullPath, library, playlistIds, out _));
         if (!moved)
         {
             ShowCannotDelete();
@@ -669,13 +697,8 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        App.Current.ForgetDeletedScore(new PendingDeleteCommit(
-            Guid.Empty,
-            entry.CanonicalPath,
-            entry.DisplayFullPath,
-            entry.Length,
-            entry.LastWriteUtc,
-            Failed: false));
+        App.Current.TakePlaylistMembership(entry.CanonicalPath);
+        App.Current.Cache.Remove(entry.CanonicalPath);
         Reload(library);
     }
 
@@ -1059,8 +1082,15 @@ public sealed partial class LibraryPage : Page
                 FolderTree.RootNodes.Add(ToNode(item, defaultExpanded: true));
             }
 
+            var trash = new TreeViewNode { Content = new FolderMark("Trash", null, trash: true) };
+            FolderTree.RootNodes.Add(trash);
+
             TreeViewNode? match;
-            if (_showFavourites)
+            if (_showTrash)
+            {
+                match = FindTrashNode(FolderTree.RootNodes);
+            }
+            else if (_showFavourites)
             {
                 match = FindNode(FolderTree.RootNodes, key: null, favourites: true);
             }
@@ -1093,7 +1123,11 @@ public sealed partial class LibraryPage : Page
     private void RestoreSelectedNode()
     {
         TreeViewNode? match;
-        if (_showFavourites)
+        if (_showTrash)
+        {
+            match = FindTrashNode(FolderTree.RootNodes);
+        }
+        else if (_showFavourites)
         {
             match = FindNode(FolderTree.RootNodes, key: null, favourites: true);
         }
@@ -1163,7 +1197,7 @@ public sealed partial class LibraryPage : Page
     {
         foreach (var node in nodes)
         {
-            if (node.Content is FolderMark mark && !mark.Section && mark.PlaylistId is null)
+            if (node.Content is FolderMark mark && !mark.Section && !mark.Trash && mark.PlaylistId is null)
             {
                 if (favourites && mark.Favourites)
                 {
@@ -1207,6 +1241,25 @@ public sealed partial class LibraryPage : Page
         return null;
     }
 
+    private static TreeViewNode? FindTrashNode(IList<TreeViewNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Content is FolderMark { Trash: true })
+            {
+                return node;
+            }
+
+            var child = FindTrashNode(node.Children);
+            if (child is not null)
+            {
+                return child;
+            }
+        }
+
+        return null;
+    }
+
     private void ApplySelectedMark(FolderMark? mark)
     {
         if (mark?.Section == true)
@@ -1217,6 +1270,16 @@ public sealed partial class LibraryPage : Page
         if (mark?.Favourites == true)
         {
             _showFavourites = true;
+            _showTrash = false;
+            _selectedFolder = null;
+            _selectedPlaylistId = null;
+            return;
+        }
+
+        if (mark?.Trash == true)
+        {
+            _showFavourites = false;
+            _showTrash = true;
             _selectedFolder = null;
             _selectedPlaylistId = null;
             return;
@@ -1225,12 +1288,14 @@ public sealed partial class LibraryPage : Page
         if (mark?.PlaylistId is { } playlistId)
         {
             _showFavourites = false;
+            _showTrash = false;
             _selectedFolder = null;
             _selectedPlaylistId = playlistId;
             return;
         }
 
         _showFavourites = false;
+        _showTrash = false;
         _selectedFolder = mark?.Key;
         _selectedPlaylistId = null;
     }
@@ -1275,8 +1340,14 @@ public sealed partial class LibraryPage : Page
         SelectSort(settings.Sort);
         SyncSortDirectionIcon();
         _showFavourites = settings.ShowFavourites;
+        _showTrash = settings.ShowTrash;
         _selectedPlaylistId = settings.SelectedPlaylistId;
-        if (_selectedPlaylistId is not null)
+        if (_showTrash)
+        {
+            _showFavourites = false;
+            _selectedPlaylistId = null;
+        }
+        else if (_selectedPlaylistId is not null)
         {
             _showFavourites = false;
         }
@@ -1297,9 +1368,9 @@ public sealed partial class LibraryPage : Page
     private void ApplyFilter()
     {
         PersistSearchIfChanged();
-        var selected = _showFavourites || _selectedPlaylistId is not null ? null : CurrentFolderKey();
+        var selected = _showFavourites || _showTrash || _selectedPlaylistId is not null ? null : CurrentFolderKey();
         IReadOnlySet<string>? playlistPaths = null;
-        if (_selectedPlaylistId is not null)
+        if (!_showTrash && _selectedPlaylistId is not null)
         {
             var playlist = PlaylistBook.Find(App.Current.Settings.Playlists, _selectedPlaylistId);
             playlistPaths = playlist is null
@@ -1315,7 +1386,8 @@ public sealed partial class LibraryPage : Page
                 _showFavourites,
                 App.Current.Settings.Scores,
                 App.Current.PendingDeletes.CanonicalPaths,
-                playlistPaths),
+                playlistPaths,
+                trashOnly: _showTrash),
             App.Current.Settings.Sort,
             App.Current.Settings.Scores,
             App.Current.Settings.SortReversed);
@@ -1339,14 +1411,15 @@ public sealed partial class LibraryPage : Page
                 && card.Entry.Length == score.Length
                 && card.Entry.LastWriteUtc == score.LastWriteUtc
                 && card.Title == score.CardTitle
-                && card.Composer == score.CardComposer)
+                && card.Composer == score.CardComposer
+                && card.ShowRestore == _showTrash)
             {
                 card.IsFavourite = favourite;
                 next.Add(card);
             }
             else
             {
-                next.Add(new ScoreCard(score, favourite));
+                next.Add(new ScoreCard(score, favourite, _showTrash));
             }
         }
 
@@ -1450,6 +1523,61 @@ public sealed partial class LibraryPage : Page
     {
         SortDirectionIcon.Glyph = App.Current.Settings.SortReversed ? "\uE74A" : "\uE74B";
     }
+
+    private async void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not ScoreCard card)
+        {
+            return;
+        }
+
+        await RestoreScoreAsync(card.Entry);
+    }
+
+    private async Task RestoreScoreAsync(ScoreEntry entry)
+    {
+        var library = App.Current.Settings.LibraryPath;
+        if (string.IsNullOrWhiteSpace(library))
+        {
+            ShowCannotRestore();
+            return;
+        }
+
+        var fileName = Path.GetFileName(entry.DisplayFullPath);
+        string? restoredPath = null;
+        IReadOnlyList<string> playlistIds = [];
+        var ok = await Task.Run(() =>
+            ScoreTrash.TryRestore(library, fileName, out restoredPath, out playlistIds));
+        if (!ok || string.IsNullOrEmpty(restoredPath))
+        {
+            ShowCannotRestore();
+            Reload(library);
+            return;
+        }
+
+        var relative = Path.GetRelativePath(library, restoredPath);
+        var folder = Path.GetDirectoryName(relative) ?? string.Empty;
+        if (folder == ".")
+        {
+            folder = string.Empty;
+        }
+
+        var canonical = App.Current.ApplyCanonical(new ScoreEntry(
+            Path.GetFileNameWithoutExtension(restoredPath),
+            folder,
+            restoredPath,
+            restoredPath,
+            entry.Length,
+            entry.LastWriteUtc)).CanonicalPath;
+        App.Current.RestorePlaylistMembership(playlistIds, canonical);
+        Reload(library);
+    }
+
+    private void ShowCannotRestore()
+    {
+        ErrorLabel.Text = "Cannot restore this score";
+        ErrorLabel.Visibility = Visibility.Visible;
+    }
 }
 
 public sealed class ScoreCard : INotifyPropertyChanged
@@ -1457,17 +1585,21 @@ public sealed class ScoreCard : INotifyPropertyChanged
     private BitmapImage? _preview;
     private bool _favourite;
 
-    public ScoreCard(ScoreEntry entry, bool favourite)
+    public ScoreCard(ScoreEntry entry, bool favourite, bool restore = false)
     {
         Entry = entry;
         Title = entry.CardTitle;
         Composer = entry.CardComposer;
         _favourite = favourite;
+        ShowRestore = restore;
     }
 
     public ScoreEntry Entry { get; }
     public string Title { get; }
     public string Composer { get; }
+    public bool ShowRestore { get; }
+    public Visibility RestoreVisibility => ShowRestore ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility FavouriteVisibility => ShowRestore ? Visibility.Collapsed : Visibility.Visible;
     public int PreviewEpoch { get; set; }
     public string StarGlyph => _favourite ? "\uE735" : "\uE734";
     public Brush StarBrush => new SolidColorBrush(_favourite
@@ -1506,13 +1638,14 @@ public sealed class ScoreCard : INotifyPropertyChanged
 
 public sealed class FolderMark
 {
-    public FolderMark(string name, string? key, bool favourites = false, string? playlistId = null, bool section = false)
+    public FolderMark(string name, string? key, bool favourites = false, string? playlistId = null, bool section = false, bool trash = false)
     {
         Name = name;
         Key = key;
         Favourites = favourites;
         PlaylistId = playlistId;
         Section = section;
+        Trash = trash;
     }
 
     public string Name { get; }
@@ -1520,6 +1653,7 @@ public sealed class FolderMark
     public bool Favourites { get; }
     public string? PlaylistId { get; }
     public bool Section { get; }
+    public bool Trash { get; }
 
     public override string ToString() => Name;
 }

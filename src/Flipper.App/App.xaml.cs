@@ -169,6 +169,39 @@ public partial class App : Application
         return true;
     }
 
+    public IReadOnlyList<string> TakePlaylistMembership(string canonicalPath)
+    {
+        var ids = PlaylistBook.IdsContaining(Settings.Playlists, canonicalPath);
+        if (ids.Count == 0)
+        {
+            return ids;
+        }
+
+        PlaylistBook.RemovePath(Settings.Playlists, canonicalPath);
+        PersistPlaylists();
+        return ids;
+    }
+
+    public void RestorePlaylistMembership(IEnumerable<string> playlistIds, string canonicalPath)
+    {
+        var changed = false;
+        foreach (var id in playlistIds)
+        {
+            var playlist = PlaylistBook.Find(Settings.Playlists, id);
+            if (playlist is null || !PlaylistBook.AddScore(playlist, canonicalPath))
+            {
+                continue;
+            }
+
+            changed = true;
+        }
+
+        if (changed)
+        {
+            PersistPlaylists();
+        }
+    }
+
     public void ForgetDeletedScore(PendingDeleteCommit commit)
     {
         Cache.Remove(commit.CanonicalPath);

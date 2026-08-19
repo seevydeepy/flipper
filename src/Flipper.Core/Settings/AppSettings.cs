@@ -26,6 +26,7 @@ public sealed class AppSettings
     public bool SortReversed { get; set; }
     public string? SearchQuery { get; set; }
     public bool ShowFavourites { get; set; }
+    public bool ShowTrash { get; set; }
     public string? MicrophoneDeviceId { get; set; }
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -52,6 +53,11 @@ public sealed class AppSettings
             && Playlists.Count > 0
             && Playlists.All(playlist => !string.Equals(playlist.Id, SelectedPlaylistId, StringComparison.OrdinalIgnoreCase)))
         {
+            SelectedPlaylistId = null;
+        }
+        if (ShowTrash)
+        {
+            ShowFavourites = false;
             SelectedPlaylistId = null;
         }
         if (Sort == SortMode.Favourites)

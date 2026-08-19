@@ -13,10 +13,13 @@ public static class ScoreSearch
         bool favouritesOnly = false,
         IReadOnlyDictionary<string, ScoreStats>? stats = null,
         IReadOnlySet<string>? excludedCanonicalPaths = null,
-        IReadOnlySet<string>? playlistCanonicalPaths = null)
+        IReadOnlySet<string>? playlistCanonicalPaths = null,
+        bool trashOnly = false)
     {
         IReadOnlyList<ScoreEntry> list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
-        list = list.Where(score => !ScoreTrash.IsHiddenFolder(score.RelativeFolder)).ToArray();
+        list = trashOnly
+            ? list.Where(score => ScoreTrash.IsHiddenFolder(score.RelativeFolder)).ToArray()
+            : list.Where(score => !ScoreTrash.IsHiddenFolder(score.RelativeFolder)).ToArray();
         if (playlistCanonicalPaths is not null)
         {
             list = list
