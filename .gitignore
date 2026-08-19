@@ -4,3 +4,4 @@ obj/
 .vs/
 *.user
 *.suo
+/scripts/__pycache__
