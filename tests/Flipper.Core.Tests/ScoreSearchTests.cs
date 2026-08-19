@@ -156,4 +156,26 @@ public sealed class ScoreSearchTests
         Assert.DoesNotContain(result, score => score.CanonicalPath == Scores[0].CanonicalPath);
         Assert.Equal(2, result.Count);
     }
+
+    [Fact]
+    public void Filter_PlaylistPaths_KeepOnlySnapshotMatches()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Scores[0].CanonicalPath,
+            @"C:\lib\Missing.pdf"
+        };
+        var result = ScoreSearch.Filter(Scores, query: null, selectedFolder: null, playlistCanonicalPaths: paths);
+        var match = Assert.Single(result);
+        Assert.Equal(Scores[0].CanonicalPath, match.CanonicalPath);
+    }
+
+    [Fact]
+    public void Filter_Query_IgnoresPlaylistSet()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Scores[0].CanonicalPath };
+        var result = ScoreSearch.Filter(Scores, query: "noc", selectedFolder: "Bach", playlistCanonicalPaths: paths);
+        var match = Assert.Single(result);
+        Assert.Equal("Nocturne", match.DisplayName);
+    }
 }

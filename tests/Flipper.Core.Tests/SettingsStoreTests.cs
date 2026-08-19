@@ -1,3 +1,4 @@
+using Flipper.Core.Library;
 using Flipper.Core.Settings;
 
 namespace Flipper.Core.Tests;
@@ -66,6 +67,68 @@ public sealed class SettingsStoreTests
         settings.UiScalePercent = 0;
         settings.Normalize();
         Assert.Equal(100, settings.UiScalePercent);
+    }
+
+    [Fact]
+    public void SaveLoad_RoundTripsPlaylistsAndSelection()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            var store = new SettingsStore(path);
+            store.Save(new AppSettings
+            {
+                SelectedPlaylistId = "gig1",
+                Playlists =
+                [
+                    new Playlist
+                    {
+                        Id = "gig1",
+                        Name = "Gig",
+                        CanonicalPaths = [@"C:\lib\Air.pdf"]
+                    }
+                ]
+            });
+
+            var loaded = store.Load();
+            Assert.Equal("gig1", loaded.SelectedPlaylistId);
+            var playlist = Assert.Single(loaded.Playlists);
+            Assert.Equal("gig1", playlist.Id);
+            Assert.Equal("Gig", playlist.Name);
+            Assert.Equal(@"C:\lib\Air.pdf", Assert.Single(playlist.CanonicalPaths));
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void Normalize_DropsBlankPlaylistAndStaleSelection()
+    {
+        var settings = new AppSettings
+        {
+            SelectedPlaylistId = "gone",
+            Playlists =
+            [
+                new Playlist { Id = "", Name = "BlankId" },
+                new Playlist { Id = "keep", Name = "  " },
+                new Playlist
+                {
+                    Id = "keep",
+                    Name = "Keep",
+                    CanonicalPaths = [@"C:\lib\Air.pdf", @"c:\lib\air.pdf", @"C:\lib\Nocturne.pdf"]
+                }
+            ]
+        };
+
+        settings.Normalize();
+
+        var playlist = Assert.Single(settings.Playlists);
+        Assert.Equal("keep", playlist.Id);
+        Assert.Equal("Keep", playlist.Name);
+        Assert.Equal([@"C:\lib\Air.pdf", @"C:\lib\Nocturne.pdf"], playlist.CanonicalPaths);
+        Assert.Null(settings.SelectedPlaylistId);
     }
 
     private static void DeleteParent(string path)
