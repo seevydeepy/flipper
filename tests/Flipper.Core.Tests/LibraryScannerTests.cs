@@ -22,19 +22,19 @@ public sealed class LibraryScannerTests
     }
 
     [Fact]
-    public void Scan_SkipsTrashFolder()
+    public void Scan_IncludesTrashScores_AndOmitsTrashFolder()
     {
         using var root = new TempDir();
         File.WriteAllText(Path.Combine(root.Path, "Visible.pdf"), "a");
-        var trash = Path.Combine(root.Path, "trash");
+        var trash = Path.Combine(root.Path, ScoreTrash.FolderName);
         Directory.CreateDirectory(trash);
         File.WriteAllText(Path.Combine(trash, "Hidden.pdf"), "b");
 
         var snapshot = LibraryScanner.Scan(root.Path);
 
         Assert.Contains(snapshot.Scores, score => score.DisplayName == "Visible");
-        Assert.DoesNotContain(snapshot.Scores, score => score.DisplayName == "Hidden");
-        Assert.DoesNotContain(snapshot.Folders, folder => folder.Equals("trash", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(snapshot.Scores, score => score.DisplayName == "Hidden" && score.RelativeFolder == ScoreTrash.FolderName);
+        Assert.DoesNotContain(snapshot.Folders, folder => ScoreTrash.IsHiddenFolder(folder));
     }
 
     [Fact]

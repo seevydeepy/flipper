@@ -190,13 +190,28 @@ public sealed class ScoreSearchTests
     {
         var trashed = new ScoreEntry(
             "Nocturne",
-            "trash",
-            @"C:\lib\trash\Nocturne.pdf",
-            @"C:\lib\trash\Nocturne.pdf",
+            ".trash",
+            @"C:\lib\.trash\Nocturne.pdf",
+            @"C:\lib\.trash\Nocturne.pdf",
             1,
             DateTime.UtcNow);
         var result = ScoreSearch.Filter([..Scores, trashed], query: "noc", selectedFolder: null);
         var match = Assert.Single(result);
         Assert.Equal(Scores[2].CanonicalPath, match.CanonicalPath);
+    }
+
+    [Fact]
+    public void Filter_TrashOnly_KeepsTrashScores()
+    {
+        var trashed = new ScoreEntry(
+            "Nocturne",
+            ".trash",
+            @"C:\lib\.trash\Nocturne.pdf",
+            @"C:\lib\.trash\Nocturne.pdf",
+            1,
+            DateTime.UtcNow);
+        var result = ScoreSearch.Filter([..Scores, trashed], query: null, selectedFolder: null, trashOnly: true);
+        var match = Assert.Single(result);
+        Assert.Equal(trashed.CanonicalPath, match.CanonicalPath);
     }
 }
