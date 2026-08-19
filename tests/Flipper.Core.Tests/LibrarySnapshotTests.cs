@@ -39,6 +39,19 @@ public sealed class LibrarySnapshotTests
         Assert.True(left.SameMembership(right));
     }
 
+    [Fact]
+    public void Without_RemovesNamedPath_AndKeepsOthers()
+    {
+        var first = Entry("a", 10);
+        var second = Entry("b", 20);
+        var snapshot = new LibrarySnapshot(@"C:\lib", [first, second], true);
+
+        var next = snapshot.Without("A");
+
+        Assert.Equal("b", Assert.Single(next.Scores).CanonicalPath);
+        Assert.Equal(2, snapshot.Scores.Count);
+    }
+
     private static ScoreEntry Entry(string name, long length)
     {
         return new ScoreEntry(name, string.Empty, $@"C:\lib\{name}.pdf", name, length, DateTime.UnixEpoch);

@@ -147,4 +147,13 @@ public sealed class ScoreSearchTests
         var missing = ScoreSearch.Filter([named], query: "chopin prelude", selectedFolder: null);
         Assert.Empty(missing);
     }
+
+    [Fact]
+    public void Filter_ExcludedCanonicalPaths_AreDropped()
+    {
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Scores[0].CanonicalPath };
+        var result = ScoreSearch.Filter(Scores, query: null, selectedFolder: null, excludedCanonicalPaths: excluded);
+        Assert.DoesNotContain(result, score => score.CanonicalPath == Scores[0].CanonicalPath);
+        Assert.Equal(2, result.Count);
+    }
 }

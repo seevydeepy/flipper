@@ -45,4 +45,26 @@ public sealed class ScoreCacheTests
         Assert.Equal(ScoreCache.MaxEntries, cache.ListRecent().Count);
         Assert.False(cache.HasCopy(@"\\share\s0.pdf"));
     }
+
+    [Fact]
+    public void Remove_DropsIndexAndCacheFile_KeepsOthers()
+    {
+        using var live = new TempDir();
+        using var cacheDir = new TempDir();
+        var cache = new ScoreCache(cacheDir.Path);
+        var keepLive = Path.Combine(live.Path, "keep.pdf");
+        var dropLive = Path.Combine(live.Path, "drop.pdf");
+        File.WriteAllText(keepLive, "keep");
+        File.WriteAllText(dropLive, "drop");
+        var keepCanonical = @"\\share\keep.pdf";
+        var dropCanonical = @"\\share\drop.pdf";
+        Assert.NotNull(cache.TryOpen(keepCanonical, keepLive, keepLive, null));
+        Assert.NotNull(cache.TryOpen(dropCanonical, dropLive, dropLive, keepCanonical));
+
+        cache.Remove(dropCanonical);
+
+        Assert.True(cache.HasCopy(keepCanonical));
+        Assert.False(cache.HasCopy(dropCanonical));
+        Assert.Single(cache.ListRecent());
+    }
 }
