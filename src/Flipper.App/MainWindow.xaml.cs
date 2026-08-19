@@ -98,27 +98,30 @@ public sealed partial class MainWindow : Window
         var text = new TextBlock
         {
             Text = "Item Deleted.",
-            FontSize = 36,
+            FontSize = 20,
             FontWeight = FontWeights.SemiBold,
             Foreground = ink,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextWrapping = TextWrapping.Wrap
+            VerticalAlignment = VerticalAlignment.Center
         };
         var undo = new Button
         {
             Content = "Undo",
-            MinHeight = 56,
-            MinWidth = 140,
-            FontSize = 22,
-            Padding = new Thickness(20, 8, 20, 8),
-            VerticalAlignment = VerticalAlignment.Center
+            MinHeight = 40,
+            MinWidth = 96,
+            FontSize = 16,
+            Padding = new Thickness(16, 6, 16, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = gold,
+            Foreground = paper
         };
         undo.Click += (_, _) => Undo(id);
 
-        var row = new Grid { ColumnSpacing = 16 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(undo, 1);
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 16,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         row.Children.Add(text);
         row.Children.Add(undo);
 
@@ -127,9 +130,9 @@ public sealed partial class MainWindow : Window
             Background = paper,
             BorderBrush = gold,
             BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(16),
-            Padding = new Thickness(28, 22, 28, 22),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(16, 12, 16, 12),
+            HorizontalAlignment = HorizontalAlignment.Center,
             Child = row
         };
     }

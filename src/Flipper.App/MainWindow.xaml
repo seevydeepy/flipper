@@ -16,12 +16,12 @@
                     </TransitionCollection>
                 </Frame.ContentTransitions>
             </Frame>
-            <StackPanel
-                x:Name="ToastHost"
-                VerticalAlignment="Bottom"
-                HorizontalAlignment="Stretch"
-                Margin="32,0,32,40"
-                Spacing="16" />
         </Grid>
+        <StackPanel
+            x:Name="ToastHost"
+            VerticalAlignment="Top"
+            HorizontalAlignment="Center"
+            Margin="24,20,24,0"
+            Spacing="10" />
     </Grid>
 </Window>
