@@ -6,6 +6,7 @@ public sealed class VoiceCommandTests
 {
     [Theory]
     [InlineData("flip", VoiceCommand.Next)]
+    [InlineData("turn", VoiceCommand.Next)]
     [InlineData("next", VoiceCommand.Next)]
     [InlineData("page", VoiceCommand.Next)]
     [InlineData("next page", VoiceCommand.Next)]
@@ -37,7 +38,6 @@ public sealed class VoiceCommandTests
     [Fact]
     public void Parse_PrunedNearWords_AreNone()
     {
-        Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("turn"));
         Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("end"));
         Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("start"));
         Assert.Equal(VoiceCommand.None, VoiceCommandParser.Parse("begin"));
