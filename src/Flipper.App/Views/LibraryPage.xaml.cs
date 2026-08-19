@@ -605,32 +605,11 @@ public sealed partial class LibraryPage : Page
     private void ShowTrashDrop()
     {
         TrashDrop.Visibility = Visibility.Visible;
-        TrashDrop.UpdateLayout();
-        MakeTrashSquare();
     }
 
     private void HideTrashDrop()
     {
         TrashDrop.Visibility = Visibility.Collapsed;
-        TrashDrop.Height = double.NaN;
-    }
-
-    private void TrashDrop_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        MakeTrashSquare();
-    }
-
-    private void MakeTrashSquare()
-    {
-        if (TrashDrop.Visibility != Visibility.Visible || TrashDrop.ActualWidth <= 0)
-        {
-            return;
-        }
-
-        if (double.IsNaN(TrashDrop.Height) || Math.Abs(TrashDrop.Height - TrashDrop.ActualWidth) > 0.5)
-        {
-            TrashDrop.Height = TrashDrop.ActualWidth;
-        }
     }
 
     private void TrashDrop_DragOver(object sender, DragEventArgs e)

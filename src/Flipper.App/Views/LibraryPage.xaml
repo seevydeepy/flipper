@@ -9,6 +9,11 @@
     Background="{StaticResource PaperBrush}">
     <Grid>
         <controls:ManuscriptBackdrop />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="120" />
+            </Grid.ColumnDefinitions>
         <Grid Padding="20" RowSpacing="14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -115,7 +120,6 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Button
                         x:Name="AddPlaylistButton"
@@ -157,35 +161,6 @@
                             AutomationProperties.Name="Delete playlist">
                             <FontIcon Glyph="&#xE74D;" FontSize="16" />
                         </Button>
-                    </Grid>
-                    <Grid
-                        x:Name="TrashDrop"
-                        Grid.Row="2"
-                        Margin="0,12,0,0"
-                        AllowDrop="True"
-                        Visibility="Collapsed"
-                        DragOver="TrashDrop_DragOver"
-                        Drop="TrashDrop_Drop"
-                        SizeChanged="TrashDrop_SizeChanged"
-                        AutomationProperties.Name="Trash">
-                        <Rectangle
-                            RadiusX="12"
-                            RadiusY="12"
-                            Fill="#F5C6C6"
-                            Stroke="#C62828"
-                            StrokeThickness="2"
-                            StrokeDashArray="6,4" />
-                        <Viewbox
-                            MaxWidth="72"
-                            MaxHeight="72"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center">
-                            <Path
-                                Width="24"
-                                Height="24"
-                                Fill="#C62828"
-                                Data="M9,3 H15 L16,5 H21 V7 H3 V5 H8 Z M6,8 H18 L16.8,22 H7.2 Z" />
-                        </Viewbox>
                     </Grid>
                 </Grid>
 
@@ -291,12 +266,38 @@
                 Foreground="{StaticResource InkBrush}"
                 Visibility="Collapsed" />
         </Grid>
+        <Grid
+            x:Name="TrashDrop"
+            Grid.Column="1"
+            AllowDrop="True"
+            Visibility="Collapsed"
+            DragOver="TrashDrop_DragOver"
+            Drop="TrashDrop_Drop"
+            AutomationProperties.Name="Trash">
+            <Rectangle
+                Fill="#F5C6C6"
+                Stroke="#C62828"
+                StrokeThickness="2"
+                StrokeDashArray="6,4" />
+            <Viewbox
+                MaxWidth="56"
+                MaxHeight="56"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+                <Path
+                    Width="24"
+                    Height="24"
+                    Fill="#C62828"
+                    Data="M9,3 H15 L16,5 H21 V7 H3 V5 H8 Z M6,8 H18 L16.8,22 H7.2 Z" />
+            </Viewbox>
+        </Grid>
+        </Grid>
         <Button
             x:Name="SettingsButton"
             Style="{StaticResource QuietButton}"
             HorizontalAlignment="Right"
             VerticalAlignment="Top"
-            Margin="12"
+            Margin="12,12,132,12"
             Padding="8"
             MinWidth="40"
             MinHeight="40"
