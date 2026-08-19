@@ -608,24 +608,59 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        var favourite = new AppBarButton { Tag = card };
-        AutomationProperties.SetName(favourite, "Favourite");
-        favourite.Icon = new FontIcon
-        {
-            Glyph = card.StarGlyph,
-            Foreground = card.StarBrush
-        };
-        favourite.Click += Favourite_Click;
+        var ink = (Brush)Application.Current.Resources["InkBrush"];
+        var paper = (Brush)Application.Current.Resources["CardBrush"];
+        var goldSoft = (Brush)Application.Current.Resources["GoldSoftBrush"];
+        var flyout = new Flyout();
+        var favourite = IconAction(card, card.StarGlyph, card.StarBrush, "Favourite", Favourite_Click, flyout);
+        var delete = IconAction(card, "\uE74D", ink, "Delete", Delete_Click, flyout);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        row.Children.Add(favourite);
+        row.Children.Add(delete);
 
-        var delete = new AppBarButton { Tag = card };
-        AutomationProperties.SetName(delete, "Delete");
-        delete.Icon = new FontIcon { Glyph = "\uE74D" };
-        delete.Click += Delete_Click;
+        var presenter = new Style(typeof(FlyoutPresenter));
+        presenter.Setters.Add(new Setter(Control.BackgroundProperty, paper));
+        presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6)));
+        presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(12)));
+        presenter.Setters.Add(new Setter(Control.BorderBrushProperty, goldSoft));
+        presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+        presenter.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, ElementTheme.Light));
 
-        var flyout = new CommandBarFlyout();
-        flyout.PrimaryCommands.Add(favourite);
-        flyout.PrimaryCommands.Add(delete);
+        flyout.Content = row;
+        flyout.FlyoutPresenterStyle = presenter;
         flyout.ShowAt(element);
+    }
+
+    private static Button IconAction(
+        ScoreCard card,
+        string glyph,
+        Brush foreground,
+        string name,
+        RoutedEventHandler click,
+        Flyout flyout)
+    {
+        var button = new Button
+        {
+            Tag = card,
+            Style = (Style)Application.Current.Resources["QuietButton"],
+            Padding = new Thickness(10),
+            MinWidth = 40,
+            MinHeight = 40,
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+            Content = new FontIcon
+            {
+                Glyph = glyph,
+                Foreground = foreground,
+                FontSize = 16
+            }
+        };
+        AutomationProperties.SetName(button, name);
+        button.Click += (sender, args) =>
+        {
+            click(sender, args);
+            flyout.Hide();
+        };
+        return button;
     }
 
     private void ArmSuppressItemClick()
