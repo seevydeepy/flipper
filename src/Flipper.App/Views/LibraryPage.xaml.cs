@@ -57,6 +57,7 @@ public sealed partial class LibraryPage : Page
     private bool _bindingFolders;
     private bool _suppressItemClick;
     private string? _openingCanonical;
+    private Grid? _settingsOverlay;
 
     public LibraryPage()
     {
@@ -149,6 +150,7 @@ public sealed partial class LibraryPage : Page
         ExitAssignment();
         _scanEpoch++;
         _scanAgain = false;
+        CloseSettings();
         _watcher.Dispose();
         _refreshTimer.Stop();
         _searchTimer.Stop();
@@ -352,68 +354,80 @@ public sealed partial class LibraryPage : Page
         panel.Children.Add(status);
         panel.Children.Add(install);
 
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Content = panel,
-            RequestedTheme = ElementTheme.Light
-        };
-        var title = CreateSettingsTitle(check, dialog.Hide);
-        dialog.Title = title;
-        dialog.Opened += (_, _) =>
-        {
-            FitSettingsTitle(dialog, title);
-            EnableSettingsLightDismiss(dialog);
-        };
-        if (panel is FrameworkElement content)
-        {
-            content.SizeChanged += (_, _) => FitSettingsTitle(dialog, title);
-        }
-        await dialog.ShowAsync();
+        var title = CreateSettingsTitle(check, CloseSettings);
+        ShowSettingsOverlay(title, panel);
     }
 
-    private static void FitSettingsTitle(ContentDialog dialog, FrameworkElement titleBar)
+    private void CloseSettings()
     {
-        if (dialog.Content is FrameworkElement content && content.ActualWidth > 0)
+        if (_settingsOverlay?.Parent is Panel parent)
         {
-            titleBar.Width = content.ActualWidth;
+            parent.Children.Remove(_settingsOverlay);
         }
+
+        _settingsOverlay = null;
     }
 
-    private static void EnableSettingsLightDismiss(ContentDialog dialog)
+    private void ShowSettingsOverlay(FrameworkElement title, FrameworkElement body)
     {
-        var smoke = FindNamedDescendant(dialog, "SmokeLayerBackground");
-        if (smoke is null)
+        CloseSettings();
+        if (Content is not Panel root)
         {
             return;
         }
 
-        smoke.Tapped += (_, args) =>
+        var layout = new Grid { RowSpacing = 12 };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.Children.Add(title);
+        Grid.SetRow(body, 1);
+        layout.Children.Add(body);
+
+        var card = new Border
         {
-            args.Handled = true;
-            dialog.Hide();
+            Background = (Brush)Application.Current.Resources["CardBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["GoldSoftBrush"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(24),
+            MinWidth = 320,
+            MaxWidth = 548,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = layout
         };
-    }
+        card.Tapped += (_, args) => args.Handled = true;
 
-    private static FrameworkElement? FindNamedDescendant(DependencyObject root, string name)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
+        var overlay = new Grid
         {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is FrameworkElement element && element.Name == name)
+            Background = new SolidColorBrush(Color.FromArgb(0x99, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            IsTabStop = true
+        };
+        overlay.Children.Add(card);
+        overlay.Tapped += (_, _) => CloseSettings();
+        overlay.KeyDown += (_, args) =>
+        {
+            if (args.Key != VirtualKey.Escape)
             {
-                return element;
+                return;
             }
 
-            var match = FindNamedDescendant(child, name);
-            if (match is not null)
+            args.Handled = true;
+            CloseSettings();
+        };
+        body.SizeChanged += (_, _) =>
+        {
+            if (body.ActualWidth > 0)
             {
-                return match;
+                title.Width = body.ActualWidth;
             }
-        }
+        };
 
-        return null;
+        _settingsOverlay = overlay;
+        root.Children.Add(overlay);
+        overlay.Focus(FocusState.Programmatic);
     }
 
     private static FrameworkElement CreateSettingsTitle(Button check, Action close)
