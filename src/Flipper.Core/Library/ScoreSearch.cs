@@ -12,12 +12,19 @@ public static class ScoreSearch
         string? selectedFolder,
         bool favouritesOnly = false,
         IReadOnlyDictionary<string, ScoreStats>? stats = null,
-        IReadOnlySet<string>? excludedCanonicalPaths = null)
+        IReadOnlySet<string>? excludedCanonicalPaths = null,
+        IReadOnlySet<string>? playlistCanonicalPaths = null)
     {
         IReadOnlyList<ScoreEntry> list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
         if (!string.IsNullOrWhiteSpace(query))
         {
             list = list.Where(score => Matches(score, query)).ToArray();
+        }
+        else if (playlistCanonicalPaths is not null)
+        {
+            list = list
+                .Where(score => playlistCanonicalPaths.Contains(score.CanonicalPath))
+                .ToArray();
         }
         else if (selectedFolder is not null)
         {
@@ -31,7 +38,7 @@ public static class ScoreSearch
                 .ToArray();
         }
 
-        if (favouritesOnly)
+        if (favouritesOnly && playlistCanonicalPaths is null)
         {
             list = list
                 .Where(score =>

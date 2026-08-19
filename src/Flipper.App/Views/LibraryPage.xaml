@@ -113,16 +113,44 @@
 
                 <Grid Grid.Row="1" Padding="14,22,14,14">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <TreeView
-                        x:Name="FolderTree"
-                        SelectionMode="Single"
-                        ItemInvoked="FolderTree_ItemInvoked" />
+                    <Button
+                        x:Name="AddPlaylistButton"
+                        Content="Add Playlist"
+                        HorizontalAlignment="Stretch"
+                        Margin="0,0,0,12"
+                        Click="AddPlaylist_Click" />
+                    <Grid x:Name="PlaylistDeleteHost" Grid.Row="1">
+                        <TreeView
+                            x:Name="FolderTree"
+                            SelectionMode="Single"
+                            ItemInvoked="FolderTree_ItemInvoked"
+                            IsHoldingEnabled="True"
+                            Holding="FolderTree_Holding"
+                            RightTapped="FolderTree_RightTapped"
+                            AllowDrop="True"
+                            DragOver="FolderTree_DragOver"
+                            Drop="FolderTree_Drop" />
+                        <Button
+                            x:Name="DeletePlaylistButton"
+                            Style="{StaticResource QuietButton}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Padding="4"
+                            MinWidth="32"
+                            MinHeight="32"
+                            Visibility="Collapsed"
+                            Click="DeletePlaylist_Click"
+                            AutomationProperties.Name="Delete playlist">
+                            <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                        </Button>
+                    </Grid>
                     <Button
                         x:Name="ChooseFolderButton"
-                        Grid.Row="1"
+                        Grid.Row="2"
                         Content="Choose Folder"
                         HorizontalAlignment="Stretch"
                         Margin="0,12,0,0"
@@ -170,6 +198,8 @@
                                         BorderBrush="{StaticResource GoldSoftBrush}"
                                         BorderThickness="1"
                                         CornerRadius="12"
+                                        CanDrag="True"
+                                        DragStarting="ScoreCard_DragStarting"
                                         IsHoldingEnabled="True"
                                         Holding="ScoreCard_Holding"
                                         RightTapped="ScoreCard_RightTapped"

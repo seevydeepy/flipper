@@ -74,10 +74,62 @@ public partial class App : Application
         PersistSettings();
     }
 
+    public Playlist? TryCreatePlaylist(string name)
+    {
+        if (!PlaylistBook.TryCreate(Settings.Playlists, name, out var playlist))
+        {
+            return null;
+        }
+
+        PersistSettings();
+        return playlist;
+    }
+
+    public bool AddToPlaylist(string playlistId, string canonicalPath)
+    {
+        var playlist = PlaylistBook.Find(Settings.Playlists, playlistId);
+        if (playlist is null || !PlaylistBook.AddScore(playlist, canonicalPath))
+        {
+            return false;
+        }
+
+        PersistSettings();
+        return true;
+    }
+
+    public bool RemoveFromPlaylist(string playlistId, string canonicalPath)
+    {
+        var playlist = PlaylistBook.Find(Settings.Playlists, playlistId);
+        if (playlist is null || !PlaylistBook.RemoveScore(playlist, canonicalPath))
+        {
+            return false;
+        }
+
+        PersistSettings();
+        return true;
+    }
+
+    public bool DeletePlaylist(string playlistId)
+    {
+        if (!PlaylistBook.Delete(Settings.Playlists, playlistId))
+        {
+            return false;
+        }
+
+        if (string.Equals(Settings.SelectedPlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.SelectedPlaylistId = null;
+        }
+
+        PersistSettings();
+        return true;
+    }
+
     public void ForgetDeletedScore(PendingDeleteCommit commit)
     {
         Cache.Remove(commit.CanonicalPath);
         Settings.Scores.Remove(commit.CanonicalPath);
+        PlaylistBook.RemovePath(Settings.Playlists, commit.CanonicalPath);
         if (string.Equals(Settings.LastScoreCanonicalPath, commit.CanonicalPath, StringComparison.OrdinalIgnoreCase))
         {
             Settings.LastScoreCanonicalPath = null;

@@ -14,6 +14,8 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
 using Windows.UI;
 
 namespace Flipper.App.Views;
@@ -22,6 +24,7 @@ public sealed partial class LibraryPage : Page
 {
     private const double CardSlot = 192;
     private const int PreviewDecodeWidth = 180;
+    private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
 
     private readonly LibraryWatcher _watcher = new();
     private readonly ResettableCollection<ScoreCard> _cards = new();
@@ -36,6 +39,8 @@ public sealed partial class LibraryPage : Page
     private string? _scanPath;
     private string? _watchedPath;
     private string? _selectedFolder;
+    private string? _selectedPlaylistId;
+    private string? _armedPlaylistId;
     private bool _showFavourites;
     private bool _hydrating;
     private bool _suppressItemClick;
@@ -231,9 +236,12 @@ public sealed partial class LibraryPage : Page
         }
 
         App.Current.Settings.LibraryPath = result.Path;
+        _selectedFolder = null;
+        _selectedPlaylistId = null;
+        App.Current.Settings.SelectedPlaylistId = null;
         App.Current.PersistSettings();
         App.Current.LastSnapshot = null;
-        _selectedFolder = null;
+        HidePlaylistDelete();
         _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), true);
         FolderTree.RootNodes.Clear();
         _cards.Clear();
@@ -260,16 +268,247 @@ public sealed partial class LibraryPage : Page
         {
             _showFavourites = true;
             _selectedFolder = null;
+            _selectedPlaylistId = null;
+        }
+        else if (mark?.PlaylistId is { } playlistId)
+        {
+            _showFavourites = false;
+            _selectedFolder = null;
+            _selectedPlaylistId = playlistId;
         }
         else
         {
             _showFavourites = false;
             _selectedFolder = FolderKey(args.InvokedItem);
+            _selectedPlaylistId = null;
+        }
+
+        if (_armedPlaylistId is null
+            || !string.Equals(_armedPlaylistId, mark?.PlaylistId, StringComparison.OrdinalIgnoreCase))
+        {
+            HidePlaylistDelete();
         }
 
         App.Current.Settings.ShowFavourites = _showFavourites;
+        App.Current.Settings.SelectedPlaylistId = _selectedPlaylistId;
         App.Current.PersistSettings();
         ApplyFilter();
+    }
+
+    private async void AddPlaylist_Click(object sender, RoutedEventArgs e)
+    {
+        var box = new TextBox { PlaceholderText = "Name" };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Add Playlist",
+            Content = box,
+            PrimaryButtonText = "Add",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            RequestedTheme = ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            var playlist = App.Current.TryCreatePlaylist(box.Text ?? string.Empty);
+            if (playlist is null)
+            {
+                args.Cancel = true;
+                return;
+            }
+
+            _showFavourites = false;
+            _selectedFolder = null;
+            _selectedPlaylistId = playlist.Id;
+            App.Current.Settings.ShowFavourites = false;
+            App.Current.Settings.SelectedPlaylistId = playlist.Id;
+            BindFolders();
+            ApplyFilter();
+        };
+        await dialog.ShowAsync();
+    }
+
+    private void FolderTree_Holding(object sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Completed)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        ArmPlaylistDelete(e.OriginalSource as DependencyObject);
+    }
+
+    private void FolderTree_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        ArmPlaylistDelete(e.OriginalSource as DependencyObject);
+    }
+
+    private void ArmPlaylistDelete(DependencyObject? source)
+    {
+        var node = NodeFromSource(source);
+        if (node?.Content is not FolderMark { PlaylistId: { } id })
+        {
+            HidePlaylistDelete();
+            return;
+        }
+
+        _armedPlaylistId = id;
+        DeletePlaylistButton.Visibility = Visibility.Visible;
+        DispatcherQueue.TryEnqueue(() => PositionArmedDelete(node));
+    }
+
+    private void PositionArmedDelete(TreeViewNode node)
+    {
+        if (_armedPlaylistId is null || DeletePlaylistButton.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        if (FolderTree.ContainerFromNode(node) is not TreeViewItem item)
+        {
+            DeletePlaylistButton.Margin = new Thickness(0);
+            return;
+        }
+
+        var point = item.TransformToVisual(PlaylistDeleteHost).TransformPoint(new Point(0, 0));
+        var top = point.Y + Math.Max(0, (item.ActualHeight - DeletePlaylistButton.ActualHeight) / 2);
+        DeletePlaylistButton.Margin = new Thickness(0, top, 0, 0);
+    }
+
+    private void HidePlaylistDelete()
+    {
+        _armedPlaylistId = null;
+        DeletePlaylistButton.Visibility = Visibility.Collapsed;
+        DeletePlaylistButton.Margin = new Thickness(0);
+    }
+
+    private async void DeletePlaylist_Click(object sender, RoutedEventArgs e)
+    {
+        if (_armedPlaylistId is null)
+        {
+            return;
+        }
+
+        var playlist = PlaylistBook.Find(App.Current.Settings.Playlists, _armedPlaylistId);
+        if (playlist is null)
+        {
+            HidePlaylistDelete();
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Delete playlist?",
+            Content = playlist.Name,
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            RequestedTheme = ElementTheme.Light
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var id = playlist.Id;
+        App.Current.DeletePlaylist(id);
+        if (string.Equals(_selectedPlaylistId, id, StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedPlaylistId = null;
+            _showFavourites = false;
+            _selectedFolder = null;
+        }
+
+        HidePlaylistDelete();
+        BindFolders();
+        ApplyFilter();
+    }
+
+    private void ScoreCard_DragStarting(UIElement sender, DragStartingEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ScoreCard card })
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        e.Data.SetData(ScoreDragFormat, card.Entry.CanonicalPath);
+        e.AllowedOperations = DataPackageOperation.Copy;
+    }
+
+    private void FolderTree_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = PlaylistNodeFromPoint(e.GetPosition(FolderTree)) is not null
+            && e.DataView.Contains(ScoreDragFormat)
+            ? DataPackageOperation.Copy
+            : DataPackageOperation.None;
+        e.Handled = true;
+    }
+
+    private async void FolderTree_Drop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        var node = PlaylistNodeFromPoint(e.GetPosition(FolderTree));
+        if (node?.Content is not FolderMark { PlaylistId: { } id } || !e.DataView.Contains(ScoreDragFormat))
+        {
+            return;
+        }
+
+        var raw = await e.DataView.GetDataAsync(ScoreDragFormat);
+        if (raw is not string path || string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        if (!App.Current.AddToPlaylist(id, path))
+        {
+            return;
+        }
+
+        if (string.Equals(_selectedPlaylistId, id, StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyFilter();
+        }
+    }
+
+    private TreeViewNode? PlaylistNodeFromPoint(Point point)
+    {
+        var node = NodeFromPoint(point);
+        return node?.Content is FolderMark { PlaylistId: not null } ? node : null;
+    }
+
+    private TreeViewNode? NodeFromPoint(Point point)
+    {
+        var hostPoint = FolderTree.TransformToVisual(null).TransformPoint(point);
+        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(hostPoint, FolderTree))
+        {
+            var node = NodeFromSource(element);
+            if (node is not null)
+            {
+                return node;
+            }
+        }
+
+        return null;
+    }
+
+    private TreeViewNode? NodeFromSource(DependencyObject? start)
+    {
+        var current = start;
+        while (current is not null)
+        {
+            if (current is TreeViewItem item)
+            {
+                return FolderTree.NodeFromContainer(item);
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
     }
 
     private void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -314,6 +553,13 @@ public sealed partial class LibraryPage : Page
     {
         if (sender is not FrameworkElement element || element.Tag is not ScoreCard card)
         {
+            return;
+        }
+
+        if (_selectedPlaylistId is not null)
+        {
+            App.Current.RemoveFromPlaylist(_selectedPlaylistId, card.Entry.CanonicalPath);
+            ApplyFilter();
             return;
         }
 
@@ -567,12 +813,23 @@ public sealed partial class LibraryPage : Page
 
     private void BindFolders()
     {
-        var previous = _selectedFolder;
+        HidePlaylistDelete();
+        var previousFolder = _selectedFolder;
+        var previousPlaylist = _selectedPlaylistId;
         FolderTree.RootNodes.Clear();
         var all = new TreeViewNode { Content = new FolderMark("All", null) };
         var favourites = new TreeViewNode { Content = new FolderMark("Favourites", null, favourites: true) };
         FolderTree.RootNodes.Add(all);
         FolderTree.RootNodes.Add(favourites);
+        foreach (var playlist in App.Current.Settings.Playlists
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            FolderTree.RootNodes.Add(new TreeViewNode
+            {
+                Content = new FolderMark(playlist.Name, null, playlistId: playlist.Id)
+            });
+        }
+
         if (_snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder)))
         {
             FolderTree.RootNodes.Add(new TreeViewNode { Content = new FolderMark("\\", string.Empty) });
@@ -583,20 +840,22 @@ public sealed partial class LibraryPage : Page
             FolderTree.RootNodes.Add(ToNode(item, expand: true));
         }
 
-        var match = _showFavourites
-            ? FindNode(FolderTree.RootNodes, key: null, favourites: true)
-            : FindNode(FolderTree.RootNodes, previous, favourites: false);
-        FolderTree.SelectedNode = match ?? all;
-        if (FolderTree.SelectedNode?.Content is FolderMark selected && selected.Favourites)
+        TreeViewNode? match;
+        if (_showFavourites)
         {
-            _showFavourites = true;
-            _selectedFolder = null;
+            match = FindNode(FolderTree.RootNodes, key: null, favourites: true);
+        }
+        else if (previousPlaylist is not null)
+        {
+            match = FindPlaylistNode(FolderTree.RootNodes, previousPlaylist);
         }
         else
         {
-            _showFavourites = false;
-            _selectedFolder = FolderKey(FolderTree.SelectedNode);
+            match = FindNode(FolderTree.RootNodes, previousFolder, favourites: false);
         }
+
+        FolderTree.SelectedNode = match ?? all;
+        ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
     }
 
     private static TreeViewNode ToNode(FolderItem item, bool expand)
@@ -618,7 +877,7 @@ public sealed partial class LibraryPage : Page
     {
         foreach (var node in nodes)
         {
-            if (node.Content is FolderMark mark)
+            if (node.Content is FolderMark mark && mark.PlaylistId is null)
             {
                 if (favourites && mark.Favourites)
                 {
@@ -640,6 +899,49 @@ public sealed partial class LibraryPage : Page
         }
 
         return null;
+    }
+
+    private static TreeViewNode? FindPlaylistNode(IList<TreeViewNode> nodes, string id)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Content is FolderMark mark
+                && string.Equals(mark.PlaylistId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                return node;
+            }
+
+            var child = FindPlaylistNode(node.Children, id);
+            if (child is not null)
+            {
+                return child;
+            }
+        }
+
+        return null;
+    }
+
+    private void ApplySelectedMark(FolderMark? mark)
+    {
+        if (mark?.Favourites == true)
+        {
+            _showFavourites = true;
+            _selectedFolder = null;
+            _selectedPlaylistId = null;
+            return;
+        }
+
+        if (mark?.PlaylistId is { } playlistId)
+        {
+            _showFavourites = false;
+            _selectedFolder = null;
+            _selectedPlaylistId = playlistId;
+            return;
+        }
+
+        _showFavourites = false;
+        _selectedFolder = mark?.Key;
+        _selectedPlaylistId = null;
     }
 
     private static string? FolderKey(object? item)
@@ -682,6 +984,11 @@ public sealed partial class LibraryPage : Page
         SelectSort(settings.Sort);
         SyncSortDirectionIcon();
         _showFavourites = settings.ShowFavourites;
+        _selectedPlaylistId = settings.SelectedPlaylistId;
+        if (_selectedPlaylistId is not null)
+        {
+            _showFavourites = false;
+        }
     }
 
     private void PersistSearchIfChanged()
@@ -699,7 +1006,16 @@ public sealed partial class LibraryPage : Page
     private void ApplyFilter()
     {
         PersistSearchIfChanged();
-        var selected = _showFavourites ? null : CurrentFolderKey();
+        var selected = _showFavourites || _selectedPlaylistId is not null ? null : CurrentFolderKey();
+        IReadOnlySet<string>? playlistPaths = null;
+        if (_selectedPlaylistId is not null)
+        {
+            var playlist = PlaylistBook.Find(App.Current.Settings.Playlists, _selectedPlaylistId);
+            playlistPaths = playlist is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : playlist.CanonicalPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
         var rows = ScoreSearch.Sort(
             ScoreSearch.Filter(
                 _snapshot.Scores,
@@ -707,7 +1023,8 @@ public sealed partial class LibraryPage : Page
                 selected,
                 _showFavourites,
                 App.Current.Settings.Scores,
-                App.Current.PendingDeletes.CanonicalPaths),
+                App.Current.PendingDeletes.CanonicalPaths,
+                playlistPaths),
             App.Current.Settings.Sort,
             App.Current.Settings.Scores,
             App.Current.Settings.SortReversed);
@@ -898,16 +1215,18 @@ public sealed class ScoreCard : INotifyPropertyChanged
 
 public sealed class FolderMark
 {
-    public FolderMark(string name, string? key, bool favourites = false)
+    public FolderMark(string name, string? key, bool favourites = false, string? playlistId = null)
     {
         Name = name;
         Key = key;
         Favourites = favourites;
+        PlaylistId = playlistId;
     }
 
     public string Name { get; }
     public string? Key { get; }
     public bool Favourites { get; }
+    public string? PlaylistId { get; }
 
     public override string ToString() => Name;
 }

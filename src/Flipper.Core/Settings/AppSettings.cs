@@ -1,3 +1,5 @@
+using Flipper.Core.Library;
+
 namespace Flipper.Core.Settings;
 
 public enum SortMode
@@ -27,6 +29,8 @@ public sealed class AppSettings
     public string? MicrophoneDeviceId { get; set; }
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<Playlist> Playlists { get; set; } = new();
+    public string? SelectedPlaylistId { get; set; }
 
     public const int DefaultUiScalePercent = 100;
     public static readonly int[] UiScaleStops = new[] { 75, 100, 125, 150, 200 };
@@ -34,8 +38,18 @@ public sealed class AppSettings
     public void Normalize()
     {
         Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
+        Playlists ??= new List<Playlist>();
         SearchQuery ??= string.Empty;
         UiScalePercent = SnapUiScalePercent(UiScalePercent);
+        Playlists = Playlists
+            .Where(playlist => !string.IsNullOrWhiteSpace(playlist.Id) && !string.IsNullOrWhiteSpace(playlist.Name))
+            .Select(DistinctPaths)
+            .ToList();
+        if (SelectedPlaylistId is not null
+            && Playlists.All(playlist => !string.Equals(playlist.Id, SelectedPlaylistId, StringComparison.OrdinalIgnoreCase)))
+        {
+            SelectedPlaylistId = null;
+        }
         if (Sort == SortMode.Favourites)
         {
             ShowFavourites = true;
@@ -79,5 +93,15 @@ public sealed class AppSettings
         }
 
         return stats;
+    }
+
+    private static Playlist DistinctPaths(Playlist playlist)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        playlist.CanonicalPaths ??= new List<string>();
+        playlist.CanonicalPaths = playlist.CanonicalPaths
+            .Where(path => !string.IsNullOrEmpty(path) && seen.Add(path))
+            .ToList();
+        return playlist;
     }
 }
