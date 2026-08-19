@@ -29,12 +29,15 @@ public sealed class ScoreSearchTests
     }
 
     [Fact]
-    public void Filter_WithQuery_MatchesFileNameAndIgnoresFolder()
+    public void Filter_WithQuery_StaysInSelectedFolder()
     {
-        var result = ScoreSearch.Filter(Scores, query: "noc", selectedFolder: "Bach");
-        var match = Assert.Single(result);
-        Assert.Equal("Nocturne", match.DisplayName);
-        Assert.Equal("Chopin", match.RelativeFolder);
+        var outside = ScoreSearch.Filter(Scores, query: "noc", selectedFolder: "Bach");
+        Assert.Empty(outside);
+
+        var inside = ScoreSearch.Filter(Scores, query: "pre", selectedFolder: "Bach");
+        var match = Assert.Single(inside);
+        Assert.Equal("Prelude", match.DisplayName);
+        Assert.Equal("Bach", match.RelativeFolder);
     }
 
     [Fact]
@@ -171,11 +174,14 @@ public sealed class ScoreSearchTests
     }
 
     [Fact]
-    public void Filter_Query_IgnoresPlaylistSet()
+    public void Filter_Query_StaysInPlaylist()
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Scores[0].CanonicalPath };
-        var result = ScoreSearch.Filter(Scores, query: "noc", selectedFolder: "Bach", playlistCanonicalPaths: paths);
-        var match = Assert.Single(result);
-        Assert.Equal("Nocturne", match.DisplayName);
+        var outside = ScoreSearch.Filter(Scores, query: "noc", selectedFolder: null, playlistCanonicalPaths: paths);
+        Assert.Empty(outside);
+
+        var inside = ScoreSearch.Filter(Scores, query: "air", selectedFolder: null, playlistCanonicalPaths: paths);
+        var match = Assert.Single(inside);
+        Assert.Equal(Scores[0].CanonicalPath, match.CanonicalPath);
     }
 }
