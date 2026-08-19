@@ -1434,7 +1434,7 @@ public sealed partial class LibraryPage : Page
 
     private static TreeViewNode SectionNode(string name)
     {
-        return new TreeViewNode { Content = new FolderMark(name, null, section: true) };
+        return new TreeViewNode { Content = new FolderMark(name.ToUpperInvariant(), null, section: true) };
     }
 
     private void RestoreSelectedNode()
@@ -1475,16 +1475,24 @@ public sealed partial class LibraryPage : Page
             {
                 if (mark.Section)
                 {
-                    item.MinHeight = 32;
+                    item.MinHeight = 24;
+                    item.Padding = new Thickness(0, 10, 8, 2);
+                    item.Margin = new Thickness(-12, 6, 0, 0);
                     item.IsHitTestVisible = false;
                     item.IsSelected = false;
                     item.Foreground = mute;
-                    item.FontSize = 12;
-                    item.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                    item.FontFamily = new FontFamily("Felix Titling");
+                    item.FontSize = 10;
+                    item.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
                 }
                 else
                 {
-                    item.MinHeight = 48;
+                    item.ClearValue(TreeViewItem.MinHeightProperty);
+                    item.ClearValue(TreeViewItem.PaddingProperty);
+                    item.ClearValue(TreeViewItem.MarginProperty);
+                    item.ClearValue(TreeViewItem.FontFamilyProperty);
+                    item.ClearValue(TreeViewItem.FontSizeProperty);
+                    item.ClearValue(TreeViewItem.FontWeightProperty);
                     item.IsHitTestVisible = true;
                     item.Foreground = ink;
                 }
