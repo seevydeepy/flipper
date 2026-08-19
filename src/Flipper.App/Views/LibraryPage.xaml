@@ -169,7 +169,11 @@
                                         Background="{StaticResource CardBrush}"
                                         BorderBrush="{StaticResource GoldSoftBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="12">
+                                        CornerRadius="12"
+                                        IsHoldingEnabled="True"
+                                        Holding="ScoreCard_Holding"
+                                        RightTapped="ScoreCard_RightTapped"
+                                        Tag="{x:Bind}">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="Auto" />

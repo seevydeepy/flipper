@@ -11,7 +11,8 @@ public static class ScoreSearch
         string? query,
         string? selectedFolder,
         bool favouritesOnly = false,
-        IReadOnlyDictionary<string, ScoreStats>? stats = null)
+        IReadOnlyDictionary<string, ScoreStats>? stats = null,
+        IReadOnlySet<string>? excludedCanonicalPaths = null)
     {
         IReadOnlyList<ScoreEntry> list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
         if (!string.IsNullOrWhiteSpace(query))
@@ -21,6 +22,13 @@ public static class ScoreSearch
         else if (selectedFolder is not null)
         {
             list = list.Where(score => InFolder(score.RelativeFolder, selectedFolder)).ToArray();
+        }
+
+        if (excludedCanonicalPaths is { Count: > 0 })
+        {
+            list = list
+                .Where(score => !excludedCanonicalPaths.Contains(score.CanonicalPath))
+                .ToArray();
         }
 
         if (favouritesOnly)

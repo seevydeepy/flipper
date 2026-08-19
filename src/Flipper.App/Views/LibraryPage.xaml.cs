@@ -4,8 +4,12 @@ using System.ComponentModel;
 using Flipper.App.Services;
 using Flipper.Core.Library;
 using Flipper.Core.Settings;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
@@ -33,6 +37,7 @@ public sealed partial class LibraryPage : Page
     private string? _selectedFolder;
     private bool _showFavourites;
     private bool _hydrating;
+    private bool _suppressItemClick;
 
     public LibraryPage()
     {
@@ -270,8 +275,83 @@ public sealed partial class LibraryPage : Page
         }
     }
 
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element || element.Tag is not ScoreCard card)
+        {
+            return;
+        }
+
+        var item = App.Current.PendingDeletes.Arm(card.Entry, out var created);
+        if (!created)
+        {
+            return;
+        }
+
+        ApplyFilter();
+        App.Current.Window?.ShowDeleteToast(item);
+    }
+
+    private void ScoreCard_Holding(object sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Completed)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        ArmSuppressItemClick();
+        ShowCardMenu(sender);
+    }
+
+    private void ScoreCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        ArmSuppressItemClick();
+        ShowCardMenu(sender);
+    }
+
+    private void ShowCardMenu(object sender)
+    {
+        if (sender is not FrameworkElement element || element.Tag is not ScoreCard card)
+        {
+            return;
+        }
+
+        var favourite = new AppBarButton { Tag = card };
+        AutomationProperties.SetName(favourite, "Favourite");
+        favourite.Icon = new FontIcon
+        {
+            Glyph = card.StarGlyph,
+            Foreground = card.StarBrush
+        };
+        favourite.Click += Favourite_Click;
+
+        var delete = new AppBarButton { Tag = card };
+        AutomationProperties.SetName(delete, "Delete");
+        delete.Icon = new FontIcon { Glyph = "\uE74D" };
+        delete.Click += Delete_Click;
+
+        var flyout = new CommandBarFlyout();
+        flyout.PrimaryCommands.Add(favourite);
+        flyout.PrimaryCommands.Add(delete);
+        flyout.ShowAt(element);
+    }
+
+    private void ArmSuppressItemClick()
+    {
+        _suppressItemClick = true;
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => _suppressItemClick = false);
+    }
+
     private void ScoreGrid_ItemClick(object sender, ItemClickEventArgs e)
     {
+        if (_suppressItemClick)
+        {
+            _suppressItemClick = false;
+            return;
+        }
+
         if (e.ClickedItem is not ScoreCard card)
         {
             return;
@@ -338,14 +418,14 @@ public sealed partial class LibraryPage : Page
 
                 if (DispatcherQueue.HasThreadAccess)
                 {
-                    ApplySnapshot(next, path);
+                    ApplySnapshotIfCurrent(next, path, epoch);
                 }
                 else
                 {
                     var applied = new TaskCompletionSource();
                     if (!DispatcherQueue.TryEnqueue(() =>
                     {
-                        ApplySnapshot(next, path);
+                        ApplySnapshotIfCurrent(next, path, epoch);
                         applied.SetResult();
                     }))
                     {
@@ -361,6 +441,16 @@ public sealed partial class LibraryPage : Page
         {
             _scanBusy = false;
         }
+    }
+
+    private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch)
+    {
+        if (epoch != _scanEpoch)
+        {
+            return;
+        }
+
+        ApplySnapshot(next, path);
     }
 
     private LibrarySnapshot BuildSnapshot(App app, string? libraryPath)
@@ -529,6 +619,22 @@ public sealed partial class LibraryPage : Page
 
     private string? CurrentFolderKey() => _selectedFolder;
 
+    public void RefreshFilter() => ApplyFilter();
+
+    public void ShowCannotDelete()
+    {
+        ErrorLabel.Text = "Cannot delete this score";
+        ErrorLabel.Visibility = Visibility.Visible;
+    }
+
+    public void ForgetCommitted(string canonicalPath)
+    {
+        _snapshot = _snapshot.Without(canonicalPath);
+        _scanEpoch++;
+        ApplyFilter();
+        Reload(_scanPath ?? App.Current.Settings.LibraryPath);
+    }
+
     private void RestoreGridChrome()
     {
         var settings = App.Current.Settings;
@@ -565,7 +671,8 @@ public sealed partial class LibraryPage : Page
                 SearchBox.Text,
                 selected,
                 _showFavourites,
-                App.Current.Settings.Scores),
+                App.Current.Settings.Scores,
+                App.Current.PendingDeletes.CanonicalPaths),
             App.Current.Settings.Sort,
             App.Current.Settings.Scores,
             App.Current.Settings.SortReversed);

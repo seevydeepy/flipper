@@ -7,11 +7,19 @@
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
-    <Frame x:Name="RootFrame">
-        <Frame.ContentTransitions>
-            <TransitionCollection>
-                <NavigationThemeTransition />
-            </TransitionCollection>
-        </Frame.ContentTransitions>
-    </Frame>
+    <Grid>
+        <Frame x:Name="RootFrame">
+            <Frame.ContentTransitions>
+                <TransitionCollection>
+                    <NavigationThemeTransition />
+                </TransitionCollection>
+            </Frame.ContentTransitions>
+        </Frame>
+        <StackPanel
+            x:Name="ToastHost"
+            VerticalAlignment="Bottom"
+            HorizontalAlignment="Stretch"
+            Margin="32,0,32,40"
+            Spacing="16" />
+    </Grid>
 </Window>

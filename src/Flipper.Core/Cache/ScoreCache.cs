@@ -90,6 +90,26 @@ public sealed class ScoreCache
         return existing is not null && File.Exists(Path.Combine(_directory, existing.FileName));
     }
 
+    public void Remove(string canonicalPath)
+    {
+        var index = LoadIndex();
+        var existing = index.Entries.FirstOrDefault(entry =>
+            string.Equals(entry.CanonicalPath, canonicalPath, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            return;
+        }
+
+        index.Entries.Remove(existing);
+        var path = Path.Combine(_directory, existing.FileName);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        SaveIndex(index);
+    }
+
     private static void Upsert(
         CacheIndex index,
         string canonicalPath,

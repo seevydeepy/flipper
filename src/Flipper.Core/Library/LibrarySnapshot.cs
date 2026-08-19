@@ -5,6 +5,14 @@ public sealed record LibrarySnapshot(
     IReadOnlyList<ScoreEntry> Scores,
     bool RootReachable)
 {
+    public LibrarySnapshot Without(string canonicalPath)
+    {
+        var next = Scores
+            .Where(score => !string.Equals(score.CanonicalPath, canonicalPath, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return this with { Scores = next };
+    }
+
     public IReadOnlyList<string> Folders => Scores
         .Select(score => score.RelativeFolder)
         .Distinct(StringComparer.OrdinalIgnoreCase)

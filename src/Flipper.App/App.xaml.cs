@@ -13,6 +13,7 @@ public partial class App : Application
     public SettingsStore SettingsStore { get; } = SettingsStore.ForAppData();
     public AppSettings Settings { get; }
     public ScoreCache Cache { get; } = ScoreCache.ForAppData();
+    public PendingScoreDeletes PendingDeletes { get; } = new();
     public string? OpenCanonicalPath { get; set; }
     public LibrarySnapshot? LastSnapshot { get; set; }
 
@@ -71,5 +72,33 @@ public partial class App : Application
         var stats = Settings.StatsFor(canonicalPath);
         stats.Favourite = !stats.Favourite;
         PersistSettings();
+    }
+
+    public void ForgetDeletedScore(PendingDeleteCommit commit)
+    {
+        Cache.Remove(commit.CanonicalPath);
+        Settings.Scores.Remove(commit.CanonicalPath);
+        if (string.Equals(Settings.LastScoreCanonicalPath, commit.CanonicalPath, StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.LastScoreCanonicalPath = null;
+        }
+
+        PersistSettings();
+        var thumb = Services.ThumbnailStore.PathFor(commit.CanonicalPath, commit.Length, commit.LastWriteUtc);
+        if (!File.Exists(thumb))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(thumb);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 }
