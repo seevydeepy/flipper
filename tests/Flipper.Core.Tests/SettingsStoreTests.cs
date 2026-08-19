@@ -131,6 +131,53 @@ public sealed class SettingsStoreTests
         Assert.Null(settings.SelectedPlaylistId);
     }
 
+    [Fact]
+    public void SaveLoad_RoundTripsFolderExpanded()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            var store = new SettingsStore(path);
+            var settings = new AppSettings();
+            Assert.True(settings.SetFolderExpanded("Corpus", false));
+            Assert.True(settings.SetFolderExpanded(@"Corpus\Piano", true));
+            store.Save(settings);
+
+            var loaded = store.Load();
+            Assert.False(loaded.FolderIsExpanded("Corpus", true));
+            Assert.True(loaded.FolderIsExpanded(@"corpus\piano", false));
+            Assert.True(loaded.FolderIsExpanded("Downloads", true));
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void FolderExpanded_IgnoresBlankAndUnchanged()
+    {
+        var settings = new AppSettings
+        {
+            FolderExpanded = new Dictionary<string, bool>
+            {
+                [""] = true,
+                ["  "] = false,
+                ["Corpus"] = true,
+                ["corpus"] = false
+            }
+        };
+
+        settings.Normalize();
+
+        Assert.False(settings.FolderIsExpanded("Corpus", true));
+        Assert.False(settings.SetFolderExpanded("Corpus", false));
+        Assert.False(settings.SetFolderExpanded(null, true));
+        Assert.False(settings.SetFolderExpanded("", true));
+        Assert.True(settings.SetFolderExpanded("Downloads", true));
+        Assert.Single(settings.FolderExpanded.Keys.Where(key => string.Equals(key, "Corpus", StringComparison.OrdinalIgnoreCase)));
+    }
+
     private static void DeleteParent(string path)
     {
         var dir = Path.GetDirectoryName(path);
