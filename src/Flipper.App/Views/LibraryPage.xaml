@@ -170,6 +170,8 @@
                             Background="Transparent"
                             IsItemClickEnabled="True"
                             ItemClick="ScoreGrid_ItemClick"
+                            CanDragItems="True"
+                            DragItemsStarting="ScoreGrid_DragItemsStarting"
                             SelectionMode="None"
                             ContainerContentChanging="ScoreGrid_ContainerContentChanging">
                             <GridView.ItemsPanel>
@@ -200,8 +202,7 @@
                                         BorderBrush="{StaticResource GoldSoftBrush}"
                                         BorderThickness="1"
                                         CornerRadius="12"
-                                        CanDrag="True"
-                                        DragStarting="ScoreCard_DragStarting"
+                                        Tapped="ScoreCard_Tapped"
                                         IsHoldingEnabled="True"
                                         Holding="ScoreCard_Holding"
                                         RightTapped="ScoreCard_RightTapped"

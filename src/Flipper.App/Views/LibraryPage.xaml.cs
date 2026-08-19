@@ -46,6 +46,7 @@ public sealed partial class LibraryPage : Page
     private bool _hydrating;
     private bool _bindingFolders;
     private bool _suppressItemClick;
+    private string? _openingCanonical;
 
     public LibraryPage()
     {
@@ -467,16 +468,16 @@ public sealed partial class LibraryPage : Page
         ApplyFilter();
     }
 
-    private void ScoreCard_DragStarting(UIElement sender, DragStartingEventArgs e)
+    private void ScoreGrid_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: ScoreCard card })
+        if (e.Items.Count != 1 || e.Items[0] is not ScoreCard card)
         {
             e.Cancel = true;
             return;
         }
 
         e.Data.SetData(ScoreDragFormat, card.Entry.CanonicalPath);
-        e.AllowedOperations = DataPackageOperation.Copy;
+        e.Data.RequestedOperation = DataPackageOperation.Copy;
     }
 
     private void FolderTree_DragOver(object sender, DragEventArgs e)
@@ -700,7 +701,28 @@ public sealed partial class LibraryPage : Page
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => _suppressItemClick = false);
     }
 
+    private void ScoreCard_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (FromFavouriteButton(e.OriginalSource) || sender is not FrameworkElement { Tag: ScoreCard card })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        OpenScore(card);
+    }
+
     private void ScoreGrid_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not ScoreCard card)
+        {
+            return;
+        }
+
+        OpenScore(card);
+    }
+
+    private void OpenScore(ScoreCard card)
     {
         if (_suppressItemClick)
         {
@@ -708,11 +730,12 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        if (e.ClickedItem is not ScoreCard card)
+        if (string.Equals(_openingCanonical, card.Entry.CanonicalPath, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
+        _openingCanonical = card.Entry.CanonicalPath;
         PersistSearchIfChanged();
         ErrorLabel.Visibility = Visibility.Collapsed;
         var livePath = File.Exists(card.Entry.DisplayFullPath) ? card.Entry.DisplayFullPath : null;
@@ -723,6 +746,7 @@ public sealed partial class LibraryPage : Page
             App.Current.OpenCanonicalPath);
         if (cachePath is null)
         {
+            _openingCanonical = null;
             ErrorLabel.Text = "Cannot open this score";
             ErrorLabel.Visibility = Visibility.Visible;
             return;
@@ -731,6 +755,21 @@ public sealed partial class LibraryPage : Page
         App.Current.OpenCanonicalPath = card.Entry.CanonicalPath;
         App.Current.RecordPlay(card.Entry.CanonicalPath);
         App.Current.Window?.ShowReader(card.Entry, cachePath);
+    }
+
+    private static bool FromFavouriteButton(object? source)
+    {
+        for (var current = source as DependencyObject;
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is Button)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void Reload(string? libraryPath)
