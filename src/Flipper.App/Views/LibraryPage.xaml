@@ -135,7 +135,15 @@
                             RightTapped="FolderTree_RightTapped"
                             AllowDrop="True"
                             DragOver="FolderTree_DragOver"
-                            Drop="FolderTree_Drop" />
+                            Drop="FolderTree_Drop">
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="TreeViewItem">
+                                    <Setter Property="MinHeight" Value="48" />
+                                    <Setter Property="Padding" Value="8,10" />
+                                    <Setter Property="VerticalContentAlignment" Value="Center" />
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                        </TreeView>
                         <Button
                             x:Name="DeletePlaylistButton"
                             Style="{StaticResource QuietButton}"
@@ -150,13 +158,35 @@
                             <FontIcon Glyph="&#xE74D;" FontSize="16" />
                         </Button>
                     </Grid>
-                    <Button
-                        x:Name="ChooseFolderButton"
+                    <Grid
+                        x:Name="TrashDrop"
                         Grid.Row="2"
-                        Content="Choose Folder"
-                        HorizontalAlignment="Stretch"
                         Margin="0,12,0,0"
-                        Click="ChooseFolder_Click" />
+                        AllowDrop="True"
+                        Visibility="Collapsed"
+                        DragOver="TrashDrop_DragOver"
+                        Drop="TrashDrop_Drop"
+                        SizeChanged="TrashDrop_SizeChanged"
+                        AutomationProperties.Name="Trash">
+                        <Rectangle
+                            RadiusX="12"
+                            RadiusY="12"
+                            Fill="#F5C6C6"
+                            Stroke="#C62828"
+                            StrokeThickness="2"
+                            StrokeDashArray="6,4" />
+                        <Viewbox
+                            MaxWidth="72"
+                            MaxHeight="72"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                            <Path
+                                Width="24"
+                                Height="24"
+                                Fill="#C62828"
+                                Data="M9,3 H15 L16,5 H21 V7 H3 V5 H8 Z M6,8 H18 L16.8,22 H7.2 Z" />
+                        </Viewbox>
+                    </Grid>
                 </Grid>
 
                 <Grid x:Name="ScoreColumn" Grid.Row="1" Grid.Column="1" SizeChanged="ScoreColumn_SizeChanged">
@@ -172,6 +202,7 @@
                             ItemClick="ScoreGrid_ItemClick"
                             CanDragItems="True"
                             DragItemsStarting="ScoreGrid_DragItemsStarting"
+                            DragItemsCompleted="ScoreGrid_DragItemsCompleted"
                             SelectionMode="None"
                             ContainerContentChanging="ScoreGrid_ContainerContentChanging">
                             <GridView.ItemsPanel>
@@ -203,9 +234,6 @@
                                         BorderThickness="1"
                                         CornerRadius="12"
                                         Tapped="ScoreCard_Tapped"
-                                        IsHoldingEnabled="True"
-                                        Holding="ScoreCard_Holding"
-                                        RightTapped="ScoreCard_RightTapped"
                                         Tag="{x:Bind}">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />

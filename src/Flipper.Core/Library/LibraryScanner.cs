@@ -93,6 +93,12 @@ public static class LibraryScanner
 
         foreach (var child in children)
         {
+            var relative = Path.GetRelativePath(root, child.FullName);
+            if (ScoreTrash.IsHiddenFolder(relative))
+            {
+                continue;
+            }
+
             ScanDirectory(root, child.FullName, scores, catalog, isRoot: false);
         }
     }

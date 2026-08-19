@@ -59,6 +59,12 @@ public static class ScoreCatalog
         PropertyNameCaseInsensitive = true
     };
 
+    private static readonly JsonSerializerOptions SaveOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public static IReadOnlyDictionary<string, ScoreFacts> Load(string root)
     {
         var path = Path.Combine(root, FileName);
@@ -87,6 +93,50 @@ public static class ScoreCatalog
         catch (IOException)
         {
             return new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public static bool TryRewriteRootFolder(string root, string oldName, string newName)
+    {
+        var path = Path.Combine(root, FileName);
+        if (!File.Exists(path) || string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName))
+        {
+            return false;
+        }
+
+        Dictionary<string, ScoreFacts> catalog;
+        try
+        {
+            var json = File.ReadAllText(path);
+            catalog = JsonSerializer.Deserialize<Dictionary<string, ScoreFacts>>(json, JsonOptions)
+                ?? new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+
+        var writable = new Dictionary<string, ScoreFacts>(catalog, StringComparer.OrdinalIgnoreCase);
+        if (!LibraryPathRewrite.RewriteCatalogKeys(writable, oldName, newName))
+        {
+            return false;
+        }
+
+        try
+        {
+            var json = JsonSerializer.Serialize(writable, SaveOptions);
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, path, overwrite: true);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
         }
     }
 

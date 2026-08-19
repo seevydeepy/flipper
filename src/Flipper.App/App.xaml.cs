@@ -21,6 +21,7 @@ public partial class App : Application
     {
         InitializeComponent();
         Settings = SettingsStore.Load();
+        MaybeRewriteCollectionFolder();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -28,6 +29,28 @@ public partial class App : Application
         Window = new MainWindow();
         Window.Activate();
         Window.ShowLibrary();
+    }
+
+    private void MaybeRewriteCollectionFolder()
+    {
+        var root = Settings.LibraryPath;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return;
+        }
+
+        var legacy = Path.Combine(root, LibraryFolders.LegacyCollectionName);
+        var current = Path.Combine(root, LibraryFolders.CollectionName);
+        if (Directory.Exists(legacy) || !Directory.Exists(current))
+        {
+            return;
+        }
+
+        ScoreCatalog.TryRewriteRootFolder(root, LibraryFolders.LegacyCollectionName, LibraryFolders.CollectionName);
+        if (LibraryPathRewrite.RewriteRootFolder(Settings, LibraryFolders.LegacyCollectionName, LibraryFolders.CollectionName))
+        {
+            PersistSettings();
+        }
     }
 
     public void PersistSettings()

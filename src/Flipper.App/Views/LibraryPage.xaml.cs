@@ -194,6 +194,24 @@ public sealed partial class LibraryPage : Page
         };
 
         var panel = new StackPanel { Spacing = 10 };
+        var folderPath = new TextBlock
+        {
+            Text = App.Current.Settings.LibraryPath ?? string.Empty,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["MuteBrush"]
+        };
+        var folderButton = new Button
+        {
+            Content = "Choose Folder",
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        folderButton.Click += async (_, _) =>
+        {
+            await ChooseFolderAsync();
+            folderPath.Text = App.Current.Settings.LibraryPath ?? string.Empty;
+        };
+        panel.Children.Add(folderButton);
+        panel.Children.Add(folderPath);
         panel.Children.Add(scaleLabel);
         panel.Children.Add(scaleSlider);
         panel.Children.Add(new TextBlock
@@ -313,7 +331,7 @@ public sealed partial class LibraryPage : Page
         await dialog.ShowAsync();
     }
 
-    private async void ChooseFolder_Click(object sender, RoutedEventArgs e)
+    private async Task ChooseFolderAsync()
     {
         var window = App.Current.Window;
         if (window is null)
@@ -360,6 +378,11 @@ public sealed partial class LibraryPage : Page
             TreeViewNode node when node.Content is FolderMark folder => folder,
             _ => null
         };
+        if (mark?.Section == true)
+        {
+            RestoreSelectedNode();
+            return;
+        }
         if (mark?.Favourites == true)
         {
             _showFavourites = true;
@@ -570,7 +593,111 @@ public sealed partial class LibraryPage : Page
         }
 
         e.Data.SetData(ScoreDragFormat, card.Entry.CanonicalPath);
-        e.Data.RequestedOperation = DataPackageOperation.Copy;
+        e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
+        ShowTrashDrop();
+    }
+
+    private void ScoreGrid_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+    {
+        HideTrashDrop();
+    }
+
+    private void ShowTrashDrop()
+    {
+        TrashDrop.Visibility = Visibility.Visible;
+        TrashDrop.UpdateLayout();
+        MakeTrashSquare();
+    }
+
+    private void HideTrashDrop()
+    {
+        TrashDrop.Visibility = Visibility.Collapsed;
+        TrashDrop.Height = double.NaN;
+    }
+
+    private void TrashDrop_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        MakeTrashSquare();
+    }
+
+    private void MakeTrashSquare()
+    {
+        if (TrashDrop.Visibility != Visibility.Visible || TrashDrop.ActualWidth <= 0)
+        {
+            return;
+        }
+
+        if (double.IsNaN(TrashDrop.Height) || Math.Abs(TrashDrop.Height - TrashDrop.ActualWidth) > 0.5)
+        {
+            TrashDrop.Height = TrashDrop.ActualWidth;
+        }
+    }
+
+    private void TrashDrop_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = e.DataView.Contains(ScoreDragFormat)
+            ? DataPackageOperation.Move
+            : DataPackageOperation.None;
+        e.Handled = true;
+    }
+
+    private async void TrashDrop_Drop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        HideTrashDrop();
+        if (!e.DataView.Contains(ScoreDragFormat))
+        {
+            return;
+        }
+
+        var raw = await e.DataView.GetDataAsync(ScoreDragFormat);
+        if (raw is not string path || string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        var entry = _snapshot.Scores.FirstOrDefault(score =>
+            string.Equals(score.CanonicalPath, path, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            return;
+        }
+
+        await TrashScoreAsync(entry);
+    }
+
+    private async Task TrashScoreAsync(ScoreEntry entry)
+    {
+        var library = App.Current.Settings.LibraryPath;
+        if (string.IsNullOrWhiteSpace(library))
+        {
+            ShowCannotDelete();
+            return;
+        }
+
+        _snapshot = _snapshot.Without(entry.CanonicalPath);
+        if (App.Current.LastSnapshot is { } snapshot)
+        {
+            App.Current.LastSnapshot = snapshot.Without(entry.CanonicalPath);
+        }
+
+        ApplyFilter();
+        var moved = await Task.Run(() => ScoreTrash.TryMove(entry.DisplayFullPath, library, out _));
+        if (!moved)
+        {
+            ShowCannotDelete();
+            Reload(library);
+            return;
+        }
+
+        App.Current.ForgetDeletedScore(new PendingDeleteCommit(
+            Guid.Empty,
+            entry.CanonicalPath,
+            entry.DisplayFullPath,
+            entry.Length,
+            entry.LastWriteUtc,
+            Failed: false));
+        Reload(library);
     }
 
     private void FolderTree_DragOver(object sender, DragEventArgs e)
@@ -681,117 +808,6 @@ public sealed partial class LibraryPage : Page
         {
             ApplyFilter();
         }
-    }
-
-    private void Delete_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element || element.Tag is not ScoreCard card)
-        {
-            return;
-        }
-
-        if (_selectedPlaylistId is not null)
-        {
-            App.Current.RemoveFromPlaylist(_selectedPlaylistId, card.Entry.CanonicalPath);
-            ApplyFilter();
-            return;
-        }
-
-        var item = App.Current.PendingDeletes.Arm(card.Entry, out var created);
-        if (!created)
-        {
-            return;
-        }
-
-        ApplyFilter();
-        App.Current.Window?.ShowDeleteToast(item);
-    }
-
-    private void ScoreCard_Holding(object sender, HoldingRoutedEventArgs e)
-    {
-        if (e.HoldingState != HoldingState.Completed)
-        {
-            return;
-        }
-
-        e.Handled = true;
-        ArmSuppressItemClick();
-        ShowCardMenu(sender);
-    }
-
-    private void ScoreCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
-    {
-        e.Handled = true;
-        ArmSuppressItemClick();
-        ShowCardMenu(sender);
-    }
-
-    private void ShowCardMenu(object sender)
-    {
-        if (sender is not FrameworkElement element || element.Tag is not ScoreCard card)
-        {
-            return;
-        }
-
-        var ink = (Brush)Application.Current.Resources["InkBrush"];
-        var paper = (Brush)Application.Current.Resources["CardBrush"];
-        var goldSoft = (Brush)Application.Current.Resources["GoldSoftBrush"];
-        var flyout = new Flyout();
-        var favourite = IconAction(card, card.StarGlyph, card.StarBrush, "Favourite", Favourite_Click, flyout);
-        var delete = IconAction(card, "\uE74D", ink, "Delete", Delete_Click, flyout);
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        row.Children.Add(favourite);
-        row.Children.Add(delete);
-
-        var presenter = new Style(typeof(FlyoutPresenter));
-        presenter.Setters.Add(new Setter(Control.BackgroundProperty, paper));
-        presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6)));
-        presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(12)));
-        presenter.Setters.Add(new Setter(Control.BorderBrushProperty, goldSoft));
-        presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
-        presenter.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, ElementTheme.Light));
-
-        flyout.Content = row;
-        flyout.FlyoutPresenterStyle = presenter;
-        flyout.ShowAt(element);
-    }
-
-    private static Button IconAction(
-        ScoreCard card,
-        string glyph,
-        Brush foreground,
-        string name,
-        RoutedEventHandler click,
-        Flyout flyout)
-    {
-        var button = new Button
-        {
-            Tag = card,
-            Style = (Style)Application.Current.Resources["QuietButton"],
-            Padding = new Thickness(10),
-            MinWidth = 40,
-            MinHeight = 40,
-            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
-            Content = new FontIcon
-            {
-                Glyph = glyph,
-                Foreground = foreground,
-                FontSize = 16
-            }
-        };
-        AutomationProperties.SetName(button, name);
-        button.Click += (sender, args) =>
-        {
-            click(sender, args);
-            flyout.Hide();
-        };
-        return button;
-    }
-
-    private void ArmSuppressItemClick()
-    {
-        _suppressItemClick = true;
-        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => _suppressItemClick = false);
     }
 
     private void ScoreCard_Tapped(object sender, TappedRoutedEventArgs e)
@@ -1031,21 +1047,34 @@ public sealed partial class LibraryPage : Page
             var favourites = new TreeViewNode { Content = new FolderMark("Favourites", null, favourites: true) };
             FolderTree.RootNodes.Add(all);
             FolderTree.RootNodes.Add(favourites);
-            foreach (var playlist in App.Current.Settings.Playlists
-                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+            var playlists = App.Current.Settings.Playlists
+                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (playlists.Length > 0)
             {
-                FolderTree.RootNodes.Add(new TreeViewNode
+                FolderTree.RootNodes.Add(SectionNode("Playlists"));
+                foreach (var playlist in playlists)
                 {
-                    Content = new FolderMark(playlist.Name, null, playlistId: playlist.Id)
-                });
+                    FolderTree.RootNodes.Add(new TreeViewNode
+                    {
+                        Content = new FolderMark(playlist.Name, null, playlistId: playlist.Id)
+                    });
+                }
             }
 
-            if (_snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder)))
+            var folderItems = Flipper.Core.Library.FolderTree.FromRelativeFolders(_snapshot.Folders);
+            var hasRootFiles = _snapshot.Folders.Any(folder => string.IsNullOrEmpty(folder));
+            if (hasRootFiles || folderItems.Count > 0)
+            {
+                FolderTree.RootNodes.Add(SectionNode("Folders"));
+            }
+
+            if (hasRootFiles)
             {
                 FolderTree.RootNodes.Add(new TreeViewNode { Content = new FolderMark("\\", string.Empty) });
             }
 
-            foreach (var item in Flipper.Core.Library.FolderTree.FromRelativeFolders(_snapshot.Folders))
+            foreach (var item in folderItems)
             {
                 FolderTree.RootNodes.Add(ToNode(item, defaultExpanded: true));
             }
@@ -1066,10 +1095,71 @@ public sealed partial class LibraryPage : Page
 
             FolderTree.SelectedNode = match ?? all;
             ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
+            FolderTree.UpdateLayout();
+            StyleSidebarRows();
+            DispatcherQueue.TryEnqueue(StyleSidebarRows);
         }
         finally
         {
             _bindingFolders = false;
+        }
+    }
+
+    private static TreeViewNode SectionNode(string name)
+    {
+        return new TreeViewNode { Content = new FolderMark(name, null, section: true) };
+    }
+
+    private void RestoreSelectedNode()
+    {
+        TreeViewNode? match;
+        if (_showFavourites)
+        {
+            match = FindNode(FolderTree.RootNodes, key: null, favourites: true);
+        }
+        else if (_selectedPlaylistId is not null)
+        {
+            match = FindPlaylistNode(FolderTree.RootNodes, _selectedPlaylistId);
+        }
+        else
+        {
+            match = FindNode(FolderTree.RootNodes, _selectedFolder, favourites: false);
+        }
+
+        FolderTree.SelectedNode = match ?? FindNode(FolderTree.RootNodes, key: null, favourites: false);
+    }
+
+    private void StyleSidebarRows()
+    {
+        StyleSidebarRows(FolderTree.RootNodes);
+    }
+
+    private void StyleSidebarRows(IList<TreeViewNode> nodes)
+    {
+        var mute = (Brush)Application.Current.Resources["MuteBrush"];
+        var ink = (Brush)Application.Current.Resources["InkBrush"];
+        foreach (var node in nodes)
+        {
+            if (FolderTree.ContainerFromNode(node) is TreeViewItem item && node.Content is FolderMark mark)
+            {
+                if (mark.Section)
+                {
+                    item.MinHeight = 32;
+                    item.IsHitTestVisible = false;
+                    item.IsSelected = false;
+                    item.Foreground = mute;
+                    item.FontSize = 12;
+                    item.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                }
+                else
+                {
+                    item.MinHeight = 48;
+                    item.IsHitTestVisible = true;
+                    item.Foreground = ink;
+                }
+            }
+
+            StyleSidebarRows(node.Children);
         }
     }
 
@@ -1093,7 +1183,7 @@ public sealed partial class LibraryPage : Page
     {
         foreach (var node in nodes)
         {
-            if (node.Content is FolderMark mark && mark.PlaylistId is null)
+            if (node.Content is FolderMark mark && !mark.Section && mark.PlaylistId is null)
             {
                 if (favourites && mark.Favourites)
                 {
@@ -1139,6 +1229,11 @@ public sealed partial class LibraryPage : Page
 
     private void ApplySelectedMark(FolderMark? mark)
     {
+        if (mark?.Section == true)
+        {
+            return;
+        }
+
         if (mark?.Favourites == true)
         {
             _showFavourites = true;
@@ -1431,18 +1526,20 @@ public sealed class ScoreCard : INotifyPropertyChanged
 
 public sealed class FolderMark
 {
-    public FolderMark(string name, string? key, bool favourites = false, string? playlistId = null)
+    public FolderMark(string name, string? key, bool favourites = false, string? playlistId = null, bool section = false)
     {
         Name = name;
         Key = key;
         Favourites = favourites;
         PlaylistId = playlistId;
+        Section = section;
     }
 
     public string Name { get; }
     public string? Key { get; }
     public bool Favourites { get; }
     public string? PlaylistId { get; }
+    public bool Section { get; }
 
     public override string ToString() => Name;
 }

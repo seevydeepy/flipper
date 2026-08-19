@@ -16,6 +16,7 @@ public static class ScoreSearch
         IReadOnlySet<string>? playlistCanonicalPaths = null)
     {
         IReadOnlyList<ScoreEntry> list = scores as IReadOnlyList<ScoreEntry> ?? scores.ToArray();
+        list = list.Where(score => !ScoreTrash.IsHiddenFolder(score.RelativeFolder)).ToArray();
         if (!string.IsNullOrWhiteSpace(query))
         {
             list = list.Where(score => Matches(score, query)).ToArray();
