@@ -209,6 +209,91 @@ public sealed partial class LibraryPage : Page
             Foreground = (Brush)Application.Current.Resources["MuteBrush"]
         });
 
+        var status = new TextBlock
+        {
+            Text = "",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["InkBrush"]
+        };
+        var install = new Button
+        {
+            Content = "Install update",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Visibility = Visibility.Collapsed
+        };
+        var check = new Button
+        {
+            Content = "Check for updates",
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        UpdateOffer? offer = null;
+        check.Click += async (_, _) =>
+        {
+            check.IsEnabled = false;
+            install.Visibility = Visibility.Collapsed;
+            status.Text = "";
+            offer = null;
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                var client = new UpdateClient(http);
+                var result = await client.CheckAsync(CancellationToken.None);
+                offer = result.offer;
+                status.Text = result.status;
+                install.Visibility = offer is null ? Visibility.Collapsed : Visibility.Visible;
+            }
+            catch (HttpRequestException)
+            {
+                status.Text = "Could not check";
+            }
+            finally
+            {
+                check.IsEnabled = true;
+            }
+        };
+        install.Click += async (_, _) =>
+        {
+            if (offer is null)
+            {
+                return;
+            }
+
+            install.IsEnabled = false;
+            check.IsEnabled = false;
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+                var client = new UpdateClient(http);
+                var files = await client.DownloadAsync(offer, CancellationToken.None);
+                if (files is null)
+                {
+                    status.Text = "Could not download";
+                    return;
+                }
+
+                var target = Path.GetDirectoryName(Environment.ProcessPath);
+                if (!UpdateClient.StartSetup(files.Value.setupPath, files.Value.zipPath, target ?? ""))
+                {
+                    status.Text = "Could not install";
+                    return;
+                }
+
+                App.Current.Window?.Close();
+            }
+            catch (HttpRequestException)
+            {
+                status.Text = "Could not download";
+            }
+            finally
+            {
+                install.IsEnabled = true;
+                check.IsEnabled = true;
+            }
+        };
+        panel.Children.Add(check);
+        panel.Children.Add(status);
+        panel.Children.Add(install);
+
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
