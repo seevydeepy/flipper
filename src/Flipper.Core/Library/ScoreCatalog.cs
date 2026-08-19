@@ -129,9 +129,7 @@ public static class ScoreCatalog
         try
         {
             var json = JsonSerializer.Serialize(writable, SaveOptions);
-            var tmp = path + ".tmp";
-            File.WriteAllText(tmp, json);
-            File.Move(tmp, path, overwrite: true);
+            SidecarReplace.Write(path, json);
             return true;
         }
         catch (IOException)

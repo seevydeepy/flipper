@@ -122,9 +122,7 @@ public static class PlaylistLibrary
             Directory.CreateDirectory(root);
             var path = Path.Combine(root, FileName);
             var json = JsonSerializer.Serialize(PlaylistBook.Sanitize(playlists), JsonOptions);
-            var tmp = path + ".tmp";
-            File.WriteAllText(tmp, json);
-            File.Move(tmp, path, overwrite: true);
+            SidecarReplace.Write(path, json);
             return true;
         }
         catch (IOException)
