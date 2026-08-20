@@ -141,27 +141,13 @@ internal static class InstallSession
         }
 
         Step(progress, "Checking the install folder...", 5);
-        if (!FirstInstallPaths.TryResolveSiblingZip(setupPath, rid, out var siblingZip))
+        Step(progress, "Downloading the Carousel package from GitHub...", null);
+        var downloadDir = Path.Combine(Path.GetTempPath(), "CarouselSetup");
+        Directory.CreateDirectory(downloadDir);
+        var zipPath = Path.Combine(downloadDir, ReleaseFileNames.Zip(rid));
+        if (!TryDownloadLatestZip(rid, zipPath, progress, out var downloadError))
         {
-            return Fail(progress, "Could not find the package.");
-        }
-
-        string zipPath;
-        if (File.Exists(siblingZip))
-        {
-            Step(progress, $"Using {siblingZip}", 10);
-            zipPath = siblingZip;
-        }
-        else
-        {
-            Step(progress, "Downloading the Carousel package from GitHub...", null);
-            var downloadDir = Path.Combine(Path.GetTempPath(), "CarouselSetup");
-            Directory.CreateDirectory(downloadDir);
-            zipPath = Path.Combine(downloadDir, $"Carousel-{rid}.zip");
-            if (!TryDownloadLatestZip(rid, zipPath, progress, out var downloadError))
-            {
-                return Fail(progress, downloadError);
-            }
+            return Fail(progress, downloadError);
         }
 
         Step(progress, "Extracting files...", 15);

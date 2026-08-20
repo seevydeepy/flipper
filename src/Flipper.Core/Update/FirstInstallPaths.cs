@@ -38,22 +38,4 @@ public static class FirstInstallPaths
             Environment.GetFolderPath(Environment.SpecialFolder.Programs),
             "Carousel.lnk");
     }
-
-    public static bool TryResolveSiblingZip(string setupPath, string rid, out string siblingZip)
-    {
-        siblingZip = "";
-        if (string.IsNullOrWhiteSpace(setupPath) || string.IsNullOrWhiteSpace(rid))
-        {
-            return false;
-        }
-
-        var directory = Path.GetDirectoryName(Path.GetFullPath(setupPath));
-        if (string.IsNullOrEmpty(directory))
-        {
-            return false;
-        }
-
-        siblingZip = Path.Combine(directory, ReleaseFileNames.Zip(rid));
-        return true;
-    }
 }
