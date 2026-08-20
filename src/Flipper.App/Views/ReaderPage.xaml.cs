@@ -14,13 +14,13 @@ public sealed partial class ReaderPage : Page
     private ScoreEntry? _score;
     private PdfPageSource? _pdf;
     private DisplayRequest? _displayRequest;
-    private readonly DispatcherTimer _overlayTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _heardTimer = new() { Interval = TimeSpan.FromSeconds(1.4) };
     private readonly DispatcherTimer _levelTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
     private readonly VoiceKeywordListener _voice = new();
     private int _voiceEpoch;
     private int _lowestVisible;
-    private bool _swiped;
+    private bool _gestureHandled;
+    private double _pressX = double.NaN;
     private bool _ready;
     private bool _voiceOn;
     private bool _showingHeard;
@@ -28,11 +28,6 @@ public sealed partial class ReaderPage : Page
     public ReaderPage()
     {
         InitializeComponent();
-        _overlayTimer.Tick += (_, _) =>
-        {
-            _overlayTimer.Stop();
-            Overlay.Visibility = Visibility.Collapsed;
-        };
         _heardTimer.Tick += (_, _) =>
         {
             _heardTimer.Stop();
@@ -123,7 +118,6 @@ public sealed partial class ReaderPage : Page
         _voice.Stop();
         _heardTimer.Stop();
         _levelTimer.Stop();
-        _overlayTimer.Stop();
         try
         {
             _displayRequest?.RequestRelease();
@@ -247,49 +241,65 @@ public sealed partial class ReaderPage : Page
         ReaderRoot.Focus(FocusState.Programmatic);
     }
 
-    private void ReaderRoot_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+    private void TurnLayer_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (Math.Abs(e.Cumulative.Translation.X) <= 80)
-        {
-            return;
-        }
-
-        _swiped = true;
-        Turn(e.Cumulative.Translation.X < 0 ? 1 : -1);
-        ReaderRoot.Focus(FocusState.Programmatic);
+        _gestureHandled = false;
+        _pressX = e.GetCurrentPoint(TurnLayer).Position.X;
     }
 
-    private void ReaderRoot_PointerReleased(object sender, PointerRoutedEventArgs e)
+    private void TurnLayer_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
     {
-        if (_swiped)
+        ApplyGesture(PageTurnGesture.FromSwipe(e.Cumulative.Translation.X));
+    }
+
+    private void TurnLayer_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        try
         {
-            _swiped = false;
-            ReaderRoot.Focus(FocusState.Programmatic);
+            if (_gestureHandled)
+            {
+                ReaderRoot.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            var point = e.GetCurrentPoint(TurnLayer).Position;
+            var translationX = double.IsNaN(_pressX) ? 0 : point.X - _pressX;
+            var swipe = PageTurnGesture.FromSwipe(translationX);
+            if (swipe != PageTurnCommand.None)
+            {
+                ApplyGesture(swipe);
+                return;
+            }
+
+            var tapX = double.IsNaN(_pressX) ? point.X : _pressX;
+            ApplyGesture(PageTurnGesture.FromTap(tapX, TurnLayer.ActualWidth));
+        }
+        finally
+        {
+            _pressX = double.NaN;
+        }
+    }
+
+    private void ApplyGesture(PageTurnCommand command)
+    {
+        if (_gestureHandled || command == PageTurnCommand.None)
+        {
             return;
         }
 
-        var point = e.GetCurrentPoint(ReaderRoot).Position;
-        var width = ReaderRoot.ActualWidth;
-        if (width <= 0)
+        _gestureHandled = true;
+        switch (command)
         {
-            return;
+            case PageTurnCommand.Next:
+                Turn(1);
+                break;
+            case PageTurnCommand.Back:
+                Turn(-1);
+                break;
+            default:
+                return;
         }
 
-        if (point.X <= width * 0.20)
-        {
-            Turn(-1);
-            ReaderRoot.Focus(FocusState.Programmatic);
-            return;
-        }
-
-        if (point.X >= width * 0.80)
-        {
-            Turn(1);
-            ReaderRoot.Focus(FocusState.Programmatic);
-            return;
-        }
-
-        ToggleOverlay();
         ReaderRoot.Focus(FocusState.Programmatic);
     }
 
@@ -299,20 +309,6 @@ public sealed partial class ReaderPage : Page
         {
             Draw();
         }
-    }
-
-    private void ToggleOverlay()
-    {
-        if (Overlay.Visibility == Visibility.Visible)
-        {
-            Overlay.Visibility = Visibility.Collapsed;
-            _overlayTimer.Stop();
-            return;
-        }
-
-        Overlay.Visibility = Visibility.Visible;
-        _overlayTimer.Stop();
-        _overlayTimer.Start();
     }
 
     private void Turn(int direction)
@@ -351,7 +347,6 @@ public sealed partial class ReaderPage : Page
             RightColumn.Width = new GridLength(0);
             PageLabel.Text = string.Empty;
             Overlay.Visibility = Visibility.Visible;
-            _overlayTimer.Stop();
             return;
         }
 
@@ -375,7 +370,6 @@ public sealed partial class ReaderPage : Page
         if (left is null)
         {
             Overlay.Visibility = Visibility.Visible;
-            _overlayTimer.Stop();
         }
 
         if (pages.SecondIndex is int second)
