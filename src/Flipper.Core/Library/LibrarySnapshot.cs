@@ -49,7 +49,10 @@ public sealed record LibrarySnapshot(
             if (!seen.Add(left.CanonicalPath)
                 || !right.TryGetValue(left.CanonicalPath, out var match)
                 || left.Length != match.Length
-                || left.LastWriteUtc != match.LastWriteUtc)
+                || left.LastWriteUtc != match.LastWriteUtc
+                || left.CardTitle != match.CardTitle
+                || left.CardSubtitle != match.CardSubtitle
+                || left.CardComposer != match.CardComposer)
             {
                 return false;
             }

@@ -1777,7 +1777,10 @@ public sealed partial class LibraryPage : Page
 
         for (var i = 0; i < rows.Count; i++)
         {
-            if (!string.Equals(_cards[i].Entry.CanonicalPath, rows[i].CanonicalPath, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(_cards[i].Entry.CanonicalPath, rows[i].CanonicalPath, StringComparison.OrdinalIgnoreCase)
+                || _cards[i].Title != rows[i].CardTitle
+                || _cards[i].Subtitle != rows[i].CardSubtitle
+                || _cards[i].Composer != rows[i].CardComposer)
             {
                 return false;
             }
