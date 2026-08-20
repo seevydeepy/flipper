@@ -83,6 +83,6 @@ public static class Program
     {
         Console.WriteLine("Carousel.Setup.exe --target <dir> --zip <payload.zip> [--wait-pid <pid>] [--timeout-sec 60]");
         Console.WriteLine("Carousel.Setup.exe --uninstall");
-        Console.WriteLine("With no arguments, choose a folder and install Carousel for this user.");
+        Console.WriteLine("With no arguments, open the Carousel setup wizard.");
     }
 }

@@ -99,7 +99,7 @@ internal static class Uninstall
             return 3;
         }
 
-        if (!TryRemoveEmptyDirectories(target) || !InstallManifest.TryDeleteFile(setup))
+        if (!StartMenuShortcut.TryDelete() || !InstallManifest.TryDeleteFile(setup))
         {
             return 3;
         }

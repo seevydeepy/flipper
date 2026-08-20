@@ -1,14 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\Flipper.App\Assets\AppIcon.ico</ApplicationIcon>
     <AssemblyName>Carousel.Setup</AssemblyName>
     <RootNamespace>Flipper.Setup</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Flipper.Core\Flipper.Core.csproj" />
+    <EmbeddedResource Include="..\..\LICENSE" LogicalName="LICENSE.txt" />
   </ItemGroup>
 </Project>

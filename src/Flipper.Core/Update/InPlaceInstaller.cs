@@ -7,20 +7,38 @@ public static class InPlaceInstaller
 {
     public const int DefaultTimeoutSec = 60;
 
-    public static bool Extract(string zipPath, string targetDir, int retries = 5)
+    public static bool Extract(
+        string zipPath,
+        string targetDir,
+        int retries = 5,
+        IProgress<InstallProgress>? progress = null)
     {
-        if (string.IsNullOrWhiteSpace(zipPath) || string.IsNullOrWhiteSpace(targetDir))
+        return TryExtract(zipPath, targetDir, out _, retries, progress);
+    }
+
+    public static bool TryExtract(
+        string zipPath,
+        string targetDir,
+        out string error,
+        int retries = 5,
+        IProgress<InstallProgress>? progress = null)
+    {
+        error = "";
+        if (string.IsNullOrWhiteSpace(zipPath) || !Path.IsPathRooted(zipPath))
         {
+            error = "The package path is not valid.";
             return false;
         }
 
-        if (!Path.IsPathRooted(targetDir) || !Path.IsPathRooted(zipPath))
+        if (string.IsNullOrWhiteSpace(targetDir) || !Path.IsPathRooted(targetDir))
         {
+            error = "The install folder is not valid.";
             return false;
         }
 
         if (!File.Exists(zipPath))
         {
+            error = "Could not find the package.";
             return false;
         }
 
@@ -29,9 +47,19 @@ public static class InPlaceInstaller
         try
         {
             using var zip = ZipFile.OpenRead(zipPath);
+            var totalFiles = 0;
             foreach (var entry in zip.Entries)
             {
-                if (string.IsNullOrEmpty(entry.Name) && entry.FullName.EndsWith('/'))
+                if (!IsDirectory(entry))
+                {
+                    totalFiles++;
+                }
+            }
+
+            var current = 0;
+            foreach (var entry in zip.Entries)
+            {
+                if (IsDirectory(entry))
                 {
                     Directory.CreateDirectory(Path.Combine(targetDir, entry.FullName));
                     continue;
@@ -42,6 +70,7 @@ public static class InPlaceInstaller
                 if (!dest.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(dest, root, StringComparison.OrdinalIgnoreCase))
                 {
+                    error = "The package has an unsafe path.";
                     return false;
                 }
 
@@ -53,20 +82,31 @@ public static class InPlaceInstaller
 
                 if (!TryExtractEntry(entry, dest, retries))
                 {
+                    error = $"Could not write {entry.FullName}.";
                     return false;
                 }
+
+                current++;
+                progress?.Report(new InstallProgress(current, totalFiles, entry.Name));
             }
 
             return true;
         }
         catch (InvalidDataException)
         {
+            error = "The package is not valid.";
             return false;
         }
         catch (IOException)
         {
+            error = "Could not extract the package.";
             return false;
         }
+    }
+
+    private static bool IsDirectory(ZipArchiveEntry entry)
+    {
+        return string.IsNullOrEmpty(entry.Name) && entry.FullName.EndsWith('/');
     }
 
     public static bool TryListRelativeFiles(string zipPath, out IReadOnlyList<string> files)
@@ -83,7 +123,7 @@ public static class InPlaceInstaller
             var listed = new List<string>();
             foreach (var entry in zip.Entries)
             {
-                if (string.IsNullOrEmpty(entry.Name) && entry.FullName.EndsWith('/'))
+                if (IsDirectory(entry))
                 {
                     continue;
                 }

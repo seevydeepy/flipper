@@ -40,6 +40,13 @@ public static class FirstInstallPaths
             "Carousel");
     }
 
+    public static string StartMenuShortcutPath()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+            "Carousel.lnk");
+    }
+
     public static bool TryResolveSiblingZip(string setupPath, string rid, out string siblingZip)
     {
         siblingZip = "";

@@ -64,6 +64,7 @@ internal static class RegisteredInstall
             }
 
             PerUserUninstall.Write(parent, PerUserUninstall.ProductKey, BuildInfo(targetDir, zipPath, setupPath));
+            TryRefreshStartMenu(targetDir);
             return true;
         }
         catch (UnauthorizedAccessException)
@@ -107,5 +108,11 @@ internal static class RegisteredInstall
         var info = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         var file = assembly.GetName().Version?.ToString();
         return AppVersion.Running(info, file);
+    }
+
+    private static void TryRefreshStartMenu(string targetDir)
+    {
+        var app = Path.Combine(PerUserUninstall.NormalizeLocation(targetDir), "Carousel.exe");
+        StartMenuShortcut.TryCreate(app, targetDir, out _);
     }
 }

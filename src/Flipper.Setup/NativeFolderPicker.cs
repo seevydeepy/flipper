@@ -10,53 +10,27 @@ internal static class NativeFolderPicker
     private const uint FosForceFileSystem = 0x40;
     private const uint SigdnFileSysPath = 0x80058000;
 
-    public static bool TryPick(string suggested, out string path)
+    public static bool TryPick(string suggested, IntPtr owner, out string path)
     {
         path = "";
-        var createdSuggested = false;
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(suggested) && !Directory.Exists(suggested))
-            {
-                Directory.CreateDirectory(suggested);
-                createdSuggested = true;
-            }
-        }
-        catch (IOException)
-        {
-            createdSuggested = false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            createdSuggested = false;
-        }
-
         var dialog = (IFileOpenDialog)new FileOpenDialog();
         try
         {
             dialog.SetOptions(FosPickFolders | FosForceFileSystem);
             dialog.SetTitle("Choose Carousel folder");
             TrySetFolder(dialog, suggested);
-            var hr = dialog.Show(IntPtr.Zero);
+            var hr = dialog.Show(owner);
             if (hr != 0)
             {
-                TryRemoveEmptySuggested(suggested, createdSuggested);
                 return false;
             }
 
             dialog.GetResult(out var item);
             item.GetDisplayName(SigdnFileSysPath, out path);
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                TryRemoveEmptySuggested(suggested, createdSuggested);
-                return false;
-            }
-
-            return true;
+            return !string.IsNullOrWhiteSpace(path);
         }
         catch (COMException)
         {
-            TryRemoveEmptySuggested(suggested, createdSuggested);
             return false;
         }
         finally
@@ -85,28 +59,6 @@ internal static class NativeFolderPicker
         }
 
         dialog.SetFolder(item);
-    }
-
-    private static void TryRemoveEmptySuggested(string suggested, bool createdSuggested)
-    {
-        if (!createdSuggested || string.IsNullOrWhiteSpace(suggested) || !Directory.Exists(suggested))
-        {
-            return;
-        }
-
-        try
-        {
-            if (!Directory.EnumerateFileSystemEntries(suggested).Any())
-            {
-                Directory.Delete(suggested);
-            }
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
     }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
