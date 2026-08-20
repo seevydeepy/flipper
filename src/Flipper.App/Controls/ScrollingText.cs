@@ -21,6 +21,12 @@ public sealed class ScrollingText : Canvas
         typeof(ScrollingText),
         new PropertyMetadata(null, OnForegroundChanged));
 
+    public static readonly DependencyProperty IsActiveProperty = DependencyProperty.Register(
+        nameof(IsActive),
+        typeof(bool),
+        typeof(ScrollingText),
+        new PropertyMetadata(false, OnIsActiveChanged));
+
     private const double StillSlack = 1;
     private const double PixelsPerSecond = 18;
     private const double HoldSeconds = 2;
@@ -49,6 +55,12 @@ public sealed class ScrollingText : Canvas
     {
         get => (Brush?)GetValue(ForegroundProperty);
         set => SetValue(ForegroundProperty, value);
+    }
+
+    public bool IsActive
+    {
+        get => (bool)GetValue(IsActiveProperty);
+        set => SetValue(IsActiveProperty, value);
     }
 
     private static TextBlock CreateLabel()
@@ -80,6 +92,22 @@ public sealed class ScrollingText : Canvas
         }
     }
 
+    private static void OnIsActiveChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (sender is not ScrollingText control)
+        {
+            return;
+        }
+
+        if (!control.IsActive)
+        {
+            control.StopScroll();
+            return;
+        }
+
+        control.InvalidateArrange();
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         _label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -97,7 +125,7 @@ public sealed class ScrollingText : Canvas
         Canvas.SetTop(_label, 0);
 
         var overflow = _label.DesiredSize.Width - finalSize.Width;
-        if (overflow <= StillSlack)
+        if (overflow <= StillSlack || !IsActive)
         {
             StopScroll();
             base.ArrangeOverride(finalSize);

@@ -755,7 +755,7 @@ public sealed partial class LibraryPage : Page
 
     private void EnterAssignment(ScoreCard card)
     {
-        _assignmentCard = card;
+        SetAssignmentCard(card);
         ShowAssignmentChrome(interactive: true);
     }
 
@@ -766,9 +766,33 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        _assignmentCard = null;
+        SetAssignmentCard(null);
         _dragCard = null;
         HideAssignmentChrome();
+    }
+
+    private void SetAssignmentCard(ScoreCard? card)
+    {
+        if (ReferenceEquals(_assignmentCard, card))
+        {
+            if (_assignmentCard is not null)
+            {
+                _assignmentCard.IsHighlighted = true;
+            }
+
+            return;
+        }
+
+        if (_assignmentCard is not null)
+        {
+            _assignmentCard.IsHighlighted = false;
+        }
+
+        _assignmentCard = card;
+        if (_assignmentCard is not null)
+        {
+            _assignmentCard.IsHighlighted = true;
+        }
     }
 
     private void ShowAssignmentChrome(bool interactive)
@@ -871,7 +895,7 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        _assignmentCard = next;
+        SetAssignmentCard(next);
         UpdateAssignmentShade();
     }
 
@@ -1903,6 +1927,7 @@ public sealed class ScoreCard : INotifyPropertyChanged
 {
     private BitmapImage? _preview;
     private bool _favourite;
+    private bool _highlighted;
 
     public ScoreCard(ScoreEntry entry, bool favourite, bool restore = false)
     {
@@ -1924,6 +1949,21 @@ public sealed class ScoreCard : INotifyPropertyChanged
     public Brush StarBrush => new SolidColorBrush(_favourite
         ? Color.FromArgb(255, 241, 196, 15)
         : Color.FromArgb(255, 107, 124, 134));
+
+    public bool IsHighlighted
+    {
+        get => _highlighted;
+        set
+        {
+            if (_highlighted == value)
+            {
+                return;
+            }
+
+            _highlighted = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsHighlighted)));
+        }
+    }
 
     public bool IsFavourite
     {

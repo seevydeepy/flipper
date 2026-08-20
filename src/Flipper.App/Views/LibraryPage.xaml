@@ -205,11 +205,13 @@
                                             </Grid.RowDefinitions>
                                             <controls:ScrollingText
                                                 Text="{x:Bind Title, Mode=OneWay}"
+                                                IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
                                                 Foreground="{StaticResource InkBrush}"
                                                 VerticalAlignment="Center" />
                                             <controls:ScrollingText
                                                 Grid.Row="1"
                                                 Text="{x:Bind Composer, Mode=OneWay}"
+                                                IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
                                                 Foreground="{StaticResource MuteBrush}"
                                                 VerticalAlignment="Center" />
                                             <Button
