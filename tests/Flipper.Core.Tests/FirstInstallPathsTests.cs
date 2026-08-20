@@ -32,6 +32,18 @@ public sealed class FirstInstallPathsTests
     }
 
     [Fact]
+    public void StartMenuShortcutPath_IsUnderStartMenuPrograms()
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+            "Carousel.lnk");
+        Assert.Equal(expected, FirstInstallPaths.StartMenuShortcutPath());
+        Assert.False(
+            FirstInstallPaths.StartMenuShortcutPath()
+                .StartsWith(FirstInstallPaths.DefaultTarget(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void TryResolveSiblingZip_FindsZipNextToSetup()
     {
         var setup = Path.Combine(Path.GetTempPath(), "flipper-tests", "Carousel.Setup-win-x64.exe");
