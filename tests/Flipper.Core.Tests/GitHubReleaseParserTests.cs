@@ -11,8 +11,8 @@ public sealed class GitHubReleaseParserTests
           "assets": [
             {"name": "Carousel-win-x64.zip", "browser_download_url": "https://example.com/x64.zip"},
             {"name": "Carousel-win-arm64.zip", "browser_download_url": "https://example.com/arm64.zip"},
-            {"name": "Carousel.Setup-win-x64.exe", "browser_download_url": "https://example.com/setup-x64.exe"},
-            {"name": "Carousel.Setup-win-arm64.exe", "browser_download_url": "https://example.com/setup-arm64.exe"}
+            {"name": "Carousel.Setup-1.0.1-win-x64.exe", "browser_download_url": "https://example.com/setup-x64.exe"},
+            {"name": "Carousel.Setup-1.0.1-win-arm64.exe", "browser_download_url": "https://example.com/setup-arm64.exe"}
           ]
         }
         """;
@@ -33,7 +33,7 @@ public sealed class GitHubReleaseParserTests
         Assert.True(GitHubReleaseParser.TryParse(LatestJson, out var release));
         Assert.True(ReleaseAssets.TryForRid(release, "win-x64", out var assets));
         Assert.Equal("Carousel-win-x64.zip", assets.Zip.Name);
-        Assert.Equal("Carousel.Setup-win-x64.exe", assets.Setup.Name);
+        Assert.Equal("Carousel.Setup-1.0.1-win-x64.exe", assets.Setup.Name);
     }
 
     [Fact]
