@@ -9,6 +9,8 @@ namespace Flipper.App.Services;
 public sealed class PdfPageSource : IDisposable
 {
     private static readonly object PdfiumLock = new();
+    private const float TitleBandFraction = 0.24f;
+    private const byte PaperTone = 240;
     private readonly byte[] _bytes;
     private bool _disposed;
 
@@ -71,17 +73,18 @@ public sealed class PdfPageSource : IDisposable
             }
 
             using (bitmap)
-            using (var image = SKImage.FromBitmap(bitmap))
-            using (var data = image.Encode(SKEncodedImageFormat.Png, 80))
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(pngPath)!);
-                var tmp = pngPath + ".tmp";
-                using (var file = File.Create(tmp))
+                var bandHeight = TitleBandHeight(bitmap.Height);
+                SKBitmap? cropped = null;
+                if (bandHeight < bitmap.Height && TitleBandHasInk(bitmap, bandHeight))
                 {
-                    data.SaveTo(file);
+                    cropped = CropTop(bitmap, bandHeight);
                 }
 
-                File.Move(tmp, pngPath, overwrite: true);
+                using (cropped)
+                {
+                    SavePng(cropped ?? bitmap, pngPath);
+                }
             }
 
             return true;
@@ -117,6 +120,61 @@ public sealed class PdfPageSource : IDisposable
                 }
             }
         });
+    }
+
+    private static int TitleBandHeight(int pageHeight)
+    {
+        return Math.Clamp((int)Math.Round(pageHeight * TitleBandFraction), 1, Math.Max(1, pageHeight));
+    }
+
+    private static bool TitleBandHasInk(SKBitmap bitmap, int bandHeight)
+    {
+        var width = bitmap.Width;
+        var total = width * bandHeight;
+        var needed = Math.Max(1, total / 100);
+        var ink = 0;
+        for (var y = 0; y < bandHeight; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var color = bitmap.GetPixel(x, y);
+                if (color.Red < PaperTone || color.Green < PaperTone || color.Blue < PaperTone)
+                {
+                    ink++;
+                    if (ink >= needed)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static SKBitmap CropTop(SKBitmap source, int height)
+    {
+        using var subset = new SKBitmap();
+        if (!source.ExtractSubset(subset, new SKRectI(0, 0, source.Width, height)))
+        {
+            throw new InvalidOperationException("Cannot crop preview band");
+        }
+
+        return subset.Copy() ?? throw new InvalidOperationException("Cannot copy preview band");
+    }
+
+    private static void SavePng(SKBitmap bitmap, string pngPath)
+    {
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 80);
+        Directory.CreateDirectory(Path.GetDirectoryName(pngPath)!);
+        var tmp = pngPath + ".tmp";
+        using (var file = File.Create(tmp))
+        {
+            data.SaveTo(file);
+        }
+
+        File.Move(tmp, pngPath, overwrite: true);
     }
 
     private static WriteableBitmap ToWriteable(SKBitmap source)

@@ -12,7 +12,7 @@ public static class ThumbnailStore
 
     public static string PathFor(string canonicalPath, long length, DateTime lastWriteUtc)
     {
-        var key = $"{canonicalPath}|{length}|{lastWriteUtc.Ticks}";
+        var key = $"{canonicalPath}|{length}|{lastWriteUtc.Ticks}|title-band-v1";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
         return Path.Combine(DirectoryPath, hash + ".png");
     }
