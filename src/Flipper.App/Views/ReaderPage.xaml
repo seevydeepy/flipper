@@ -28,15 +28,6 @@
             </Image>
             <TextBlock x:Name="RightError" Grid.Column="1" Text="Cannot draw this page" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
         </Grid>
-        <Grid x:Name="Overlay" Background="#99000000" VerticalAlignment="Top" Padding="12,12,12,12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="120" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="TitleLabel" Grid.Column="1" Foreground="White" VerticalAlignment="Center" Margin="16,0,16,0" />
-            <TextBlock x:Name="PageLabel" Grid.Column="2" Foreground="White" VerticalAlignment="Center" />
-        </Grid>
         <TextBlock
             x:Name="VoiceLabel"
             HorizontalAlignment="Right"
@@ -52,21 +43,40 @@
             PointerPressed="TurnLayer_PointerPressed"
             PointerReleased="TurnLayer_PointerReleased"
             ManipulationCompleted="TurnLayer_ManipulationCompleted" />
-        <Button
-            x:Name="BackButton"
-            Content="Back"
-            Click="BackButton_Click"
-            PointerReleased="BackButton_PointerReleased"
-            IsTabStop="False"
-            AllowFocusOnInteraction="False"
-            MinWidth="96"
-            MinHeight="48"
-            Padding="20,10"
-            FontSize="20"
-            HorizontalAlignment="Left"
-            VerticalAlignment="Top"
-            Margin="12"
-            Background="#CC000000"
-            Foreground="White" />
+        <Grid x:Name="Overlay" Background="#CC000000" VerticalAlignment="Top" Padding="12,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border
+                Background="{StaticResource PaperBrush}"
+                BorderBrush="{StaticResource GoldBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                VerticalAlignment="Center">
+                <Button
+                    x:Name="BackButton"
+                    Style="{StaticResource QuietButton}"
+                    Click="BackButton_Click"
+                    PointerReleased="BackButton_PointerReleased"
+                    IsTabStop="False"
+                    AllowFocusOnInteraction="False"
+                    MinWidth="0"
+                    MinHeight="0"
+                    Padding="12,6"
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    Foreground="{StaticResource InkBrush}"
+                    AutomationProperties.Name="Back">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" Foreground="{StaticResource InkBrush}" />
+                        <TextBlock Text="Back" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Border>
+            <TextBlock x:Name="TitleLabel" Grid.Column="1" Foreground="White" VerticalAlignment="Center" Margin="16,0,16,0" />
+            <TextBlock x:Name="PageLabel" Grid.Column="2" Foreground="White" VerticalAlignment="Center" />
+        </Grid>
     </Grid>
 </Page>
