@@ -23,6 +23,14 @@ public sealed class LibrarySnapshotTests
     }
 
     [Fact]
+    public void SameMembership_FalseWhenCardTextChanges()
+    {
+        var left = new LibrarySnapshot(@"C:\lib", [Entry("a", 10) with { Title = "(Main Theme)" }], true);
+        var right = new LibrarySnapshot(@"C:\lib", [Entry("a", 10) with { Title = "Schindler's List", Subtitle = "Main Theme" }], true);
+        Assert.False(left.SameMembership(right));
+    }
+
+    [Fact]
     public void SameMembership_FalseWhenAPathIsMissing()
     {
         var left = new LibrarySnapshot(@"C:\lib", [Entry("a", 10), Entry("b", 20)], true);
