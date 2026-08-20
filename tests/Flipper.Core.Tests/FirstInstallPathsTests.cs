@@ -22,12 +22,21 @@ public sealed class FirstInstallPathsTests
     }
 
     [Fact]
-    public void TryResolve_PutsCarouselNextToSetup()
+    public void DefaultTarget_IsLocalAppDataProgramsCarousel()
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs",
+            "Carousel");
+        Assert.Equal(expected, FirstInstallPaths.DefaultTarget());
+    }
+
+    [Fact]
+    public void TryResolveSiblingZip_FindsZipNextToSetup()
     {
         var setup = Path.Combine(Path.GetTempPath(), "flipper-tests", "Carousel.Setup-win-x64.exe");
-        Assert.True(FirstInstallPaths.TryResolve(setup, "win-x64", out var target, out var zip));
+        Assert.True(FirstInstallPaths.TryResolveSiblingZip(setup, "win-x64", out var zip));
         var directory = Path.GetDirectoryName(Path.GetFullPath(setup));
-        Assert.Equal(Path.Combine(directory!, "Carousel"), target);
         Assert.Equal(Path.Combine(directory!, "Carousel-win-x64.zip"), zip);
     }
 }

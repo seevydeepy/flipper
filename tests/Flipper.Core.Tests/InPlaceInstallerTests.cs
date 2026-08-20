@@ -58,6 +58,8 @@ public sealed class InPlaceInstallerTests
     {
         Assert.False(InPlaceInstaller.TryParseArgs(Array.Empty<string>(), out _, out _, out _, out _));
         Assert.False(InPlaceInstaller.TryParseArgs(["--help"], out _, out _, out _, out _));
+        Assert.False(InPlaceInstaller.TryParseArgs(["--uninstall"], out _, out _, out _, out _));
+        Assert.False(InPlaceInstaller.TryParseArgs(["--uninstall", "--quiet", "--wait-pid", "1"], out _, out _, out _, out _));
     }
 
     [Fact]
