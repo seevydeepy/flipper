@@ -51,6 +51,8 @@ public sealed class GitHubReleaseParserTests
 
         Assert.True(GitHubReleaseParser.TryParse(json, out var release));
         Assert.False(ReleaseAssets.TryForRid(release, "win-x64", out _));
+        Assert.True(ReleaseAssets.TryZipForRid(release, "win-x64", out var zip));
+        Assert.Equal("Carousel-win-x64.zip", zip.Name);
     }
 
     [Fact]

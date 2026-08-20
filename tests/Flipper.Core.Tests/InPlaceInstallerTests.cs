@@ -52,4 +52,23 @@ public sealed class InPlaceInstallerTests
             }
         }
     }
+
+    [Fact]
+    public void TryParseArgs_EmptyOrUnknown_Fails()
+    {
+        Assert.False(InPlaceInstaller.TryParseArgs(Array.Empty<string>(), out _, out _, out _, out _));
+        Assert.False(InPlaceInstaller.TryParseArgs(["--help"], out _, out _, out _, out _));
+    }
+
+    [Fact]
+    public void TryParseArgs_RootedTargetAndZip_Succeeds()
+    {
+        var target = Path.GetTempPath();
+        var zip = Path.Combine(Path.GetTempPath(), "payload.zip");
+        Assert.True(InPlaceInstaller.TryParseArgs(["--target", target, "--zip", zip], out var parsedTarget, out var parsedZip, out var pid, out var timeout));
+        Assert.Equal(target, parsedTarget);
+        Assert.Equal(zip, parsedZip);
+        Assert.Null(pid);
+        Assert.Equal(InPlaceInstaller.DefaultTimeoutSec, timeout);
+    }
 }
