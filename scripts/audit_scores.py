@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ import pymupdf
 
 ROOT = Path(r"//Alexandria/Charles/Scores")
 CATALOG = ROOT / ".flipper-catalog.json"
+BACKUP = Path(__file__).resolve().parent.parent / "artifacts" / ".flipper-catalog.json"
 
 JUNK = re.compile(
     r"public domain|creative commons|mutopia|typeset|licensed under|reference:|"
@@ -391,6 +393,14 @@ def extract(pdf: Path, rel: Path) -> dict[str, str]:
     return {"title": title[:160], "subtitle": subtitle[:160], "composer": composer[:80]}
 
 
+def write_catalog(path: Path, catalog: dict[str, dict[str, str]]) -> None:
+    payload = json.dumps(catalog, indent=2, ensure_ascii=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def main() -> int:
     catalog = {}
     errors = 0
@@ -403,7 +413,15 @@ def main() -> int:
             errors += 1
             catalog[str(rel).replace("/", "\\")] = {"title": tidy_title(pdf.stem), "subtitle": "", "composer": folder_composer(rel)}
 
-    CATALOG.write_text(json.dumps(catalog, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_catalog(BACKUP, catalog)
+    nas_error = ""
+    try:
+        write_catalog(CATALOG, catalog)
+        dest = str(CATALOG)
+    except OSError as exc:
+        nas_error = str(exc)
+        dest = str(BACKUP)
+
     named = sum(1 for item in catalog.values() if item.get("composer"))
     brackets = sum(1 for item in catalog.values() if "[" in (item.get("title") or "") or "]" in (item.get("title") or ""))
     print(json.dumps({
@@ -411,9 +429,11 @@ def main() -> int:
         "with_composer": named,
         "errors": errors,
         "titles_with_brackets": brackets,
-        "path": str(CATALOG),
+        "path": dest,
+        "backup": str(BACKUP),
+        "nas_error": nas_error,
     }, indent=2))
-    return 0
+    return 1 if nas_error else 0
 
 
 if __name__ == "__main__":
