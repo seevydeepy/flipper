@@ -27,6 +27,7 @@ public sealed class AppSettings
     public string? SearchQuery { get; set; }
     public bool ShowFavourites { get; set; }
     public bool ShowTrash { get; set; }
+    public bool VoiceTurningEnabled { get; set; } = true;
     public string? MicrophoneDeviceId { get; set; }
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);

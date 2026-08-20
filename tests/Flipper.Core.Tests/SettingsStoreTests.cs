@@ -25,6 +25,49 @@ public sealed class SettingsStoreTests
             Assert.Equal(SortMode.Recent, loaded.Sort);
             Assert.True(loaded.SortReversed);
             Assert.Equal(150, loaded.UiScalePercent);
+            Assert.True(loaded.VoiceTurningEnabled);
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void NewSettings_VoiceTurningEnabledDefaultsOn()
+    {
+        Assert.True(new AppSettings().VoiceTurningEnabled);
+    }
+
+    [Fact]
+    public void SaveLoad_RoundTripsVoiceTurningEnabledOff()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            var store = new SettingsStore(path);
+            store.Save(new AppSettings { VoiceTurningEnabled = false });
+
+            var loaded = store.Load();
+            Assert.False(loaded.VoiceTurningEnabled);
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void Load_MissingVoiceTurningEnabled_DefaultsOn()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, """{ "Sort": "Name" }""");
+
+            var loaded = new SettingsStore(path).Load();
+            Assert.True(loaded.VoiceTurningEnabled);
         }
         finally
         {
