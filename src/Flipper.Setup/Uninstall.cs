@@ -81,11 +81,36 @@ internal static class Uninstall
         var target = info.InstallLocation;
         var owned = InstallManifest.Read(target);
         var setup = Path.Combine(target, "Carousel.Setup.exe");
-        var deletedAll = InstallManifest.TryDeleteListed(target, owned);
-        deletedAll = InstallManifest.TryDeleteFile(InstallManifest.FilePath(target)) && deletedAll;
-        deletedAll = InstallManifest.TryDeleteFile(setup) && deletedAll;
-        InstallManifest.RemoveEmptyDirectories(target);
+        if (!InstallManifest.TryDeleteListed(target, owned))
+        {
+            RewriteRemaining(target, RemainingOwned(target, owned));
+            return 3;
+        }
 
+        var remaining = RemainingOwned(target, owned);
+        if (remaining.Count > 0)
+        {
+            RewriteRemaining(target, remaining);
+            return 3;
+        }
+
+        if (!InstallManifest.TryDeleteFile(InstallManifest.FilePath(target)))
+        {
+            return 3;
+        }
+
+        if (!TryRemoveEmptyDirectories(target) || !InstallManifest.TryDeleteFile(setup))
+        {
+            return 3;
+        }
+
+        PerUserUninstall.Remove(parent, PerUserUninstall.ProductKey);
+        TryRemoveEmptyDirectories(target);
+        return 0;
+    }
+
+    private static List<string> RemainingOwned(string target, IReadOnlyList<string> owned)
+    {
         var remaining = new List<string>();
         foreach (var relative in owned)
         {
@@ -95,18 +120,32 @@ internal static class Uninstall
             }
         }
 
-        if (!deletedAll || remaining.Count > 0 || File.Exists(setup))
+        return remaining;
+    }
+
+    private static void RewriteRemaining(string target, IReadOnlyList<string> remaining)
+    {
+        if (Directory.Exists(target))
         {
-            if (Directory.Exists(target))
-            {
-                InstallManifest.Write(target, remaining);
-            }
-
-            return 3;
+            InstallManifest.Write(target, remaining);
         }
+    }
 
-        PerUserUninstall.Remove(parent, PerUserUninstall.ProductKey);
-        return 0;
+    private static bool TryRemoveEmptyDirectories(string target)
+    {
+        try
+        {
+            InstallManifest.RemoveEmptyDirectories(target);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static int Fail(string message, bool quiet)
