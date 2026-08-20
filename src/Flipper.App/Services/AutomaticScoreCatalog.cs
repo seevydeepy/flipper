@@ -146,12 +146,14 @@ public sealed class AutomaticScoreCatalog : IDisposable
 
                 if (!IsStable(entry))
                 {
+                    DiscardForRetry(root, generation, entry);
                     continue;
                 }
 
                 var facts = await _extractor.ExtractAsync(entry, token);
                 if (!IsStable(entry))
                 {
+                    DiscardForRetry(root, generation, entry);
                     continue;
                 }
 
@@ -211,11 +213,12 @@ public sealed class AutomaticScoreCatalog : IDisposable
 
             var stale = _pending
                 .Where(pair => !IsStable(pair.Value.Entry))
-                .Select(pair => pair.Key)
                 .ToArray();
-            foreach (var key in stale)
+            foreach (var pair in stale)
             {
-                _pending.Remove(key);
+                _pending.Remove(pair.Key);
+                _seen.Remove(WorkId(pair.Value.Entry));
+                _overlay.Remove(pair.Value.Entry);
             }
 
             if (_pending.Count == 0)
@@ -272,6 +275,21 @@ public sealed class AutomaticScoreCatalog : IDisposable
 
         Changed?.Invoke();
         return true;
+    }
+
+    private void DiscardForRetry(string root, int generation, ScoreEntry entry)
+    {
+        lock (_gate)
+        {
+            if (!IsCurrent(root, generation))
+            {
+                return;
+            }
+
+            _seen.Remove(WorkId(entry));
+            _pending.Remove(CatalogKey(entry));
+            _overlay.Remove(entry);
+        }
     }
 
     private bool IsCurrent(string root, int generation)
