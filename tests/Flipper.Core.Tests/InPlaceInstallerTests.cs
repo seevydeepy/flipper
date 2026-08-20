@@ -126,6 +126,44 @@ public sealed class InPlaceInstallerTests
         Assert.False(relaunch);
     }
 
+    [Fact]
+    public void TryParseArgs_RelaunchFlag_Succeeds()
+    {
+        var target = Path.GetTempPath();
+        var zip = Path.Combine(Path.GetTempPath(), "payload.zip");
+        Assert.True(InPlaceInstaller.TryParseArgs(
+            ["--target", target, "--zip", zip, "--wait-pid", "12", "--relaunch"],
+            out var parsedTarget,
+            out var parsedZip,
+            out var pid,
+            out var timeout,
+            out var relaunch));
+        Assert.Equal(target, parsedTarget);
+        Assert.Equal(zip, parsedZip);
+        Assert.Equal(12, pid);
+        Assert.Equal(InPlaceInstaller.DefaultTimeoutSec, timeout);
+        Assert.True(relaunch);
+    }
+
+    [Fact]
+    public void TryStartApp_MissingExe_ReturnsFalse()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            Assert.False(InPlaceInstaller.TryStartApp(root));
+            Assert.False(InPlaceInstaller.TryStartApp(""));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
     private sealed class CollectingProgress : IProgress<InstallProgress>
     {
         private readonly List<InstallProgress> _items;
