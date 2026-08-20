@@ -87,6 +87,14 @@ public sealed partial class ReaderPage : Page
         _displayRequest = new DisplayRequest();
         _displayRequest.RequestActive();
         Draw();
+        if (!App.Current.Settings.VoiceTurningEnabled)
+        {
+            VoiceLabel.Visibility = Visibility.Collapsed;
+            VoiceLabel.Text = string.Empty;
+            return;
+        }
+
+        VoiceLabel.Visibility = Visibility.Visible;
         var epoch = ++_voiceEpoch;
         var failure = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword);
         if (epoch != _voiceEpoch)

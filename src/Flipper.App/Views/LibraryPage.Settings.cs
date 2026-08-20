@@ -126,7 +126,77 @@ public sealed partial class LibraryPage
 
     private static async Task<FrameworkElement> CreateVoiceSectionAsync()
     {
-        var mics = await MicrophoneCatalog.ListAsync();
+        var details = new StackPanel { Spacing = 6 };
+        var toggle = new ToggleSwitch
+        {
+            IsOn = App.Current.Settings.VoiceTurningEnabled,
+            OnContent = "On",
+            OffContent = "Off",
+            MinWidth = 0,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        AutomationProperties.SetName(toggle, "Voice turning");
+
+        var label = CreateSettingsLabel("Voice turning");
+        label.VerticalAlignment = VerticalAlignment.Center;
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(label);
+        Grid.SetColumn(toggle, 1);
+        header.Children.Add(toggle);
+
+        var epoch = 0;
+        async Task FillDetailsAsync()
+        {
+            var token = ++epoch;
+            details.Children.Clear();
+            if (!toggle.IsOn)
+            {
+                details.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            details.Visibility = Visibility.Visible;
+            var mics = await MicrophoneCatalog.ListAsync();
+            if (token != epoch)
+            {
+                return;
+            }
+
+            details.Children.Add(CreateMicrophonePicker(mics));
+            details.Children.Add(new StackPanel
+            {
+                Spacing = 6,
+                Margin = new Thickness(0, 10, 0, 0),
+                Children =
+                {
+                    CreateSettingsLabel("Voice commands"),
+                    CreateVoiceCommandList()
+                }
+            });
+        }
+
+        toggle.Toggled += async (_, _) =>
+        {
+            if (App.Current.Settings.VoiceTurningEnabled != toggle.IsOn)
+            {
+                App.Current.Settings.VoiceTurningEnabled = toggle.IsOn;
+                App.Current.PersistSettings();
+            }
+
+            await FillDetailsAsync();
+        };
+
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(header);
+        section.Children.Add(details);
+        await FillDetailsAsync();
+        return section;
+    }
+
+    private static FrameworkElement CreateMicrophonePicker(IReadOnlyList<MicrophoneOption> mics)
+    {
         var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var mic in mics)
         {
@@ -147,20 +217,10 @@ public sealed partial class LibraryPage
             App.Current.PersistSettings();
         };
 
-        var section = new StackPanel { Spacing = 6 };
-        section.Children.Add(CreateSettingsLabel("Microphone"));
-        section.Children.Add(box);
-        section.Children.Add(new StackPanel
-        {
-            Spacing = 6,
-            Margin = new Thickness(0, 10, 0, 0),
-            Children =
-            {
-                CreateSettingsLabel("Voice commands"),
-                CreateVoiceCommandList()
-            }
-        });
-        return section;
+        var picker = new StackPanel { Spacing = 6 };
+        picker.Children.Add(CreateSettingsLabel("Microphone"));
+        picker.Children.Add(box);
+        return picker;
     }
 
     private static FrameworkElement CreateVoiceCommandList()
