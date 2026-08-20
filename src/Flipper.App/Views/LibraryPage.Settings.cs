@@ -1,5 +1,6 @@
 using Flipper.App.Services;
 using Flipper.Core.Settings;
+using Flipper.Core.Update;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -249,11 +250,20 @@ public sealed partial class LibraryPage
 
     private static FrameworkElement CreateUpdateSection()
     {
+        var current = UpdateClient.CurrentVersion();
+        var version = CreateSettingsLabel($"Current Version: {current.Major}.{current.Minor}.{current.Build}");
         var status = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Brush)Application.Current.Resources["InkBrush"]
+        };
+        var bar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            IsIndeterminate = true,
+            Visibility = Visibility.Collapsed
         };
         var install = new Button
         {
@@ -262,10 +272,33 @@ public sealed partial class LibraryPage
         };
         var check = new Button { Content = "Check for updates" };
         UpdateOffer? offer = null;
+        void HideProgress()
+        {
+            bar.Visibility = Visibility.Collapsed;
+            bar.IsIndeterminate = true;
+            bar.Value = 0;
+        }
+
+        void ShowProgress(InstallProgress value)
+        {
+            bar.Visibility = Visibility.Visible;
+            status.Text = string.IsNullOrWhiteSpace(value.Message) ? "Downloading..." : value.Message;
+            if (value.Total <= 0)
+            {
+                bar.IsIndeterminate = true;
+                return;
+            }
+
+            bar.IsIndeterminate = false;
+            bar.Maximum = value.Total;
+            bar.Value = Math.Clamp(value.Current, 0, value.Total);
+        }
+
         check.Click += async (_, _) =>
         {
             check.IsEnabled = false;
             install.Visibility = Visibility.Collapsed;
+            HideProgress();
             status.Text = "";
             offer = null;
             try
@@ -299,38 +332,50 @@ public sealed partial class LibraryPage
 
             install.IsEnabled = false;
             check.IsEnabled = false;
+            ShowProgress(new InstallProgress(0, 0, "Downloading..."));
+            var closing = false;
             try
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
                 var client = new UpdateClient(http);
-                var files = await client.DownloadAsync(offer, CancellationToken.None);
+                var progress = new Progress<InstallProgress>(ShowProgress);
+                var files = await client.DownloadAsync(offer, progress, CancellationToken.None);
                 if (files is null)
                 {
+                    HideProgress();
                     status.Text = "Could not download";
                     return;
                 }
 
+                ShowProgress(new InstallProgress(0, 0, "Installing..."));
                 var target = Path.GetDirectoryName(Environment.ProcessPath);
                 if (!UpdateClient.StartSetup(files.Value.setupPath, files.Value.zipPath, target ?? ""))
                 {
+                    HideProgress();
                     status.Text = "Could not install";
                     return;
                 }
 
+                closing = true;
                 App.Current.Window?.Close();
             }
             catch (HttpRequestException)
             {
+                HideProgress();
                 status.Text = "Could not download";
             }
             catch (Exception)
             {
+                HideProgress();
                 status.Text = "Could not download";
             }
             finally
             {
-                install.IsEnabled = true;
-                check.IsEnabled = true;
+                if (!closing)
+                {
+                    install.IsEnabled = true;
+                    check.IsEnabled = true;
+                }
             }
         };
 
@@ -343,12 +388,17 @@ public sealed partial class LibraryPage
         buttons.Children.Add(check);
         buttons.Children.Add(install);
 
-        var section = new Grid { ColumnSpacing = 12 };
-        section.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        section.Children.Add(buttons);
+        var row = new Grid { ColumnSpacing = 12 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.Children.Add(buttons);
         Grid.SetColumn(status, 1);
-        section.Children.Add(status);
+        row.Children.Add(status);
+
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(version);
+        section.Children.Add(row);
+        section.Children.Add(bar);
         return section;
     }
 

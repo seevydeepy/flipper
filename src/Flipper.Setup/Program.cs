@@ -20,7 +20,7 @@ public static class Program
             return Uninstall.Run(quiet, waitPid);
         }
 
-        if (InPlaceInstaller.TryParseArgs(args, out var target, out var zip, out var waitForPid, out var timeoutSec))
+        if (InPlaceInstaller.TryParseArgs(args, out var target, out var zip, out var waitForPid, out var timeoutSec, out var relaunch))
         {
             if (waitForPid is int pid && !InPlaceInstaller.WaitForProcess(pid, TimeSpan.FromSeconds(timeoutSec)))
             {
@@ -32,7 +32,13 @@ public static class Program
                 return 3;
             }
 
-            return RegisteredInstall.TryRefresh(target, zip) ? 0 : 3;
+            var refreshed = RegisteredInstall.TryRefresh(target, zip);
+            if (relaunch)
+            {
+                InPlaceInstaller.TryStartApp(target);
+            }
+
+            return refreshed ? 0 : 3;
         }
 
         if (args.Length == 0)
@@ -81,7 +87,7 @@ public static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Carousel.Setup.exe --target <dir> --zip <payload.zip> [--wait-pid <pid>] [--timeout-sec 60]");
+        Console.WriteLine("Carousel.Setup.exe --target <dir> --zip <payload.zip> [--wait-pid <pid>] [--timeout-sec 60] [--relaunch]");
         Console.WriteLine("Carousel.Setup.exe --uninstall");
         Console.WriteLine("With no arguments, open the Carousel setup wizard.");
     }

@@ -167,20 +167,64 @@ public static class InPlaceInstaller
         }
     }
 
+    public static bool TryStartApp(string targetDir)
+    {
+        if (string.IsNullOrWhiteSpace(targetDir))
+        {
+            return false;
+        }
+
+        var app = Path.Combine(targetDir, "Carousel.exe");
+        if (!File.Exists(app))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Process.Start(new ProcessStartInfo
+            {
+                FileName = app,
+                UseShellExecute = true,
+                WorkingDirectory = targetDir
+            }) is not null;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     public static bool TryParseArgs(
         string[] args,
         out string target,
         out string zip,
         out int? waitPid,
-        out int timeoutSec)
+        out int timeoutSec,
+        out bool relaunch)
     {
         target = "";
         zip = "";
         waitPid = null;
         timeoutSec = DefaultTimeoutSec;
+        relaunch = false;
 
         for (var i = 0; i < args.Length; i++)
         {
+            if (args[i] == "--relaunch")
+            {
+                relaunch = true;
+                continue;
+            }
+
             if (i + 1 >= args.Length)
             {
                 return false;

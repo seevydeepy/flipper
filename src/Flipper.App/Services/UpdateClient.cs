@@ -86,7 +86,10 @@ public sealed class UpdateClient
         }, $"Version {remote.Major}.{remote.Minor}.{remote.Build} is available");
     }
 
-    public async Task<(string setupPath, string zipPath)?> DownloadAsync(UpdateOffer offer, CancellationToken cancellationToken)
+    public async Task<(string setupPath, string zipPath)?> DownloadAsync(
+        UpdateOffer offer,
+        IProgress<InstallProgress>? progress,
+        CancellationToken cancellationToken)
     {
         var folder = Path.Combine(Path.GetTempPath(), "CarouselUpdate", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
@@ -94,8 +97,9 @@ public sealed class UpdateClient
         var zipPath = Path.Combine(folder, "payload.zip");
         try
         {
-            await DownloadFileAsync(offer.SetupUrl, setupPath, cancellationToken);
-            await DownloadFileAsync(offer.ZipUrl, zipPath, cancellationToken);
+            progress?.Report(new InstallProgress(0, 0, "Downloading..."));
+            await DownloadFileAsync(offer.SetupUrl, setupPath, 0, 50, progress, cancellationToken);
+            await DownloadFileAsync(offer.ZipUrl, zipPath, 50, 50, progress, cancellationToken);
             return (setupPath, zipPath);
         }
         catch (HttpRequestException)
@@ -128,7 +132,7 @@ public sealed class UpdateClient
             var start = new ProcessStartInfo
             {
                 FileName = setupPath,
-                Arguments = $"--target \"{targetDir}\" --zip \"{zipPath}\" --wait-pid {Environment.ProcessId}",
+                Arguments = $"--target \"{targetDir}\" --zip \"{zipPath}\" --wait-pid {Environment.ProcessId} --relaunch",
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(setupPath) ?? targetDir
             };
@@ -148,12 +152,48 @@ public sealed class UpdateClient
         }
     }
 
-    private async Task DownloadFileAsync(string url, string path, CancellationToken cancellationToken)
+    private async Task DownloadFileAsync(
+        string url,
+        string path,
+        int startPercent,
+        int spanPercent,
+        IProgress<InstallProgress>? progress,
+        CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
+        var totalBytes = response.Content.Headers.ContentLength;
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var output = File.Create(path);
-        await input.CopyToAsync(output, cancellationToken);
+        if (totalBytes is null or <= 0)
+        {
+            progress?.Report(new InstallProgress(0, 0, "Downloading..."));
+            await input.CopyToAsync(output, cancellationToken);
+            progress?.Report(new InstallProgress(startPercent + spanPercent, 100, "Downloading..."));
+            return;
+        }
+
+        var buffer = new byte[81920];
+        long read = 0;
+        while (true)
+        {
+            var n = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+            if (n == 0)
+            {
+                break;
+            }
+
+            await output.WriteAsync(buffer.AsMemory(0, n), cancellationToken);
+            read += n;
+            var percent = startPercent + (int)(read * spanPercent / totalBytes.Value);
+            if (percent > startPercent + spanPercent)
+            {
+                percent = startPercent + spanPercent;
+            }
+
+            progress?.Report(new InstallProgress(percent, 100, "Downloading..."));
+        }
+
+        progress?.Report(new InstallProgress(startPercent + spanPercent, 100, "Downloading..."));
     }
 }
