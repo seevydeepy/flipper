@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -68,6 +70,15 @@ class AuditScoresTests(unittest.TestCase):
             lines, "John Williams Theme from Schindler's List")
         self.assertEqual("John Williams", title)
         self.assertEqual('From The Universal Motion Picture "SCHINDLER\'S LIST"', subtitle)
+
+    def test_write_catalog_replaces_via_temp_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / ".flipper-catalog.json"
+            path.write_text("{}", encoding="utf-8")
+            AUDIT.write_catalog(path, {"A.pdf": {"title": "Air", "subtitle": "", "composer": "Bach"}})
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual("Air", data["A.pdf"]["title"])
+            self.assertFalse(path.with_name(path.name + ".tmp").exists())
 
 
 if __name__ == "__main__":
