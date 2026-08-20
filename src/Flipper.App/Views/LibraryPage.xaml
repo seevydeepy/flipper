@@ -192,7 +192,7 @@
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Border Background="#E8E0D4" CornerRadius="8" Margin="0,0,0,8">
-                                            <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="Uniform" />
+                                            <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
                                         </Border>
                                         <Grid Grid.Row="1" ColumnSpacing="4" RowSpacing="2">
                                             <Grid.ColumnDefinitions>

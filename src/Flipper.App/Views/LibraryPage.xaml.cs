@@ -26,7 +26,6 @@ public sealed partial class LibraryPage : Page
     private const double TrashZoneWidth = 60;
     private const double TrashInsetVertical = 24;
     private const int PreviewDecodeWidth = 180;
-    private const int PreviewRenderWidth = 720;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const string WordmarkAsset = "carousel-wordmark.png";
     private const double PlaylistDeleteSize = 32;
@@ -1828,7 +1827,7 @@ public sealed partial class LibraryPage : Page
         {
             var sourcePath = card.Entry.DisplayFullPath;
             var created = await Task.Run(() =>
-                File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, PreviewRenderWidth));
+                File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, 360));
             if (!created || card.PreviewEpoch != epoch)
             {
                 return;
