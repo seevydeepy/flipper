@@ -21,6 +21,27 @@ public sealed class ScoreLabelTests
         Assert.Equal("Clair de Lune", ScoreLabel.Title("Clair de Lune", "file"));
     }
 
+    [Theory]
+    [InlineData("rubbish123", "Rubbish 123")]
+    [InlineData("clair_de__lune", "Clair De Lune")]
+    [InlineData("practice score - copy (2)", "Practice Score")]
+    [InlineData("eBookGuide2", "eBook Guide 2")]
+    [InlineData("NASA2026", "NASA 2026")]
+    [InlineData("Op. 10 No. 3", "Op. 10 No. 3")]
+    [InlineData("rubbish123.pdf", "Rubbish 123")]
+    public void CleanFileName_MakesFallbackReadable(string fileName, string expected)
+    {
+        Assert.Equal(expected, ScoreFactInference.CleanFileName(fileName));
+    }
+
+    [Fact]
+    public void Card_CleansTheFileNameFallback()
+    {
+        var card = ScoreLabel.Card(null, null, null, "rubbish123");
+
+        Assert.Equal("Rubbish 123", card.Title);
+    }
+
     [Fact]
     public void Card_ParentheticalPiece_UsesWorkTitleFromFileName()
     {

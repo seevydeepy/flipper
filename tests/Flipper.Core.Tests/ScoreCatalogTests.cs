@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Flipper.Core.Library;
 
 namespace Flipper.Core.Tests;
@@ -52,6 +53,39 @@ public sealed class ScoreCatalogTests
     }
 
     [Fact]
+    public void TryRewriteRootFolder_DoesNotWriteWhileCatalogLockIsBusy()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        const string original = """{"Downloads\\Air.pdf":{"title":"Air"}}""";
+        File.WriteAllText(path, original);
+        using var held = new FileStream(
+            Path.Combine(root.Path, ".flipper-catalog.lock"),
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var changed = ScoreCatalog.TryRewriteRootFolder(root.Path, "Downloads", "Collection");
+
+        Assert.False(changed);
+        Assert.Equal(original, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void TryRewriteRootFolder_PreservesUnknownFields()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"Downloads\\Air.pdf":{"title":"Air","future":{"level":3},"composer":null}}""");
+        var before = JsonNode.Parse(File.ReadAllText(path))!.AsObject()[@"Downloads\Air.pdf"]!.DeepClone();
+
+        Assert.True(ScoreCatalog.TryRewriteRootFolder(root.Path, "Downloads", "Collection"));
+        var after = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+
+        Assert.True(JsonNode.DeepEquals(before, after[@"Collection\Air.pdf"]));
+    }
+
+    [Fact]
     public void Load_ReadsSubtitle()
     {
         using var root = new TempDir();
@@ -62,5 +96,136 @@ public sealed class ScoreCatalogTests
         Assert.Equal("Schindler's List", catalog["A.pdf"].Title);
         Assert.Equal("Main Theme", catalog["A.pdf"].Subtitle);
         Assert.Equal("John Williams", catalog["A.pdf"].Composer);
+    }
+
+    [Fact]
+    public void TryMergeMissing_AddsNewKeysWithoutReplacingExistingKeys()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"Existing.pdf":{"title":"Curated"}}""");
+        var generated = new Dictionary<string, ScoreFacts>
+        {
+            ["Existing.pdf"] = new() { Title = "Automatic" },
+            ["New.pdf"] = new() { Title = "New Title", Composer = "Composer" }
+        };
+
+        var result = ScoreCatalog.TryMergeMissing(root.Path, generated);
+        var catalog = ScoreCatalog.Load(root.Path);
+
+        Assert.Equal(CatalogMergeStatus.Inserted, result.Status);
+        Assert.Equal(1, result.InsertedCount);
+        Assert.Equal("Curated", catalog["Existing.pdf"].Title);
+        Assert.Equal("New Title", catalog["New.pdf"].Title);
+        Assert.Equal("Composer", catalog["New.pdf"].Composer);
+    }
+
+    [Fact]
+    public void TryMergeMissing_IgnoresAStaleFixedTemporaryFile()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, "{}");
+        using var stale = new FileStream(path + ".tmp", FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, ScoreFacts> { ["New.pdf"] = new() { Title = "New Title" } });
+
+        Assert.Equal(CatalogMergeStatus.Inserted, result.Status);
+        Assert.Equal("New Title", ScoreCatalog.Load(root.Path)["New.pdf"].Title);
+    }
+
+    [Fact]
+    public void TryMergeMissing_PreservesExistingRawValues()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(
+            path,
+            """{"MissingFields.pdf":{"title":"Air","custom":{"level":3}},"NullFields.pdf":{"title":null,"composer":null,"future":true}}""");
+        var before = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        var missingFields = before["MissingFields.pdf"]!.DeepClone();
+        var nullFields = before["NullFields.pdf"]!.DeepClone();
+
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, ScoreFacts> { ["New.pdf"] = new() { Title = "New" } });
+        var after = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+
+        Assert.Equal(CatalogMergeStatus.Inserted, result.Status);
+        Assert.True(JsonNode.DeepEquals(missingFields, after["MissingFields.pdf"]));
+        Assert.True(JsonNode.DeepEquals(nullFields, after["NullFields.pdf"]));
+    }
+
+    [Fact]
+    public void TryMergeMissing_DoesNotRewriteWhenEveryKeyExists()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"Existing.pdf":{"title":"Curated"}}""");
+        var stamp = DateTime.UtcNow.AddMinutes(-5);
+        File.SetLastWriteTimeUtc(path, stamp);
+
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, ScoreFacts> { ["Existing.pdf"] = new() { Title = "Automatic" } });
+
+        Assert.Equal(CatalogMergeStatus.NoChanges, result.Status);
+        Assert.Equal(stamp, File.GetLastWriteTimeUtc(path));
+    }
+
+    [Fact]
+    public void TryMergeMissing_TreatsKeysAsCaseInsensitive()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"air.pdf":{"title":"Curated"}}""");
+
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, ScoreFacts> { ["AIR.PDF"] = new() { Title = "Automatic" } });
+
+        Assert.Equal(CatalogMergeStatus.NoChanges, result.Status);
+        Assert.Single(JsonNode.Parse(File.ReadAllText(path))!.AsObject());
+    }
+
+    [Fact]
+    public void TryMergeMissing_LeavesMalformedCatalogUnchanged()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        const string malformed = "{not json";
+        File.WriteAllText(path, malformed);
+
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, ScoreFacts> { ["New.pdf"] = new() { Title = "New" } });
+
+        Assert.Equal(CatalogMergeStatus.Failed, result.Status);
+        Assert.Equal(malformed, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public async Task TryMergeMissing_ConcurrentWritersRetainBothKeys()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, ScoreCatalog.FileName), "{}");
+        using var start = new Barrier(2);
+
+        Task<CatalogMergeResult> Merge(string key) => Task.Run(() =>
+        {
+            start.SignalAndWait();
+            return ScoreCatalog.TryMergeMissing(
+                root.Path,
+                new Dictionary<string, ScoreFacts> { [key] = new() { Title = key } });
+        });
+
+        var results = await Task.WhenAll(Merge("A.pdf"), Merge("B.pdf"));
+        var catalog = ScoreCatalog.Load(root.Path);
+
+        Assert.All(results, result => Assert.Equal(CatalogMergeStatus.Inserted, result.Status));
+        Assert.Equal("A.pdf", catalog["A.pdf"].Title);
+        Assert.Equal("B.pdf", catalog["B.pdf"].Title);
     }
 }

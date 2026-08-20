@@ -35,6 +35,23 @@ public sealed class LibraryScannerTests
         Assert.Equal("Schindler's List", score.CardTitle);
         Assert.Equal("Main Theme", score.CardSubtitle);
         Assert.Equal("John Williams", score.CardComposer);
+        Assert.True(score.HasCatalogEntry);
+    }
+
+    [Fact]
+    public void Scan_DistinguishesMissingEntryFromExistingNullEntry()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "Existing.pdf"), "a");
+        File.WriteAllText(Path.Combine(root.Path, "Missing.pdf"), "b");
+        File.WriteAllText(
+            Path.Combine(root.Path, ScoreCatalog.FileName),
+            """{"Existing.pdf":{"title":null}}""");
+
+        var snapshot = LibraryScanner.Scan(root.Path);
+
+        Assert.True(snapshot.Scores.Single(score => score.DisplayName == "Existing").HasCatalogEntry);
+        Assert.False(snapshot.Scores.Single(score => score.DisplayName == "Missing").HasCatalogEntry);
     }
 
     [Fact]
