@@ -130,7 +130,7 @@ function Publish-Setup([string]$rid) {
     if (-not (Test-Path $exe)) {
         throw "Carousel.Setup.exe not found for $rid"
     }
-    Copy-Item $exe (Join-Path $artifacts "Carousel.Setup-$rid.exe") -Force
+    Copy-Item $exe (Join-Path $artifacts "Carousel.Setup-$Version-$rid.exe") -Force
 }
 
 Publish-App 'win-x64'

@@ -5,13 +5,17 @@ public static class ReleaseAssets
     public static bool TryForRid(GitHubRelease release, string rid, out RidReleaseAssets assets)
     {
         assets = null!;
-        var setupName = $"Carousel.Setup-{rid}.exe";
+        if (!AppVersion.TryParse(release.TagName, out var version))
+        {
+            return false;
+        }
+
         if (!TryZipForRid(release, rid, out var zip))
         {
             return false;
         }
 
-        var setup = Find(release, setupName);
+        var setup = Find(release, ReleaseFileNames.Setup(version, rid));
         if (setup is null)
         {
             return false;
@@ -24,7 +28,7 @@ public static class ReleaseAssets
     public static bool TryZipForRid(GitHubRelease release, string rid, out GitHubReleaseAsset zip)
     {
         zip = null!;
-        var found = Find(release, $"Carousel-{rid}.zip");
+        var found = Find(release, ReleaseFileNames.Zip(rid));
         if (found is null)
         {
             return false;

@@ -10,16 +10,8 @@ public static class FirstInstallPaths
             return false;
         }
 
-        var name = Path.GetFileName(setupPath);
-        if (name.Equals("Carousel.Setup-win-x64.exe", StringComparison.OrdinalIgnoreCase))
+        if (ReleaseFileNames.TryReadSetupRid(setupPath, out rid))
         {
-            rid = "win-x64";
-            return true;
-        }
-
-        if (name.Equals("Carousel.Setup-win-arm64.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            rid = "win-arm64";
             return true;
         }
 
@@ -61,7 +53,7 @@ public static class FirstInstallPaths
             return false;
         }
 
-        siblingZip = Path.Combine(directory, $"Carousel-{rid}.zip");
+        siblingZip = Path.Combine(directory, ReleaseFileNames.Zip(rid));
         return true;
     }
 }

@@ -70,7 +70,7 @@ jobs:
           gh release create $tag `
             artifacts/Carousel-win-x64.zip `
             artifacts/Carousel-win-arm64.zip `
-            artifacts/Carousel.Setup-win-x64.exe `
-            artifacts/Carousel.Setup-win-arm64.exe `
+            artifacts/Carousel.Setup-$version-win-x64.exe `
+            artifacts/Carousel.Setup-$version-win-arm64.exe `
             --generate-notes
         shell: pwsh
