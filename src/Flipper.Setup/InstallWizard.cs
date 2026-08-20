@@ -222,6 +222,13 @@ internal sealed class InstallWizard : Form
             return;
         }
 
+        if (InstallSession.IsCarouselRunning())
+        {
+            _folderError.Text = InstallSession.CloseCarouselMessage;
+            _folderError.Visible = true;
+            return;
+        }
+
         _folderBox.Text = target;
         _folderError.Visible = false;
         StartInstall(target);

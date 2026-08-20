@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using Flipper.Core.Update;
 
@@ -38,6 +40,37 @@ internal sealed class InstallOutcome
 [SupportedOSPlatform("windows")]
 internal static class InstallSession
 {
+    public const string CloseCarouselMessage = "Close Carousel before installing.";
+
+    public static bool IsCarouselRunning()
+    {
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName("Carousel");
+        }
+        catch (InvalidOperationException)
+        {
+            return true;
+        }
+        catch (Win32Exception)
+        {
+            return true;
+        }
+
+        try
+        {
+            return processes.Length > 0;
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                process.Dispose();
+            }
+        }
+    }
+
     public static bool TryValidateTarget(string targetDir, out string fullPath, out string error)
     {
         fullPath = "";
@@ -86,6 +119,11 @@ internal static class InstallSession
 
     public static InstallOutcome Run(string targetDir, IProgress<InstallStatus> progress)
     {
+        if (IsCarouselRunning())
+        {
+            return Fail(progress, CloseCarouselMessage);
+        }
+
         var setupPath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(setupPath))
         {
