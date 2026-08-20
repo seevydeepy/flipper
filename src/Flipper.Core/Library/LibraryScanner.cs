@@ -81,7 +81,8 @@ public static class LibraryScanner
                     file.Length,
                     file.LastWriteTimeUtc,
                     facts?.Title,
-                    facts?.Composer));
+                    facts?.Composer,
+                    facts?.Subtitle));
             }
         }
         catch (UnauthorizedAccessException)

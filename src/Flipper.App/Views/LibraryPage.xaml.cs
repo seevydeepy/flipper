@@ -1751,6 +1751,7 @@ public sealed partial class LibraryPage : Page
                 && card.Entry.Length == score.Length
                 && card.Entry.LastWriteUtc == score.LastWriteUtc
                 && card.Title == score.CardTitle
+                && card.Subtitle == score.CardSubtitle
                 && card.Composer == score.CardComposer
                 && card.ShowRestore == _showTrash)
             {
@@ -1933,6 +1934,7 @@ public sealed class ScoreCard : INotifyPropertyChanged
     {
         Entry = entry;
         Title = entry.CardTitle;
+        Subtitle = entry.CardSubtitle;
         Composer = entry.CardComposer;
         _favourite = favourite;
         ShowRestore = restore;
@@ -1940,10 +1942,13 @@ public sealed class ScoreCard : INotifyPropertyChanged
 
     public ScoreEntry Entry { get; }
     public string Title { get; }
+    public string Subtitle { get; }
     public string Composer { get; }
     public bool ShowRestore { get; }
     public Visibility RestoreVisibility => ShowRestore ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FavouriteVisibility => ShowRestore ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility SubtitleVisibility => string.IsNullOrWhiteSpace(Subtitle) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ComposerVisibility => string.IsNullOrWhiteSpace(Composer) ? Visibility.Collapsed : Visibility.Visible;
     public int PreviewEpoch { get; set; }
     public string StarGlyph => _favourite ? "\uE735" : "\uE734";
     public Brush StarBrush => new SolidColorBrush(_favourite

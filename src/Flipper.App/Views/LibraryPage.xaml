@@ -176,7 +176,7 @@
                                 <DataTemplate x:DataType="local:ScoreCard">
                                     <Grid
                                         Width="176"
-                                        Height="248"
+                                        Height="272"
                                         Padding="8"
                                         Background="{StaticResource CardBrush}"
                                         BorderBrush="{StaticResource GoldSoftBrush}"
@@ -202,6 +202,7 @@
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <controls:ScrollingText
                                                 Text="{x:Bind Title, Mode=OneWay}"
@@ -210,13 +211,21 @@
                                                 VerticalAlignment="Center" />
                                             <controls:ScrollingText
                                                 Grid.Row="1"
+                                                Text="{x:Bind Subtitle, Mode=OneWay}"
+                                                IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
+                                                Foreground="{StaticResource MuteBrush}"
+                                                VerticalAlignment="Center"
+                                                Visibility="{x:Bind SubtitleVisibility}" />
+                                            <controls:ScrollingText
+                                                Grid.Row="2"
                                                 Text="{x:Bind Composer, Mode=OneWay}"
                                                 IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
                                                 Foreground="{StaticResource MuteBrush}"
-                                                VerticalAlignment="Center" />
+                                                VerticalAlignment="Center"
+                                                Visibility="{x:Bind ComposerVisibility}" />
                                             <Button
                                                 Grid.Column="1"
-                                                Grid.RowSpan="2"
+                                                Grid.RowSpan="3"
                                                 Style="{StaticResource QuietButton}"
                                                 Padding="4"
                                                 MinWidth="32"
@@ -233,7 +242,7 @@
                                             </Button>
                                             <Button
                                                 Grid.Column="1"
-                                                Grid.RowSpan="2"
+                                                Grid.RowSpan="3"
                                                 Style="{StaticResource QuietButton}"
                                                 Padding="4"
                                                 MinWidth="32"

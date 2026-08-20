@@ -110,6 +110,7 @@ public static class ScoreSearch
         var fields = new[]
         {
             Fold(score.CardTitle),
+            Fold(score.CardSubtitle),
             Fold(score.DisplayName),
             Fold(Path.GetFileName(score.DisplayFullPath)),
             Fold(score.CardComposer)

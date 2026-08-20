@@ -5,6 +5,7 @@ namespace Flipper.Core.Library;
 public sealed class ScoreFacts
 {
     public string? Title { get; set; }
+    public string? Subtitle { get; set; }
     public string? Composer { get; set; }
 }
 
