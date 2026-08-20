@@ -29,6 +29,9 @@ public sealed class ScoreLabelTests
     [InlineData("NASA2026", "NASA 2026")]
     [InlineData("Op. 10 No. 3", "Op. 10 No. 3")]
     [InlineData("rubbish123.pdf", "Rubbish 123")]
+    [InlineData("copy.pdf", "Copy")]
+    [InlineData("duplicate.pdf", "Duplicate")]
+    [InlineData("(2).pdf", "Untitled")]
     public void CleanFileName_MakesFallbackReadable(string fileName, string expected)
     {
         Assert.Equal(expected, ScoreFactInference.CleanFileName(fileName));

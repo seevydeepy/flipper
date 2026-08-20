@@ -56,6 +56,18 @@ public sealed class ScoreFactInferenceTests
     }
 
     [Fact]
+    public void Infer_PrefersMetadataTitleOverMatchingComposerLine()
+    {
+        var facts = ScoreFactInference.Infer(
+            "scan001",
+            new ScoreMetadata("Clair de Lune", "Claude Debussy", null),
+            ["Claude Debussy", "Clair de Lune"]);
+
+        Assert.Equal("Clair de Lune", facts.Title);
+        Assert.Equal("Claude Debussy", facts.Composer);
+    }
+
+    [Fact]
     public void Infer_RejectsJunkMetadataAndFallsBackToCleanFileName()
     {
         var facts = ScoreFactInference.Infer(
@@ -66,6 +78,19 @@ public sealed class ScoreFactInferenceTests
         Assert.Equal("Rubbish 123", facts.Title);
         Assert.Null(facts.Composer);
         Assert.Null(facts.Subtitle);
+    }
+
+    [Theory]
+    [InlineData("copy.pdf")]
+    [InlineData("duplicate.pdf")]
+    [InlineData("(2).pdf")]
+    public void Infer_AndCardAlwaysHaveRequiredFallbackTitle(string fileName)
+    {
+        var facts = ScoreFactInference.Infer(fileName, default, []);
+        var card = ScoreLabel.Card(null, null, null, fileName);
+
+        Assert.False(string.IsNullOrWhiteSpace(facts.Title));
+        Assert.False(string.IsNullOrWhiteSpace(card.Title));
     }
 
     [Fact]

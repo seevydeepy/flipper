@@ -82,6 +82,19 @@ public sealed class SessionScoreFactsOverlayTests
         Assert.Equal(0, overlay.Count);
     }
 
+    [Fact]
+    public void Remove_DiscardsRejectedGeneratedFacts()
+    {
+        var entry = Entry(@"C:\Scores\rubbish123.pdf", 10, DateTime.UnixEpoch);
+        var overlay = new SessionScoreFactsOverlay();
+        overlay.SetRoot(@"C:\Scores");
+        overlay.Add(entry, new ScoreFacts { Title = "Automatic" });
+
+        overlay.Remove(entry);
+
+        Assert.Equal(0, overlay.Count);
+    }
+
     private static ScoreEntry Entry(string path, long length, DateTime lastWrite, bool hasCatalogEntry = false)
     {
         return new ScoreEntry(

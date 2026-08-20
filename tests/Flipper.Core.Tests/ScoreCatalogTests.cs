@@ -228,4 +228,37 @@ public sealed class ScoreCatalogTests
         Assert.Equal("A.pdf", catalog["A.pdf"].Title);
         Assert.Equal("B.pdf", catalog["B.pdf"].Title);
     }
+
+    [Fact]
+    public async Task TryMergeMissing_RejectsSourceThatChangesWhileWaitingForCatalogLock()
+    {
+        using var root = new TempDir();
+        var catalogPath = Path.Combine(root.Path, ScoreCatalog.FileName);
+        var sourcePath = Path.Combine(root.Path, "New.pdf");
+        File.WriteAllText(catalogPath, "{}");
+        File.WriteAllText(sourcePath, "old");
+        var source = new FileInfo(sourcePath);
+        using var held = new FileStream(
+            Path.Combine(root.Path, ".flipper-catalog.lock"),
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        var candidate = new CatalogMergeCandidate(
+            new ScoreFacts { Title = "Old Title" },
+            sourcePath,
+            source.Length,
+            source.LastWriteTimeUtc);
+
+        var merge = Task.Run(() => ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, CatalogMergeCandidate> { ["New.pdf"] = candidate }));
+        await Task.Delay(100);
+        File.WriteAllText(sourcePath, "new and different");
+        held.Dispose();
+
+        var result = await merge;
+
+        Assert.Contains("New.pdf", result.RejectedKeys, StringComparer.OrdinalIgnoreCase);
+        Assert.False(ScoreCatalog.Load(root.Path).ContainsKey("New.pdf"));
+    }
 }
