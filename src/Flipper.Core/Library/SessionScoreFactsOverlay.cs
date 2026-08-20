@@ -44,6 +44,14 @@ public sealed class SessionScoreFactsOverlay
         }
     }
 
+    public void Remove(ScoreEntry entry)
+    {
+        lock (_gate)
+        {
+            _items.Remove(Key(entry));
+        }
+    }
+
     public LibrarySnapshot Apply(LibrarySnapshot snapshot)
     {
         lock (_gate)

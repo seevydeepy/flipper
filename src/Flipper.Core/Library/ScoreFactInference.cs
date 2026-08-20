@@ -91,17 +91,25 @@ public static class ScoreFactInference
 
     public static string CleanFileName(string? fileName)
     {
-        var text = Path.GetFileName(fileName ?? string.Empty).Trim();
-        if (text.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        var original = Path.GetFileName(fileName ?? string.Empty).Trim();
+        if (original.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
         {
-            text = text[..^4];
+            original = original[..^4];
         }
+
+        var text = original;
         text = CopySuffix.Replace(text, string.Empty);
         text = NumberSuffix.Replace(text, string.Empty);
         text = Separators.Replace(text, " ");
         text = CamelBoundary.Replace(text, " ");
         text = NumberBoundary.Replace(text, " ");
         text = WhiteSpace.Replace(text, " ").Trim(' ', '-', '–', '—', '_', '.');
+        if (text.Length == 0)
+        {
+            var fallback = Separators.Replace(original, " ");
+            fallback = WhiteSpace.Replace(fallback, " ").Trim(' ', '-', '–', '—', '_', '.');
+            text = fallback.Any(char.IsLetter) ? fallback : "Untitled";
+        }
 
         var letters = text.Where(char.IsLetter).ToArray();
         if (letters.Length > 0 && letters.All(char.IsLower))
@@ -126,7 +134,7 @@ public static class ScoreFactInference
         var metadataTitle = CleanTitle(metadata.Title);
         var metadataComposer = CleanComposer(metadata.Author);
         var metadataSubtitle = CleanSubtitle(metadata.Subject);
-        var headings = PickHeadings(lines, fileTitle);
+        var headings = PickHeadings(lines, fileTitle, metadataTitle, metadataComposer);
         var title = headings.Title ?? metadataTitle ?? fileTitle;
         var composer = metadataComposer ?? PickComposer(lines, title);
         var subtitle = headings.Subtitle ?? metadataSubtitle;
@@ -148,12 +156,16 @@ public static class ScoreFactInference
     {
         var lines = pageLines.Select(CleanText).Where(IsUsefulLine).Take(10).ToArray();
         return lines.Sum(line => line.Count(char.IsLetter)) >= 20
-            && PickPageTitle(lines, CleanFileName(fileName)) is not null;
+            && PickPageTitle(lines, CleanFileName(fileName), null, null) is not null;
     }
 
-    private static HeadingPair PickHeadings(IReadOnlyList<string> lines, string fileTitle)
+    private static HeadingPair PickHeadings(
+        IReadOnlyList<string> lines,
+        string fileTitle,
+        string? metadataTitle,
+        string? metadataComposer)
     {
-        var title = PickPageTitle(lines, fileTitle);
+        var title = PickPageTitle(lines, fileTitle, metadataTitle, metadataComposer);
         string? subtitle = null;
         if (title is null)
         {
@@ -166,7 +178,11 @@ public static class ScoreFactInference
             if (IsPiece(whole))
             {
                 subtitle = whole;
-                title = PickPageTitle(lines.Where(line => line != title).ToArray(), fileTitle) ?? fileTitle;
+                title = PickPageTitle(
+                    lines.Where(line => line != title).ToArray(),
+                    fileTitle,
+                    metadataTitle,
+                    metadataComposer) ?? fileTitle;
             }
             else
             {
@@ -205,11 +221,28 @@ public static class ScoreFactInference
         return new HeadingPair(CleanText(title), CleanSubtitle(subtitle));
     }
 
-    private static string? PickPageTitle(IReadOnlyList<string> lines, string fileTitle)
+    private static string? PickPageTitle(
+        IReadOnlyList<string> lines,
+        string fileTitle,
+        string? metadataTitle,
+        string? metadataComposer)
     {
-        var fileTokens = Tokens(fileTitle);
-        return lines
+        var candidates = lines
             .Where(line => !IsBadTitle(line) && !IsDirection(line))
+            .Where(line => !string.Equals(line, metadataComposer, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (metadataTitle is not null)
+        {
+            var exact = candidates.FirstOrDefault(line =>
+                string.Equals(UnwrapWhole(line) ?? line, metadataTitle, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null)
+            {
+                return exact;
+            }
+        }
+
+        var fileTokens = Tokens(fileTitle);
+        return candidates
             .Select(line =>
             {
                 var inner = UnwrapWhole(line) ?? line;

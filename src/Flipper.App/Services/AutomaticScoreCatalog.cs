@@ -228,7 +228,11 @@ public sealed class AutomaticScoreCatalog : IDisposable
 
         var generated = batch.ToDictionary(
             pair => pair.Key,
-            pair => pair.Value.Facts,
+            pair => new CatalogMergeCandidate(
+                pair.Value.Facts,
+                pair.Value.Entry.DisplayFullPath,
+                pair.Value.Entry.Length,
+                pair.Value.Entry.LastWriteUtc),
             StringComparer.OrdinalIgnoreCase);
         var result = await Task.Run(
             () => ScoreCatalog.TryMergeMissing(root, generated, token),
@@ -254,10 +258,15 @@ public sealed class AutomaticScoreCatalog : IDisposable
             }
 
             _retryPaused = false;
-
-            foreach (var key in batch.Keys)
+            var rejected = result.RejectedKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in batch)
             {
-                _pending.Remove(key);
+                _pending.Remove(pair.Key);
+                if (rejected.Contains(pair.Key))
+                {
+                    _seen.Remove(WorkId(pair.Value.Entry));
+                    _overlay.Remove(pair.Value.Entry);
+                }
             }
         }
 

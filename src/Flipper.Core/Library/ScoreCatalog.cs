@@ -103,6 +103,18 @@ public static class ScoreCatalog
         IReadOnlyDictionary<string, ScoreFacts> generatedFacts,
         CancellationToken cancellationToken = default)
     {
+        var candidates = generatedFacts.ToDictionary(
+            pair => pair.Key,
+            pair => new CatalogMergeCandidate(pair.Value),
+            StringComparer.OrdinalIgnoreCase);
+        return TryMergeMissing(root, candidates, cancellationToken);
+    }
+
+    public static CatalogMergeResult TryMergeMissing(
+        string root,
+        IReadOnlyDictionary<string, CatalogMergeCandidate> generatedFacts,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
             using var writeLock = CatalogWriteLock.TryAcquire(root, cancellationToken);
@@ -129,25 +141,49 @@ public static class ScoreCatalog
             }
 
             var inserted = 0;
-            foreach (var pair in generatedFacts)
+            var rejected = new List<string>();
+            var sourceLocks = new List<FileStream>();
+            try
             {
-                var key = pair.Key.Replace('/', '\\');
-                if (ContainsKey(catalog, key))
+                foreach (var pair in generatedFacts)
                 {
-                    continue;
+                    var key = pair.Key.Replace('/', '\\');
+                    if (ContainsKey(catalog, key))
+                    {
+                        continue;
+                    }
+
+                    if (pair.Value.SourcePath is not null)
+                    {
+                        var sourceLock = TryLockSource(pair.Value);
+                        if (sourceLock is null)
+                        {
+                            rejected.Add(key);
+                            continue;
+                        }
+
+                        sourceLocks.Add(sourceLock);
+                    }
+
+                    catalog[key] = JsonSerializer.SerializeToNode(pair.Value.Facts, SaveOptions);
+                    inserted++;
                 }
 
-                catalog[key] = JsonSerializer.SerializeToNode(pair.Value, SaveOptions);
-                inserted++;
-            }
+                if (inserted == 0)
+                {
+                    return new CatalogMergeResult(CatalogMergeStatus.NoChanges, 0, rejected);
+                }
 
-            if (inserted == 0)
+                SidecarReplace.Write(path, catalog.ToJsonString(SaveOptions));
+                return new CatalogMergeResult(CatalogMergeStatus.Inserted, inserted, rejected);
+            }
+            finally
             {
-                return new CatalogMergeResult(CatalogMergeStatus.NoChanges, 0);
+                foreach (var sourceLock in sourceLocks)
+                {
+                    sourceLock.Dispose();
+                }
             }
-
-            SidecarReplace.Write(path, catalog.ToJsonString(SaveOptions));
-            return new CatalogMergeResult(CatalogMergeStatus.Inserted, inserted);
         }
         catch (OperationCanceledException)
         {
@@ -231,6 +267,34 @@ public static class ScoreCatalog
         }
     }
 
+    private static FileStream? TryLockSource(CatalogMergeCandidate candidate)
+    {
+        try
+        {
+            var sourceLock = new FileStream(
+                candidate.SourcePath!,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+            if (sourceLock.Length != candidate.Length
+                || File.GetLastWriteTimeUtc(candidate.SourcePath!) != candidate.LastWriteUtc)
+            {
+                sourceLock.Dispose();
+                return null;
+            }
+
+            return sourceLock;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     private static bool ContainsKey(JsonObject catalog, string key)
     {
         return catalog.Any(pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase));
@@ -255,4 +319,16 @@ public enum CatalogMergeStatus
     Failed
 }
 
-public readonly record struct CatalogMergeResult(CatalogMergeStatus Status, int InsertedCount);
+public sealed record CatalogMergeCandidate(
+    ScoreFacts Facts,
+    string? SourcePath = null,
+    long Length = 0,
+    DateTime LastWriteUtc = default);
+
+public readonly record struct CatalogMergeResult(
+    CatalogMergeStatus Status,
+    int InsertedCount,
+    IReadOnlyList<string>? Rejected = null)
+{
+    public IReadOnlyList<string> RejectedKeys => Rejected ?? Array.Empty<string>();
+}
