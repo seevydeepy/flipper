@@ -33,7 +33,7 @@ public static class Program
             }
 
             var refreshed = RegisteredInstall.TryRefresh(target, zip);
-            if (relaunch)
+            if (relaunch || waitForPid is not null)
             {
                 InPlaceInstaller.TryStartApp(target);
             }
