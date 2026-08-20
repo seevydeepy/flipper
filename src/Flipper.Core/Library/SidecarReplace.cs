@@ -7,9 +7,28 @@ internal static class SidecarReplace
         var previous = File.Exists(path)
             ? File.GetLastWriteTimeUtc(path)
             : DateTime.MinValue;
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, contents);
-        File.Move(tmp, path, overwrite: true);
+        var tmp = path + "." + Environment.ProcessId + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(tmp, contents);
+            File.Move(tmp, path, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tmp))
+                {
+                    File.Delete(tmp);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
 
         var current = File.GetLastWriteTimeUtc(path);
         if (current > previous)

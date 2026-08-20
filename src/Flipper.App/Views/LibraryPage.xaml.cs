@@ -31,6 +31,7 @@ public sealed partial class LibraryPage : Page
     private const double PlaylistDeleteSize = 32;
 
     private readonly LibraryWatcher _watcher = new();
+    private readonly AutomaticScoreCatalog _automaticCatalog = new();
     private readonly ResettableCollection<ScoreCard> _cards = new();
     private readonly ScoreCatalogCache _catalogCache = new();
     private readonly PlaylistLibraryCache _playlistCache = new();
@@ -68,6 +69,7 @@ public sealed partial class LibraryPage : Page
 
         ScoreGrid.ItemsSource = _cards;
         _watcher.Changed += OnWatcherChanged;
+        _automaticCatalog.Changed += OnWatcherChanged;
         _refreshTimer.Tick += (_, _) =>
         {
             _refreshTimer.Stop();
@@ -159,6 +161,7 @@ public sealed partial class LibraryPage : Page
         _scanAgain = false;
         CloseSettings();
         _watcher.Dispose();
+        _automaticCatalog.Dispose();
         _refreshTimer.Stop();
         _searchTimer.Stop();
     }
@@ -196,6 +199,7 @@ public sealed partial class LibraryPage : Page
         }
 
         App.Current.UseLibraryPath(result.Path);
+        _automaticCatalog.SetRoot(result.Path);
         _selectedFolder = null;
         _selectedPlaylistId = null;
         App.Current.Settings.SelectedPlaylistId = null;
@@ -1302,14 +1306,16 @@ public sealed partial class LibraryPage : Page
             return next;
         }
 
-        return new LibrarySnapshot(
+        var canonical = new LibrarySnapshot(
             next.RootDisplayPath,
             app.ApplyCanonical(next.Scores, next.RootDisplayPath),
             true);
+        return _automaticCatalog.ApplyOverlay(canonical);
     }
 
     private void ApplySnapshot(LibrarySnapshot next, string? libraryPath)
     {
+        _automaticCatalog.SetRoot(libraryPath);
         if (string.IsNullOrWhiteSpace(libraryPath))
         {
             OfflineLabel.Visibility = Visibility.Collapsed;
@@ -1339,6 +1345,11 @@ public sealed partial class LibraryPage : Page
         }
 
         var playlistsChanged = _playlistCache.TryRefresh(App.Current.Settings);
+        if (next.RootReachable)
+        {
+            _automaticCatalog.Schedule(libraryPath, next);
+        }
+
         if (_snapshot.SameMembership(next) && !playlistsChanged)
         {
             _snapshot = next;

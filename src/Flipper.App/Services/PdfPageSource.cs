@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml.Media.Imaging;
-using PDFtoImage;
 using SkiaSharp;
 using Windows.Storage.Streams;
 
@@ -8,7 +7,6 @@ namespace Flipper.App.Services;
 
 public sealed class PdfPageSource : IDisposable
 {
-    private static readonly object PdfiumLock = new();
     private readonly byte[] _bytes;
     private bool _disposed;
 
@@ -17,10 +15,7 @@ public sealed class PdfPageSource : IDisposable
     public PdfPageSource(string cachePath)
     {
         _bytes = File.ReadAllBytes(cachePath);
-        lock (PdfiumLock)
-        {
-            PageCount = Conversion.GetPageCount(_bytes);
-        }
+        PageCount = PdfBitmapRenderer.GetPageCount(_bytes);
     }
 
     public WriteableBitmap? Render(int pageIndex, int pixelWidth)
@@ -32,21 +27,8 @@ public sealed class PdfPageSource : IDisposable
 
         try
         {
-            SKBitmap bitmap;
-            lock (PdfiumLock)
-            {
-                bitmap = Conversion.ToImage(_bytes, pageIndex, options: new RenderOptions
-                {
-                    Width = Math.Max(64, pixelWidth),
-                    WithAspectRatio = true,
-                    UseTiling = true
-                });
-            }
-
-            using (bitmap)
-            {
-                return ToWriteable(bitmap);
-            }
+            using var bitmap = PdfBitmapRenderer.Render(_bytes, pageIndex, pixelWidth, useTiling: true);
+            return ToWriteable(bitmap);
         }
         catch (Exception ex)
         {
@@ -60,17 +42,7 @@ public sealed class PdfPageSource : IDisposable
         try
         {
             var bytes = File.ReadAllBytes(pdfPath);
-            SKBitmap bitmap;
-            lock (PdfiumLock)
-            {
-                bitmap = Conversion.ToImage(bytes, 0, options: new RenderOptions
-                {
-                    Width = Math.Max(64, pixelWidth),
-                    WithAspectRatio = true
-                });
-            }
-
-            using (bitmap)
+            using (var bitmap = PdfBitmapRenderer.Render(bytes, 0, pixelWidth))
             using (var image = SKImage.FromBitmap(bitmap))
             using (var data = image.Encode(SKEncodedImageFormat.Png, 80))
             {
@@ -102,19 +74,12 @@ public sealed class PdfPageSource : IDisposable
                 return;
             }
 
-            lock (PdfiumLock)
+            try
             {
-                try
-                {
-                    using var bitmap = Conversion.ToImage(_bytes, pageIndex, options: new RenderOptions
-                    {
-                        Width = Math.Max(64, pixelWidth),
-                        WithAspectRatio = true
-                    });
-                }
-                catch (Exception)
-                {
-                }
+                using var bitmap = PdfBitmapRenderer.Render(_bytes, pageIndex, pixelWidth);
+            }
+            catch (Exception)
+            {
             }
         });
     }

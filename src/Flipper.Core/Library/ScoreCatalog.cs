@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Flipper.Core.Library;
 
@@ -97,6 +98,75 @@ public static class ScoreCatalog
         }
     }
 
+    public static CatalogMergeResult TryMergeMissing(
+        string root,
+        IReadOnlyDictionary<string, ScoreFacts> generatedFacts,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var writeLock = CatalogWriteLock.TryAcquire(root, cancellationToken);
+            if (writeLock is null)
+            {
+                return new CatalogMergeResult(CatalogMergeStatus.Busy, 0);
+            }
+
+            var path = Path.Combine(root, FileName);
+            JsonObject catalog;
+            if (File.Exists(path))
+            {
+                var parsed = JsonNode.Parse(File.ReadAllText(path));
+                if (parsed is not JsonObject parsedObject)
+                {
+                    return new CatalogMergeResult(CatalogMergeStatus.Failed, 0);
+                }
+
+                catalog = parsedObject;
+            }
+            else
+            {
+                catalog = new JsonObject();
+            }
+
+            var inserted = 0;
+            foreach (var pair in generatedFacts)
+            {
+                var key = pair.Key.Replace('/', '\\');
+                if (ContainsKey(catalog, key))
+                {
+                    continue;
+                }
+
+                catalog[key] = JsonSerializer.SerializeToNode(pair.Value, SaveOptions);
+                inserted++;
+            }
+
+            if (inserted == 0)
+            {
+                return new CatalogMergeResult(CatalogMergeStatus.NoChanges, 0);
+            }
+
+            SidecarReplace.Write(path, catalog.ToJsonString(SaveOptions));
+            return new CatalogMergeResult(CatalogMergeStatus.Inserted, inserted);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (JsonException)
+        {
+            return new CatalogMergeResult(CatalogMergeStatus.Failed, 0);
+        }
+        catch (IOException)
+        {
+            return new CatalogMergeResult(CatalogMergeStatus.Failed, 0);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new CatalogMergeResult(CatalogMergeStatus.Failed, 0);
+        }
+    }
+
     public static bool TryRewriteRootFolder(string root, string oldName, string newName)
     {
         var path = Path.Combine(root, FileName);
@@ -105,12 +175,47 @@ public static class ScoreCatalog
             return false;
         }
 
-        Dictionary<string, ScoreFacts> catalog;
         try
         {
-            var json = File.ReadAllText(path);
-            catalog = JsonSerializer.Deserialize<Dictionary<string, ScoreFacts>>(json, JsonOptions)
-                ?? new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+            using var writeLock = CatalogWriteLock.TryAcquire(root, CancellationToken.None);
+            if (writeLock is null)
+            {
+                return false;
+            }
+
+            var parsed = JsonNode.Parse(File.ReadAllText(path));
+            if (parsed is not JsonObject catalog)
+            {
+                return false;
+            }
+
+            var replacements = new List<(string Old, string Next)>();
+            foreach (var key in catalog.Select(pair => pair.Key).ToArray())
+            {
+                if (LibraryPathRewrite.TryRewriteRelative(key, oldName, newName, out var next)
+                    && !string.Equals(next, key, StringComparison.Ordinal))
+                {
+                    replacements.Add((key, next));
+                }
+            }
+
+            if (replacements.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var (oldKey, next) in replacements)
+            {
+                var value = catalog[oldKey];
+                catalog.Remove(oldKey);
+                if (!ContainsKey(catalog, next))
+                {
+                    catalog[next] = value;
+                }
+            }
+
+            SidecarReplace.Write(path, catalog.ToJsonString(SaveOptions));
+            return true;
         }
         catch (JsonException)
         {
@@ -120,23 +225,15 @@ public static class ScoreCatalog
         {
             return false;
         }
-
-        var writable = new Dictionary<string, ScoreFacts>(catalog, StringComparer.OrdinalIgnoreCase);
-        if (!LibraryPathRewrite.RewriteCatalogKeys(writable, oldName, newName))
+        catch (UnauthorizedAccessException)
         {
             return false;
         }
+    }
 
-        try
-        {
-            var json = JsonSerializer.Serialize(writable, SaveOptions);
-            SidecarReplace.Write(path, json);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
+    private static bool ContainsKey(JsonObject catalog, string key)
+    {
+        return catalog.Any(pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase));
     }
 
     public static string Key(string relativeFolder, string fileName)
@@ -149,3 +246,13 @@ public static class ScoreCatalog
         return relativeFolder.Replace('/', '\\').TrimEnd('\\') + "\\" + fileName;
     }
 }
+
+public enum CatalogMergeStatus
+{
+    Inserted,
+    NoChanges,
+    Busy,
+    Failed
+}
+
+public readonly record struct CatalogMergeResult(CatalogMergeStatus Status, int InsertedCount);

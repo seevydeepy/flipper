@@ -9,7 +9,8 @@ public sealed record ScoreEntry(
     DateTime LastWriteUtc,
     string? Title = null,
     string? Composer = null,
-    string? Subtitle = null)
+    string? Subtitle = null,
+    bool HasCatalogEntry = false)
 {
     public ScoreCardText CardText => ScoreLabel.Card(Title, Subtitle, Composer, DisplayName);
     public string CardTitle => CardText.Title;

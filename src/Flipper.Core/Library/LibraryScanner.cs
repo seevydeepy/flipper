@@ -72,7 +72,7 @@ public static class LibraryScanner
                     }
                 }
 
-                catalog.TryGetValue(catalogKey, out var facts);
+                var hasCatalogEntry = catalog.TryGetValue(catalogKey, out var facts);
                 scores.Add(new ScoreEntry(
                     Path.GetFileNameWithoutExtension(file.Name),
                     relative,
@@ -82,7 +82,8 @@ public static class LibraryScanner
                     file.LastWriteTimeUtc,
                     facts?.Title,
                     facts?.Composer,
-                    facts?.Subtitle));
+                    facts?.Subtitle,
+                    hasCatalogEntry));
             }
         }
         catch (UnauthorizedAccessException)

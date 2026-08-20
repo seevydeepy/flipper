@@ -51,7 +51,7 @@ public static class ScoreLabel
 
     public static string Title(string? extracted, string fileName)
     {
-        return IsJunk(extracted) ? fileName : extracted!.Trim();
+        return IsJunk(extracted) ? ScoreFactInference.CleanFileName(fileName) : extracted!.Trim();
     }
 
     public static string Composer(string? extracted)
@@ -96,7 +96,7 @@ public static class ScoreLabel
 
         if (IsJunk(work))
         {
-            work = fileName;
+            work = ScoreFactInference.CleanFileName(fileName);
         }
 
         if (IsJunk(extra) || IsDirection(extra) || Fold(extra) == Fold(work))
@@ -176,11 +176,11 @@ public static class ScoreLabel
         var parts = Dash.Split(fileName, 2);
         if (parts.Length == 2 && !IsPieceDescriptor(parts[0]) && !IsJunk(parts[0]))
         {
-            return parts[0].Trim();
+            return ScoreFactInference.CleanFileName(parts[0]);
         }
 
         var cut = TrailingPiece.Replace(fileName, string.Empty).Trim();
-        return IsJunk(cut) ? fileName : cut;
+        return ScoreFactInference.CleanFileName(IsJunk(cut) ? fileName : cut);
     }
 
     private static string Fold(string value)
