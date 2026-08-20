@@ -13,8 +13,6 @@ public sealed class UpdateOffer
 
 public sealed class UpdateClient
 {
-    public const string LatestReleaseUrl = "https://api.github.com/repos/seevydeepy/flipper/releases/latest";
-
     private readonly HttpClient _http;
 
     public UpdateClient(HttpClient http)
@@ -50,7 +48,7 @@ public sealed class UpdateClient
         string json;
         try
         {
-            json = await _http.GetStringAsync(LatestReleaseUrl, cancellationToken);
+            json = await _http.GetStringAsync(GitHubReleases.LatestUrl, cancellationToken);
         }
         catch (HttpRequestException)
         {
