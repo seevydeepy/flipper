@@ -75,6 +75,10 @@ public static class ScoreFactInference
         @"^(?:music|composed|arranged|transcribed)\s+by$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex LabelledComposer = new(
+        @"^(?:performer|artist|composer|arranger)\s*:\s*(.+)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex Years = new(
         @"\s*\(\s*\d{3,4}(?:\s*[-–]\s*\d{2,4})?\s*\)\s*",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -230,6 +234,7 @@ public static class ScoreFactInference
         var candidates = lines
             .Where(line => !IsBadTitle(line) && !IsDirection(line))
             .Where(line => !string.Equals(line, metadataComposer, StringComparison.OrdinalIgnoreCase))
+            .Where(line => !IsComposerCredit(line))
             .ToArray();
         if (metadataTitle is not null)
         {
@@ -264,6 +269,11 @@ public static class ScoreFactInference
             .ThenByDescending(item => item.Prefix)
             .Select(item => item.Text)
             .FirstOrDefault();
+    }
+
+    private static bool IsComposerCredit(string line)
+    {
+        return Byline.IsMatch(line) || LabelledComposer.IsMatch(line);
     }
 
     private static string? PickComposer(IReadOnlyList<string> lines, string title)
