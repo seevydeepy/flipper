@@ -67,6 +67,20 @@ public sealed class ScoreFactInferenceTests
         Assert.Equal("Claude Debussy", facts.Composer);
     }
 
+    [Theory]
+    [InlineData("by Claude Debussy")]
+    [InlineData("Composer: Claude Debussy")]
+    public void Infer_DoesNotUseLabelledComposerCreditAsTitle(string credit)
+    {
+        var facts = ScoreFactInference.Infer(
+            "scan001",
+            new ScoreMetadata("Clair de Lune", "Claude Debussy", null),
+            [credit]);
+
+        Assert.Equal("Clair de Lune", facts.Title);
+        Assert.Equal("Claude Debussy", facts.Composer);
+    }
+
     [Fact]
     public void Infer_RejectsJunkMetadataAndFallsBackToCleanFileName()
     {
