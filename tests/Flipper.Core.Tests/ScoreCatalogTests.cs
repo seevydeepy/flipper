@@ -50,4 +50,17 @@ public sealed class ScoreCatalogTests
         Assert.Equal("Suite", catalog[@"Corpus\Suite.pdf"].Title);
         Assert.False(catalog.ContainsKey(@"Downloads\Air.pdf"));
     }
+
+    [Fact]
+    public void Load_ReadsSubtitle()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"A.pdf":{"title":"Schindler's List","subtitle":"Main Theme","composer":"John Williams"}}""");
+
+        var catalog = ScoreCatalog.Load(root.Path);
+        Assert.Equal("Schindler's List", catalog["A.pdf"].Title);
+        Assert.Equal("Main Theme", catalog["A.pdf"].Subtitle);
+        Assert.Equal("John Williams", catalog["A.pdf"].Composer);
+    }
 }

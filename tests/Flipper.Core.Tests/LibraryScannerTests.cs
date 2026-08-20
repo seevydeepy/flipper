@@ -22,6 +22,22 @@ public sealed class LibraryScannerTests
     }
 
     [Fact]
+    public void Scan_AppliesCatalogSubtitle()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "List.pdf"), "a");
+        File.WriteAllText(
+            Path.Combine(root.Path, ScoreCatalog.FileName),
+            """{"List.pdf":{"title":"Schindler's List","subtitle":"Main Theme","composer":"John Williams"}}""");
+
+        var snapshot = LibraryScanner.Scan(root.Path);
+        var score = Assert.Single(snapshot.Scores);
+        Assert.Equal("Schindler's List", score.CardTitle);
+        Assert.Equal("Main Theme", score.CardSubtitle);
+        Assert.Equal("John Williams", score.CardComposer);
+    }
+
+    [Fact]
     public void Scan_IncludesTrashScores_AndOmitsTrashFolder()
     {
         using var root = new TempDir();

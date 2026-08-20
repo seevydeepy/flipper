@@ -126,6 +126,14 @@ public sealed class ScoreSearchTests
     }
 
     [Fact]
+    public void Filter_Query_MatchesSubtitle()
+    {
+        var named = Scores[0] with { Title = "Dawn", Subtitle = "from Pride and Prejudice" };
+        var result = ScoreSearch.Filter([named], query: "prejudice", selectedFolder: null);
+        Assert.Equal("Air", Assert.Single(result).DisplayName);
+    }
+
+    [Fact]
     public void Filter_Query_MatchesFileNameWhenTitleDiffers()
     {
         var named = new ScoreEntry(
