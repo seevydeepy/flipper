@@ -69,6 +69,41 @@ public static class InPlaceInstaller
         }
     }
 
+    public static bool TryListRelativeFiles(string zipPath, out IReadOnlyList<string> files)
+    {
+        files = [];
+        if (string.IsNullOrWhiteSpace(zipPath) || !File.Exists(zipPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var zip = ZipFile.OpenRead(zipPath);
+            var listed = new List<string>();
+            foreach (var entry in zip.Entries)
+            {
+                if (string.IsNullOrEmpty(entry.Name) && entry.FullName.EndsWith('/'))
+                {
+                    continue;
+                }
+
+                listed.Add(entry.FullName);
+            }
+
+            files = listed;
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     public static bool WaitForProcess(int pid, TimeSpan timeout)
     {
         if (pid <= 0)

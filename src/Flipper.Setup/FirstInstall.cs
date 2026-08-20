@@ -1,9 +1,10 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Flipper.Core.Update;
 
 namespace Flipper.Setup;
 
+[SupportedOSPlatform("windows")]
 internal static class FirstInstall
 {
     public static int Run()
@@ -19,9 +20,25 @@ internal static class FirstInstall
             return Fail("No installer for this PC.");
         }
 
-        if (!FirstInstallPaths.TryResolve(setupPath, rid, out var targetDir, out var siblingZip))
+        var suggested = FirstInstallPaths.DefaultTarget();
+        if (!NativeFolderPicker.TryPick(suggested, out var targetDir))
         {
-            return Fail("Could not choose an install folder.");
+            return 0;
+        }
+
+        if (ProtectedInstallPath.IsProtected(targetDir))
+        {
+            return Fail("Choose a folder in your user profile. This install does not use administrator rights.");
+        }
+
+        if (!TryEnsureWritable(targetDir, out var writeError))
+        {
+            return Fail(writeError);
+        }
+
+        if (!FirstInstallPaths.TryResolveSiblingZip(setupPath, rid, out var siblingZip))
+        {
+            return Fail("Could not find the package.");
         }
 
         Console.WriteLine($"Install folder: {targetDir}");
@@ -50,18 +67,67 @@ internal static class FirstInstall
             return Fail("Could not extract the package.");
         }
 
+        if (!InPlaceInstaller.TryListRelativeFiles(zipPath, out var files))
+        {
+            return Fail("Could not list the package files.");
+        }
+
+        InstallManifest.Write(targetDir, files);
+
+        var installedSetup = Path.Combine(targetDir, "Carousel.Setup.exe");
+        try
+        {
+            File.Copy(setupPath, installedSetup, overwrite: true);
+        }
+        catch (IOException)
+        {
+            return Fail("Could not copy the uninstaller.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Fail("Could not copy the uninstaller.");
+        }
+
+        if (!RegisteredInstall.TryWrite(targetDir, zipPath, installedSetup, out var registerError))
+        {
+            return Fail(registerError);
+        }
+
         var app = Path.Combine(targetDir, "Carousel.exe");
         var message = File.Exists(app)
             ? $"Installed to {targetDir}"
             : $"Installed to {targetDir}, but Carousel.exe was not in the package.";
         Console.WriteLine(message);
-        if (OpenedFromExplorer())
+        if (ExplorerHost.OpenedFromExplorer())
         {
             NativeDialog.Info(message);
             StartApp(app, targetDir);
         }
 
         return 0;
+    }
+
+    private static bool TryEnsureWritable(string targetDir, out string error)
+    {
+        error = "";
+        try
+        {
+            Directory.CreateDirectory(targetDir);
+            var probe = Path.Combine(targetDir, ".carousel-write-probe");
+            File.WriteAllText(probe, "ok");
+            File.Delete(probe);
+            return true;
+        }
+        catch (IOException)
+        {
+            error = "Could not write to that folder.";
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            error = "Could not write to that folder.";
+            return false;
+        }
     }
 
     private static bool TryDownloadLatestZip(string rid, string dest, out string error)
@@ -178,21 +244,11 @@ internal static class FirstInstall
     private static int Fail(string message)
     {
         Console.WriteLine(message);
-        if (OpenedFromExplorer())
+        if (ExplorerHost.OpenedFromExplorer())
         {
             NativeDialog.Error(message);
         }
 
         return 4;
     }
-
-    private static bool OpenedFromExplorer()
-    {
-        var list = new uint[2];
-        var count = GetConsoleProcessList(list, (uint)list.Length);
-        return count <= 1;
-    }
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetConsoleProcessList(uint[] processList, uint processCount);
 }

@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using Flipper.Core.Update;
 using Microsoft.Win32;
 
 namespace Flipper.Core.Tests;
 
+[SupportedOSPlatform("windows")]
 public sealed class PerUserUninstallTests
 {
     [Fact]

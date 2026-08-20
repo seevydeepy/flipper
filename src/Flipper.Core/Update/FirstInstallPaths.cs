@@ -32,9 +32,16 @@ public static class FirstInstallPaths
         return true;
     }
 
-    public static bool TryResolve(string setupPath, string rid, out string targetDir, out string siblingZip)
+    public static string DefaultTarget()
     {
-        targetDir = "";
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs",
+            "Carousel");
+    }
+
+    public static bool TryResolveSiblingZip(string setupPath, string rid, out string siblingZip)
+    {
         siblingZip = "";
         if (string.IsNullOrWhiteSpace(setupPath) || string.IsNullOrWhiteSpace(rid))
         {
@@ -47,7 +54,6 @@ public static class FirstInstallPaths
             return false;
         }
 
-        targetDir = Path.Combine(directory, "Carousel");
         siblingZip = Path.Combine(directory, $"Carousel-{rid}.zip");
         return true;
     }
