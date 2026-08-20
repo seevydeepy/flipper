@@ -21,7 +21,6 @@ public sealed class AppSettings
 {
     public string? LibraryPath { get; set; }
     public string? LastScoreCanonicalPath { get; set; }
-    public int LastPageIndex { get; set; }
     public SortMode Sort { get; set; } = SortMode.Name;
     public bool SortReversed { get; set; }
     public string? SearchQuery { get; set; }

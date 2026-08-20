@@ -1,5 +1,4 @@
 using Flipper.App.Services;
-using Flipper.Core.Library;
 using Flipper.Core.Reader;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -11,7 +10,6 @@ namespace Flipper.App.Views;
 
 public sealed partial class ReaderPage : Page
 {
-    private ScoreEntry? _score;
     private PdfPageSource? _pdf;
     private DisplayRequest? _displayRequest;
     private readonly DispatcherTimer _heardTimer = new() { Interval = TimeSpan.FromSeconds(1.4) };
@@ -55,7 +53,6 @@ public sealed partial class ReaderPage : Page
             return;
         }
 
-        _score = args.Score;
         TitleLabel.Text = args.Score.DisplayName;
         try
         {
@@ -66,13 +63,7 @@ public sealed partial class ReaderPage : Page
             _pdf = null;
         }
 
-        _lowestVisible = App.Current.Settings.LastScoreCanonicalPath == args.Score.CanonicalPath
-            ? App.Current.Settings.LastPageIndex
-            : 0;
-        if (_pdf is not null)
-        {
-            _lowestVisible = Math.Clamp(_lowestVisible, 0, Math.Max(0, _pdf.PageCount - 1));
-        }
+        _lowestVisible = 0;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -171,7 +162,6 @@ public sealed partial class ReaderPage : Page
                 }
 
                 _lowestVisible = 0;
-                PersistPage();
                 Draw();
                 break;
             case VoiceCommand.Finish:
@@ -320,20 +310,7 @@ public sealed partial class ReaderPage : Page
 
         var portrait = PageLayout.IsPortrait(ReaderRoot.ActualWidth, ReaderRoot.ActualHeight);
         _lowestVisible = PageLayout.Turn(_lowestVisible, _pdf.PageCount, portrait, direction);
-        PersistPage();
         Draw();
-    }
-
-    private void PersistPage()
-    {
-        if (_score is null)
-        {
-            return;
-        }
-
-        App.Current.Settings.LastScoreCanonicalPath = _score.CanonicalPath;
-        App.Current.Settings.LastPageIndex = _lowestVisible;
-        App.Current.PersistSettings();
     }
 
     private void Draw()
