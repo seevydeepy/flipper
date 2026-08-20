@@ -39,49 +39,14 @@
                     BorderThickness="1"
                     CornerRadius="16" />
 
-                <Grid
-                    Padding="14"
-                    VerticalAlignment="Center">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock
-                        Text="𝄞"
-                        FontFamily="Segoe UI Symbol"
-                        FontSize="40"
-                        Foreground="{StaticResource GoldBrush}"
-                        VerticalAlignment="Center"
-                        Margin="0,0,10,0" />
-                    <TextBlock
-                        Grid.Column="1"
-                        Text="Carousel"
-                        FontFamily="Cambria"
-                        FontSize="32"
-                        FontWeight="SemiBold"
-                        Foreground="{StaticResource InkBrush}"
-                        VerticalAlignment="Center" />
-                    <Canvas
-                        Grid.Column="1"
-                        Height="0"
-                        VerticalAlignment="Bottom"
-                        Margin="0,0,20,0">
-                        <Grid Canvas.Top="6" Width="170" Height="16">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Rectangle Grid.Row="0" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                            <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                            <Rectangle Grid.Row="2" Height="1.4" Fill="{StaticResource GoldBrush}" VerticalAlignment="Center" Opacity="0.7" />
-                            <Rectangle Grid.Row="3" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                            <Rectangle Grid.Row="4" Height="1" Fill="{StaticResource GoldSoftBrush}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Canvas>
-                </Grid>
+                <Image
+                    x:Name="WordmarkImage"
+                    Margin="10,8"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    Stretch="Uniform"
+                    IsHitTestVisible="False"
+                    AutomationProperties.Name="Carousel" />
 
                 <Grid
                     x:Name="ScoreHeaderHost"

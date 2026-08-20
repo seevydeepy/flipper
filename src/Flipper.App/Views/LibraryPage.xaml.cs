@@ -27,6 +27,7 @@ public sealed partial class LibraryPage : Page
     private const double TrashInsetVertical = 24;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
+    private const string WordmarkAsset = "carousel-wordmark.png";
     private const double PlaylistDeleteSize = 32;
 
     private readonly LibraryWatcher _watcher = new();
@@ -60,6 +61,11 @@ public sealed partial class LibraryPage : Page
     public LibraryPage()
     {
         InitializeComponent();
+        if (TryLoadAssetImage(WordmarkAsset, out var wordmark))
+        {
+            WordmarkImage.Source = wordmark;
+        }
+
         ScoreGrid.ItemsSource = _cards;
         _watcher.Changed += OnWatcherChanged;
         _refreshTimer.Tick += (_, _) =>
