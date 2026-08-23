@@ -17,7 +17,8 @@ public sealed class SettingsStoreTests
                 SearchQuery = "chopin",
                 Sort = SortMode.Recent,
                 SortReversed = true,
-                UiScalePercent = 150
+                UiScalePercent = 150,
+                CropToInk = true
             });
 
             var loaded = store.Load();
@@ -25,6 +26,7 @@ public sealed class SettingsStoreTests
             Assert.Equal(SortMode.Recent, loaded.Sort);
             Assert.True(loaded.SortReversed);
             Assert.Equal(150, loaded.UiScalePercent);
+            Assert.True(loaded.CropToInk);
             Assert.True(loaded.VoiceTurningEnabled);
         }
         finally
@@ -89,6 +91,7 @@ public sealed class SettingsStoreTests
             Assert.Equal(SortMode.MostPlayed, loaded.Sort);
             Assert.True(loaded.SortReversed);
             Assert.Equal(100, loaded.UiScalePercent);
+            Assert.False(loaded.CropToInk);
         }
         finally
         {
