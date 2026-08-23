@@ -216,12 +216,11 @@ public sealed partial class ReaderPage : Page
 
     private void PaintCropChip()
     {
-        var paper = (Brush)Application.Current.Resources["PaperBrush"];
         var gold = (Brush)Application.Current.Resources["GoldBrush"];
         var ink = (Brush)Application.Current.Resources["InkBrush"];
         var card = (Brush)Application.Current.Resources["CardBrush"];
-        CropChip.Background = _cropToInk ? gold : paper;
-        CropIcon.Foreground = _cropToInk ? card : ink;
+        CropButton.Background = _cropToInk ? gold : card;
+        CropButton.Foreground = _cropToInk ? card : ink;
     }
 
     private void ReaderRoot_PointerMoved(object sender, PointerRoutedEventArgs e)

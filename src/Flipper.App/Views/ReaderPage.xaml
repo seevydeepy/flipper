@@ -51,54 +51,31 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Border
-                    x:Name="BackChip"
-                    Background="{StaticResource PaperBrush}"
-                    BorderBrush="{StaticResource GoldBrush}"
-                    BorderThickness="1"
-                    CornerRadius="4"
-                    VerticalAlignment="Center">
-                    <Button
-                        x:Name="BackButton"
-                        Style="{StaticResource QuietButton}"
-                        Click="BackButton_Click"
-                        PointerReleased="BackButton_PointerReleased"
-                        IsTabStop="False"
-                        AllowFocusOnInteraction="False"
-                        MinWidth="44"
-                        MinHeight="40"
-                        Padding="12,6"
-                        FontSize="16"
-                        FontWeight="SemiBold"
-                        Foreground="{StaticResource InkBrush}"
-                        AutomationProperties.Name="Back">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE72B;" FontSize="14" Foreground="{StaticResource InkBrush}" />
-                            <TextBlock Text="Back" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                </Border>
-                <Border
-                    x:Name="CropChip"
-                    Background="{StaticResource PaperBrush}"
-                    BorderBrush="{StaticResource GoldBrush}"
-                    BorderThickness="1"
-                    CornerRadius="4"
-                    VerticalAlignment="Center">
-                    <Button
-                        x:Name="CropButton"
-                        Style="{StaticResource QuietButton}"
-                        Click="CropButton_Click"
-                        PointerReleased="CropButton_PointerReleased"
-                        IsTabStop="False"
-                        AllowFocusOnInteraction="False"
-                        MinWidth="44"
-                        MinHeight="40"
-                        Padding="12,6"
-                        AutomationProperties.Name="Crop margins">
-                        <FontIcon x:Name="CropIcon" Glyph="&#xE7A8;" FontSize="16" Foreground="{StaticResource InkBrush}" />
-                    </Button>
-                </Border>
+                <Button
+                    x:Name="BackButton"
+                    Style="{StaticResource ChipButton}"
+                    Click="BackButton_Click"
+                    PointerReleased="BackButton_PointerReleased"
+                    IsTabStop="False"
+                    AllowFocusOnInteraction="False"
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    AutomationProperties.Name="Back">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" Foreground="{Binding Foreground, ElementName=BackButton}" />
+                        <TextBlock Text="Back" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    x:Name="CropButton"
+                    Style="{StaticResource ChipButton}"
+                    Click="CropButton_Click"
+                    PointerReleased="CropButton_PointerReleased"
+                    IsTabStop="False"
+                    AllowFocusOnInteraction="False"
+                    AutomationProperties.Name="Crop margins">
+                    <FontIcon x:Name="CropIcon" Glyph="&#xE7A8;" FontSize="16" Foreground="{Binding Foreground, ElementName=CropButton}" />
+                </Button>
             </StackPanel>
             <TextBlock
                 x:Name="TitleLabel"
