@@ -12,6 +12,7 @@ namespace Flipper.App;
 public sealed partial class MainWindow : Window
 {
     private readonly Dictionary<Guid, LiveToast> _toasts = new();
+    private bool _readerUnscaled;
 
     public MainWindow()
     {
@@ -28,7 +29,7 @@ public sealed partial class MainWindow : Window
 
     public void ApplyUiScale()
     {
-        var scale = App.Current.Settings.UiScalePercent / 100.0;
+        var scale = _readerUnscaled ? 1.0 : App.Current.Settings.UiScalePercent / 100.0;
         var width = WindowRoot.ActualWidth;
         var height = WindowRoot.ActualHeight;
         if (width <= 0 || height <= 0)
@@ -74,13 +75,17 @@ public sealed partial class MainWindow : Window
 
     public void ShowLibrary()
     {
+        _readerUnscaled = false;
         AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+        ApplyUiScale();
         RootFrame.Navigate(typeof(LibraryPage));
     }
 
     public void ShowReader(ScoreEntry score, string cachePath)
     {
+        _readerUnscaled = true;
         AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+        ApplyUiScale();
         RootFrame.Navigate(typeof(ReaderPage), new ReaderOpenArgs(score, cachePath));
     }
 

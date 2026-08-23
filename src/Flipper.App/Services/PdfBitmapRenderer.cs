@@ -1,3 +1,4 @@
+using System.Drawing;
 using PDFtoImage;
 using SkiaSharp;
 
@@ -6,6 +7,7 @@ namespace Flipper.App.Services;
 internal static class PdfBitmapRenderer
 {
     private static readonly object Gate = new();
+    private static readonly SKColor Paper = new(0xF3, 0xE8, 0xD6);
 
     public static int GetPageCount(byte[] bytes)
     {
@@ -15,7 +17,21 @@ internal static class PdfBitmapRenderer
         }
     }
 
-    public static SKBitmap Render(byte[] bytes, int pageIndex, int pixelWidth, bool useTiling = false)
+    public static SizeF GetPageSize(byte[] bytes, int pageIndex)
+    {
+        lock (Gate)
+        {
+            var size = Conversion.GetPageSize(bytes, pageIndex);
+            return new SizeF(size.Width, size.Height);
+        }
+    }
+
+    public static SKBitmap Render(
+        byte[] bytes,
+        int pageIndex,
+        int pixelWidth,
+        bool useTiling = false,
+        RectangleF? bounds = null)
     {
         lock (Gate)
         {
@@ -23,7 +39,10 @@ internal static class PdfBitmapRenderer
             {
                 Width = Math.Max(64, pixelWidth),
                 WithAspectRatio = true,
-                UseTiling = useTiling
+                UseTiling = useTiling,
+                BackgroundColor = Paper,
+                Bounds = bounds,
+                DpiRelativeToBounds = bounds.HasValue
             });
         }
     }

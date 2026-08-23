@@ -3,6 +3,7 @@ using Flipper.Core.Reader;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.System.Display;
 
@@ -14,6 +15,7 @@ public sealed partial class ReaderPage : Page
     private DisplayRequest? _displayRequest;
     private readonly DispatcherTimer _heardTimer = new() { Interval = TimeSpan.FromSeconds(1.4) };
     private readonly DispatcherTimer _levelTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
+    private readonly DispatcherTimer _chromeTimer = new() { Interval = TimeSpan.FromSeconds(2.4) };
     private readonly VoiceKeywordListener _voice = new();
     private int _voiceEpoch;
     private int _lowestVisible;
@@ -22,6 +24,7 @@ public sealed partial class ReaderPage : Page
     private bool _ready;
     private bool _voiceOn;
     private bool _showingHeard;
+    private bool _cropToInk;
 
     public ReaderPage()
     {
@@ -42,6 +45,7 @@ public sealed partial class ReaderPage : Page
                 VoiceLabel.Text = LevelText();
             }
         };
+        _chromeTimer.Tick += (_, _) => HideChromeLabels();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -54,6 +58,8 @@ public sealed partial class ReaderPage : Page
         }
 
         TitleLabel.Text = args.Score.DisplayName;
+        _cropToInk = App.Current.Settings.CropToInk;
+        PaintCropChip();
         try
         {
             _pdf = new PdfPageSource(args.CachePath);
@@ -72,6 +78,7 @@ public sealed partial class ReaderPage : Page
         ReaderRoot.Focus(FocusState.Programmatic);
         _displayRequest = new DisplayRequest();
         _displayRequest.RequestActive();
+        ShowChromeLabels();
         Draw();
         if (!App.Current.Settings.VoiceTurningEnabled)
         {
@@ -109,6 +116,7 @@ public sealed partial class ReaderPage : Page
         _voice.Stop();
         _heardTimer.Stop();
         _levelTimer.Stop();
+        _chromeTimer.Stop();
         try
         {
             _displayRequest?.RequestRelease();
@@ -194,6 +202,50 @@ public sealed partial class ReaderPage : Page
     private void BackButton_Click(object sender, RoutedEventArgs e) => App.Current.Window?.ShowLibrary();
 
     private void BackButton_PointerReleased(object sender, PointerRoutedEventArgs e) => e.Handled = true;
+
+    private void CropButton_Click(object sender, RoutedEventArgs e)
+    {
+        _cropToInk = !_cropToInk;
+        App.Current.Settings.CropToInk = _cropToInk;
+        App.Current.PersistSettings();
+        PaintCropChip();
+        Draw();
+    }
+
+    private void CropButton_PointerReleased(object sender, PointerRoutedEventArgs e) => e.Handled = true;
+
+    private void PaintCropChip()
+    {
+        var paper = (Brush)Application.Current.Resources["PaperBrush"];
+        var gold = (Brush)Application.Current.Resources["GoldBrush"];
+        var ink = (Brush)Application.Current.Resources["InkBrush"];
+        var card = (Brush)Application.Current.Resources["CardBrush"];
+        CropChip.Background = _cropToInk ? gold : paper;
+        CropIcon.Foreground = _cropToInk ? card : ink;
+    }
+
+    private void ReaderRoot_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.GetCurrentPoint(ReaderRoot).Position.Y <= 80)
+        {
+            ShowChromeLabels();
+        }
+    }
+
+    private void ShowChromeLabels()
+    {
+        TitleLabel.Opacity = 1;
+        PageLabel.Opacity = 1;
+        _chromeTimer.Stop();
+        _chromeTimer.Start();
+    }
+
+    private void HideChromeLabels()
+    {
+        _chromeTimer.Stop();
+        TitleLabel.Opacity = 0;
+        PageLabel.Opacity = 0;
+    }
 
     private void ReaderPage_KeyDown(object sender, KeyRoutedEventArgs e) => TryHandleTurnKey(e);
 
@@ -323,14 +375,14 @@ public sealed partial class ReaderPage : Page
             RightError.Visibility = Visibility.Collapsed;
             RightColumn.Width = new GridLength(0);
             PageLabel.Text = string.Empty;
-            Overlay.Visibility = Visibility.Visible;
+            ShowChromeLabels();
             return;
         }
 
         var portrait = PageLayout.IsPortrait(ReaderRoot.ActualWidth, ReaderRoot.ActualHeight);
         var pages = PageLayout.For(_pdf.PageCount, _lowestVisible, portrait);
         _lowestVisible = pages.FirstIndex;
-        var scale = (XamlRoot?.RasterizationScale ?? 1) * App.Current.Settings.UiScalePercent / 100.0;
+        var scale = XamlRoot?.RasterizationScale ?? 1;
         var slotWidth = PagesGrid.ActualWidth > 0 ? PagesGrid.ActualWidth : ReaderRoot.ActualWidth;
         if (pages.SecondIndex is not null)
         {
@@ -340,20 +392,20 @@ public sealed partial class ReaderPage : Page
         var pixelWidth = (int)Math.Clamp(slotWidth * scale, 320, 2400);
 
         LeftImage.Opacity = 0;
-        var left = _pdf.Render(pages.FirstIndex, pixelWidth);
+        var left = _pdf.Render(pages.FirstIndex, pixelWidth, _cropToInk);
         LeftImage.Source = left;
         LeftImage.Opacity = 1;
         LeftError.Visibility = left is null ? Visibility.Visible : Visibility.Collapsed;
         if (left is null)
         {
-            Overlay.Visibility = Visibility.Visible;
+            ShowChromeLabels();
         }
 
         if (pages.SecondIndex is int second)
         {
             RightColumn.Width = new GridLength(1, GridUnitType.Star);
             RightImage.Opacity = 0;
-            var right = _pdf.Render(second, pixelWidth);
+            var right = _pdf.Render(second, pixelWidth, _cropToInk);
             RightImage.Source = right;
             RightImage.Opacity = 1;
             RightError.Visibility = right is null ? Visibility.Visible : Visibility.Collapsed;
@@ -372,10 +424,10 @@ public sealed partial class ReaderPage : Page
             : $"page {firstDisplay}-{lastDisplay} of {_pdf.PageCount}";
 
         var next = pages.FirstIndex + pages.Step;
-        _ = _pdf.PrefetchAsync(next, pixelWidth);
+        _ = _pdf.PrefetchAsync(next, pixelWidth, _cropToInk);
         if (pages.Step == 2)
         {
-            _ = _pdf.PrefetchAsync(next + 1, pixelWidth);
+            _ = _pdf.PrefetchAsync(next + 1, pixelWidth, _cropToInk);
         }
     }
 }
