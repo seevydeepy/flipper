@@ -7,7 +7,7 @@ namespace Flipper.App.Services;
 internal static class PdfBitmapRenderer
 {
     private static readonly object Gate = new();
-    private static readonly SKColor Paper = new(0xF3, 0xE8, 0xD6);
+    private static readonly SKColor Paper = new(0xF4, 0xF3, 0xEF);
 
     public static int GetPageCount(byte[] bytes)
     {

@@ -9,7 +9,7 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
             <Color x:Key="InkColor">#1B3A4B</Color>
-            <Color x:Key="PaperColor">#F3E8D6</Color>
+            <Color x:Key="PaperColor">#F4F3EF</Color>
             <Color x:Key="CardColor">#FFFCF7</Color>
             <Color x:Key="GoldColor">#B8956A</Color>
             <SolidColorBrush x:Key="InkBrush" Color="{StaticResource InkColor}" />
