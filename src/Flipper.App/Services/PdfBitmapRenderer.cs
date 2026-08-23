@@ -31,7 +31,8 @@ internal static class PdfBitmapRenderer
         int pageIndex,
         int pixelWidth,
         bool useTiling = false,
-        RectangleF? bounds = null)
+        RectangleF? bounds = null,
+        bool paperBackground = true)
     {
         lock (Gate)
         {
@@ -40,7 +41,7 @@ internal static class PdfBitmapRenderer
                 Width = Math.Max(64, pixelWidth),
                 WithAspectRatio = true,
                 UseTiling = useTiling,
-                BackgroundColor = Paper,
+                BackgroundColor = paperBackground ? Paper : SKColors.White,
                 Bounds = bounds,
                 DpiRelativeToBounds = bounds.HasValue
             });

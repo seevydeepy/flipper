@@ -103,7 +103,7 @@ public sealed class PdfPageSource : IDisposable
             try
             {
                 var page = PdfBitmapRenderer.GetPageSize(_bytes, pageIndex);
-                using var preview = PdfBitmapRenderer.Render(_bytes, pageIndex, 400);
+                using var preview = PdfBitmapRenderer.Render(_bytes, pageIndex, 400, paperBackground: false);
                 var found = InkCrop.FromPixels(preview.Bytes, preview.Width, preview.Height, preview.BytesPerPixel);
                 if (found is { } ink && InkCrop.WorthCropping(ink))
                 {
