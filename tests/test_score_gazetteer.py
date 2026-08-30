@@ -178,6 +178,41 @@ class ScoreGazetteerTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             G.refuse_catalog_write(Path(r"//Alexandria/Charles/Scores/.flipper-catalog.json"))
 
+    def test_apply_updates_writes_matching_rows_and_skips_stale(self):
+        catalog = {
+            r"Christmas\Carol.pdf": {"title": "Carol of the Bells", "subtitle": "cresc.", "composer": "William J. Ross"},
+            r"Christmas\Away.pdf": {"title": "Away in a Manger", "subtitle": "", "composer": ""},
+        }
+        rows = [
+            {
+                "path": r"Christmas\Carol.pdf",
+                "current_title": "Carol of the Bells",
+                "current_composer": "William J. Ross",
+                "proposed_title": "Carol of the Bells",
+                "proposed_composer": "Mykola Leontovych",
+            },
+            {
+                "path": r"Christmas\Missing.pdf",
+                "current_title": "Gone",
+                "current_composer": "",
+                "proposed_title": "Gone",
+                "proposed_composer": "Anon",
+            },
+            {
+                "path": r"Christmas\Away.pdf",
+                "current_title": "Old Away",
+                "current_composer": "",
+                "proposed_title": "Away in a Manger",
+                "proposed_composer": "Traditional",
+            },
+        ]
+        applied, skipped = G.apply_updates(catalog, rows)
+        self.assertEqual([r"Christmas\Carol.pdf"], applied)
+        self.assertEqual(["missing", "stale"], [item["reason"] for item in skipped])
+        self.assertEqual("Mykola Leontovych", catalog[r"Christmas\Carol.pdf"]["composer"])
+        self.assertEqual("cresc.", catalog[r"Christmas\Carol.pdf"]["subtitle"])
+        self.assertEqual("Away in a Manger", catalog[r"Christmas\Away.pdf"]["title"])
+
     def test_dry_run_reports_only_changes_and_does_not_write_catalog(self):
         index = index_with({"t": "Carol of the Bells", "c": "Mykola Leontovych", "a": []})
         catalog = {
