@@ -1158,13 +1158,50 @@ public sealed partial class LibraryPage : Page
         SelectionShadeSoft.Data = ShadeMask(width, height, holes, inflate: 12, radius: 24);
         SelectionShadeMid.Data = ShadeMask(width, height, holes, inflate: 7, radius: 18);
         SelectionShadePath.Data = ShadeMask(width, height, holes, inflate: 0, radius: 12);
+        UpdatePlayDropFill(playRect, holes);
+    }
+
+    private void UpdatePlayDropFill(Rect? playRect, IReadOnlyList<Rect> holes)
+    {
+        var width = PlayDrop.ActualWidth;
+        var height = PlayDrop.ActualHeight;
+        if (PlayDrop.Visibility != Visibility.Visible || width < 1 || height < 1 || playRect is not { } play)
+        {
+            PlayDropFill.Data = null;
+            return;
+        }
+
+        var self = Inflate(play, 4);
+        var bounds = new Rect(0, 0, width, height);
+        var cutouts = new List<Rect>();
+        foreach (var hole in holes)
+        {
+            if (SameRect(hole, self))
+            {
+                continue;
+            }
+
+            var local = new Rect(hole.X - play.X, hole.Y - play.Y, hole.Width, hole.Height);
+            if (!Intersects(local, bounds))
+            {
+                continue;
+            }
+
+            var clipped = ClipToShade(local, width, height);
+            if (clipped.Width < 1 || clipped.Height < 1 || Covers(clipped, bounds))
+            {
+                continue;
+            }
+
+            cutouts.Add(clipped);
+        }
+
+        PlayDropFill.Data = CutoutMask(width, height, cutouts, radius: 12, roundOuter: true);
     }
 
     private static Geometry ShadeMask(double width, double height, IReadOnlyList<Rect> holes, double inflate, double radius)
     {
-        var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
-        group.Children.Add(new RectangleGeometry { Rect = new Rect(0, 0, width, height) });
-        var holeGroup = new GeometryGroup { FillRule = FillRule.Nonzero };
+        var inflated = new List<Rect>();
         foreach (var hole in holes)
         {
             var rect = ClipToShade(Inflate(hole, inflate), width, height);
@@ -1173,24 +1210,136 @@ public sealed partial class LibraryPage : Page
                 continue;
             }
 
-            holeGroup.Children.Add(RoundedRect(rect, radius));
+            inflated.Add(rect);
         }
 
-        if (holeGroup.Children.Count > 0)
-        {
-            group.Children.Add(holeGroup);
-        }
-
-        return group;
+        return CutoutMask(width, height, inflated, radius, roundOuter: false);
     }
 
-    private static Geometry RoundedRect(Rect rect, double radius)
+    private static Geometry CutoutMask(double width, double height, IReadOnlyList<Rect> holes, double radius, bool roundOuter)
+    {
+        var path = new PathGeometry { FillRule = FillRule.EvenOdd };
+        var outer = new Rect(0, 0, width, height);
+        if (roundOuter)
+        {
+            AddRoundedRect(path, outer, radius);
+        }
+        else
+        {
+            AddRectFigure(path, outer);
+        }
+
+        foreach (var hole in DisjointRects(holes))
+        {
+            AddRoundedRect(path, hole, radius);
+        }
+
+        return path;
+    }
+
+    private static List<Rect> DisjointRects(IReadOnlyList<Rect> rects)
+    {
+        var disjoint = new List<Rect>();
+        foreach (var rect in rects)
+        {
+            var pieces = new List<Rect> { rect };
+            foreach (var existing in disjoint)
+            {
+                var next = new List<Rect>();
+                foreach (var piece in pieces)
+                {
+                    SubtractRect(piece, existing, next);
+                }
+
+                pieces = next;
+            }
+
+            foreach (var piece in pieces)
+            {
+                if (piece.Width >= 1 && piece.Height >= 1)
+                {
+                    disjoint.Add(piece);
+                }
+            }
+        }
+
+        return disjoint;
+    }
+
+    private static void SubtractRect(Rect a, Rect b, List<Rect> output)
+    {
+        if (a.Width < 1 || a.Height < 1)
+        {
+            return;
+        }
+
+        if (!Intersects(a, b))
+        {
+            output.Add(a);
+            return;
+        }
+
+        var x0 = Math.Max(a.X, b.X);
+        var y0 = Math.Max(a.Y, b.Y);
+        var x1 = Math.Min(a.X + a.Width, b.X + b.Width);
+        var y1 = Math.Min(a.Y + a.Height, b.Y + b.Height);
+        if (y0 > a.Y)
+        {
+            output.Add(new Rect(a.X, a.Y, a.Width, y0 - a.Y));
+        }
+
+        if (y1 < a.Y + a.Height)
+        {
+            output.Add(new Rect(a.X, y1, a.Width, a.Y + a.Height - y1));
+        }
+
+        if (x0 > a.X && y1 > y0)
+        {
+            output.Add(new Rect(a.X, y0, x0 - a.X, y1 - y0));
+        }
+
+        if (x1 < a.X + a.Width && y1 > y0)
+        {
+            output.Add(new Rect(x1, y0, a.X + a.Width - x1, y1 - y0));
+        }
+    }
+
+    private static bool Intersects(Rect a, Rect b)
+    {
+        return a.Width > 0
+            && a.Height > 0
+            && b.Width > 0
+            && b.Height > 0
+            && a.X < b.X + b.Width
+            && b.X < a.X + a.Width
+            && a.Y < b.Y + b.Height
+            && b.Y < a.Y + a.Height;
+    }
+
+    private static bool SameRect(Rect a, Rect b)
+    {
+        return Math.Abs(a.X - b.X) < 0.5
+            && Math.Abs(a.Y - b.Y) < 0.5
+            && Math.Abs(a.Width - b.Width) < 0.5
+            && Math.Abs(a.Height - b.Height) < 0.5;
+    }
+
+    private static bool Covers(Rect a, Rect b)
+    {
+        return a.X <= b.X + 0.5
+            && a.Y <= b.Y + 0.5
+            && a.X + a.Width >= b.X + b.Width - 0.5
+            && a.Y + a.Height >= b.Y + b.Height - 0.5;
+    }
+
+    private static void AddRoundedRect(PathGeometry path, Rect rect, double radius)
     {
         var cap = Math.Min(rect.Width, rect.Height) / 2;
         radius = Math.Min(Math.Max(0, radius), cap);
         if (radius < 0.5)
         {
-            return new RectangleGeometry { Rect = rect };
+            AddRectFigure(path, rect);
+            return;
         }
 
         var left = rect.X;
@@ -1232,10 +1381,21 @@ public sealed partial class LibraryPage : Page
             Size = size,
             SweepDirection = SweepDirection.Clockwise
         });
-
-        var path = new PathGeometry();
         path.Figures.Add(figure);
-        return path;
+    }
+
+    private static void AddRectFigure(PathGeometry path, Rect rect)
+    {
+        var figure = new PathFigure
+        {
+            StartPoint = new Point(rect.X, rect.Y),
+            IsClosed = true,
+            IsFilled = true
+        };
+        figure.Segments.Add(new LineSegment { Point = new Point(rect.X + rect.Width, rect.Y) });
+        figure.Segments.Add(new LineSegment { Point = new Point(rect.X + rect.Width, rect.Y + rect.Height) });
+        figure.Segments.Add(new LineSegment { Point = new Point(rect.X, rect.Y + rect.Height) });
+        path.Figures.Add(figure);
     }
 
     private static Rect ElementRect(FrameworkElement element, UIElement relativeTo)
