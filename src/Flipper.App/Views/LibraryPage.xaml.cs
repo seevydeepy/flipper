@@ -9,6 +9,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -26,7 +27,8 @@ public sealed partial class LibraryPage : Page
     private const double TrashGap = 8;
     private const double TrashZoneWidth = 60;
     private const double TrashInsetVertical = 24;
-    private const double ShadeBlendGap = 32;
+    private const double ShadeHolePad = 4;
+    private const double PlayTopClearance = 5;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const string WordmarkAsset = "carousel-wordmark.png";
@@ -199,15 +201,17 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        if (ScoreHeader.ActualWidth < 1 || ScoreHeaderHost.ActualHeight < 1)
+        if (ScoreHeader.ActualWidth < 1 || SearchBox.ActualHeight < 1)
         {
             return;
         }
 
         var left = ScoreHeader.TransformToVisual(host).TransformPoint(new Point(0, 0)).X;
-        var top = ScoreHeaderHost.TransformToVisual(host).TransformPoint(new Point(0, 0)).Y;
+        var searchBottom = SearchBox.TransformToVisual(host)
+            .TransformPoint(new Point(0, SearchBox.ActualHeight)).Y;
+        var top = ShadeHolePad + PlayTopClearance;
         var width = ScoreHeader.ActualWidth;
-        var height = ScoreHeaderHost.ActualHeight;
+        var height = Math.Max(0, searchBottom - ShadeHolePad - top);
         var margin = new Thickness(left, top, 0, 0);
         if (Math.Abs(PlayDrop.Margin.Left - margin.Left) > 0.5
             || Math.Abs(PlayDrop.Margin.Top - margin.Top) > 0.5)
@@ -966,8 +970,6 @@ public sealed partial class LibraryPage : Page
     private void HideAssignmentChrome()
     {
         _assignmentHits.Clear();
-        SelectionShadeSoft.Data = null;
-        SelectionShadeMid.Data = null;
         SelectionShadePath.Data = null;
         SelectionShade.Visibility = Visibility.Collapsed;
         SelectionShade.IsHitTestVisible = true;
@@ -1091,7 +1093,17 @@ public sealed partial class LibraryPage : Page
                 return;
             }
 
-            holes.Add(Inflate(rect, 4));
+            holes.Add(Inflate(rect, ShadeHolePad));
+        }
+
+        void AddSidebarHole(Rect rect)
+        {
+            if (rect.Width < 1 || rect.Height < 1)
+            {
+                return;
+            }
+
+            holes.Add(ClipToScrollbar(Inflate(rect, ShadeHolePad)));
         }
 
         foreach (var node in FolderTree.RootNodes)
@@ -1105,7 +1117,7 @@ public sealed partial class LibraryPage : Page
             var rect = ElementRect(item, SelectionShade);
             if (mark.Favourites)
             {
-                AddHole(rect);
+                AddSidebarHole(rect);
                 AddHit(rect, AssignmentHitKind.Favourites);
                 continue;
             }
@@ -1125,7 +1137,7 @@ public sealed partial class LibraryPage : Page
 
         if (playlistSection is { } section)
         {
-            AddHole(section);
+            AddSidebarHole(section);
             AddHit(section, AssignmentHitKind.Stay);
         }
 
@@ -1160,26 +1172,54 @@ public sealed partial class LibraryPage : Page
             _assignmentHits.Insert(0, new AssignmentHit(Inflate(card, 2), AssignmentHitKind.SelectedCard, null));
         }
 
-        SelectionShadeSoft.Data = ShadeMask(width, height, holes, inflate: 12, radius: 24);
-        SelectionShadeMid.Data = ShadeMask(width, height, holes, inflate: 7, radius: 18);
-        SelectionShadePath.Data = ShadeMask(width, height, holes, inflate: 0, radius: 12);
+        SelectionShadePath.Data = ShadeMask(width, height, holes, radius: 12);
     }
 
-    private static Geometry ShadeMask(double width, double height, IReadOnlyList<Rect> holes, double inflate, double radius)
+    private Rect ClipToScrollbar(Rect rect)
     {
-        var inflated = new List<Rect>();
+        var maxRight = SidebarContentRight();
+        if (rect.X + rect.Width <= maxRight)
+        {
+            return rect;
+        }
+
+        return new Rect(rect.X, rect.Y, Math.Max(0, maxRight - rect.X), rect.Height);
+    }
+
+    private double SidebarContentRight()
+    {
+        var tree = ElementRect(FolderTree, SelectionShade);
+        var bar = FindVerticalScrollBar(FolderTree);
+        if (bar is not null && bar.ActualWidth >= 1)
+        {
+            return bar.TransformToVisual(SelectionShade).TransformPoint(new Point(0, 0)).X;
+        }
+
+        var scroll = FindScrollViewer(FolderTree);
+        if (scroll is null || scroll.ViewportWidth < 1)
+        {
+            return tree.X + tree.Width;
+        }
+
+        var origin = scroll.TransformToVisual(SelectionShade).TransformPoint(new Point(0, 0));
+        return origin.X + scroll.ViewportWidth;
+    }
+
+    private static Geometry ShadeMask(double width, double height, IReadOnlyList<Rect> holes, double radius)
+    {
+        var clipped = new List<Rect>();
         foreach (var hole in holes)
         {
-            var rect = ClipToShade(Inflate(hole, inflate), width, height);
+            var rect = ClipToShade(hole, width, height);
             if (rect.Width < 1 || rect.Height < 1)
             {
                 continue;
             }
 
-            inflated.Add(rect);
+            clipped.Add(rect);
         }
 
-        return CutoutMask(width, height, ConnectNearby(inflated, ShadeBlendGap), radius);
+        return CutoutMask(width, height, clipped, radius);
     }
 
     private static Geometry CutoutMask(double width, double height, IReadOnlyList<Rect> holes, double radius)
@@ -1193,77 +1233,6 @@ public sealed partial class LibraryPage : Page
         }
 
         return path;
-    }
-
-    private static List<Rect> ConnectNearby(IReadOnlyList<Rect> rects, double gap)
-    {
-        var result = new List<Rect>();
-        foreach (var rect in rects)
-        {
-            if (rect.Width >= 1 && rect.Height >= 1)
-            {
-                result.Add(rect);
-            }
-        }
-
-        var count = result.Count;
-        for (var i = 0; i < count; i++)
-        {
-            for (var j = i + 1; j < count; j++)
-            {
-                if (TryConnector(result[i], result[j], gap) is not { } bridge
-                    || bridge.Width < 1
-                    || bridge.Height < 1)
-                {
-                    continue;
-                }
-
-                result.Add(bridge);
-            }
-        }
-
-        return result;
-    }
-
-    private static Rect? TryConnector(Rect a, Rect b, double gap)
-    {
-        var aRight = a.X + a.Width;
-        var aBottom = a.Y + a.Height;
-        var bRight = b.X + b.Width;
-        var bBottom = b.Y + b.Height;
-        var overlapY = Math.Min(aBottom, bBottom) - Math.Max(a.Y, b.Y);
-        if (overlapY >= 1)
-        {
-            var xGap = b.X - aRight;
-            if (xGap > 0 && xGap <= gap)
-            {
-                return new Rect(aRight, Math.Max(a.Y, b.Y), xGap, overlapY);
-            }
-
-            xGap = a.X - bRight;
-            if (xGap > 0 && xGap <= gap)
-            {
-                return new Rect(bRight, Math.Max(a.Y, b.Y), xGap, overlapY);
-            }
-        }
-
-        var overlapX = Math.Min(aRight, bRight) - Math.Max(a.X, b.X);
-        if (overlapX >= 1)
-        {
-            var yGap = b.Y - aBottom;
-            if (yGap > 0 && yGap <= gap)
-            {
-                return new Rect(Math.Max(a.X, b.X), aBottom, overlapX, yGap);
-            }
-
-            yGap = a.Y - bBottom;
-            if (yGap > 0 && yGap <= gap)
-            {
-                return new Rect(Math.Max(a.X, b.X), bBottom, overlapX, yGap);
-            }
-        }
-
-        return null;
     }
 
     private static List<Rect> DisjointRects(IReadOnlyList<Rect> rects)
@@ -2145,6 +2114,26 @@ public sealed partial class LibraryPage : Page
         for (var i = 0; i < count; i++)
         {
             var found = FindScrollViewer(VisualTreeHelper.GetChild(root, i));
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private static ScrollBar? FindVerticalScrollBar(DependencyObject root)
+    {
+        if (root is ScrollBar { Orientation: Orientation.Vertical } bar)
+        {
+            return bar;
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var found = FindVerticalScrollBar(VisualTreeHelper.GetChild(root, i));
             if (found is not null)
             {
                 return found;
