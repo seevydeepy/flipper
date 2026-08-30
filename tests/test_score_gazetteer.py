@@ -172,6 +172,12 @@ class ScoreGazetteerTests(unittest.TestCase):
         result = G.dry_run(catalog, index)
         self.assertEqual(0, result["updates"])
 
+    def test_refuse_catalog_write(self):
+        with self.assertRaises(SystemExit):
+            G.refuse_catalog_write(Path(".flipper-catalog.json"))
+        with self.assertRaises(SystemExit):
+            G.refuse_catalog_write(Path(r"//Alexandria/Charles/Scores/.flipper-catalog.json"))
+
     def test_dry_run_reports_only_changes_and_does_not_write_catalog(self):
         index = index_with({"t": "Carol of the Bells", "c": "Mykola Leontovych", "a": []})
         catalog = {
