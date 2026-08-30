@@ -512,6 +512,11 @@ def load_catalog(path: Path) -> dict[str, dict[str, str]]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def refuse_catalog_write(path: Path) -> None:
+    if path.name.lower() == CATALOG.name.lower():
+        raise SystemExit(f"refusing to write catalog path: {path}")
+
+
 def proposed_facts(current: dict[str, str], matched: Match) -> dict[str, str]:
     title = matched.title
     composer = matched.composer or usable_composer(current.get("composer"))
@@ -641,6 +646,7 @@ def write_report(result: dict[str, object], md_path: Path, json_path: Path) -> N
 
 def cmd_compile(args: argparse.Namespace) -> int:
     dump = Path(args.dump) if args.dump else download_work_dump(DUMP_DIR)
+    refuse_catalog_write(Path(args.index))
     count = compile_index(dump, Path(args.index))
     print(json.dumps({"records": count, "dump": str(dump), "index": args.index}, indent=2))
     return 0
@@ -649,6 +655,8 @@ def cmd_compile(args: argparse.Namespace) -> int:
 def cmd_dry_run(args: argparse.Namespace) -> int:
     catalog = load_catalog(Path(args.catalog))
     index = load_index(Path(args.index))
+    refuse_catalog_write(Path(args.report))
+    refuse_catalog_write(Path(args.json_report))
     result = dry_run(catalog, index)
     write_report(result, Path(args.report), Path(args.json_report))
     summary = {key: result[key] for key in result if key != "rows"}
