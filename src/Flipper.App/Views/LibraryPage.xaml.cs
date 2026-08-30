@@ -434,7 +434,12 @@ public sealed partial class LibraryPage : Page
         }
 
         var id = playlist.Id;
-        App.Current.DeletePlaylist(id);
+        if (!App.Current.DeletePlaylist(id))
+        {
+            return;
+        }
+
+        App.Current.Window?.PlayDeleteCue();
         if (string.Equals(_selectedPlaylistId, id, StringComparison.OrdinalIgnoreCase))
         {
             _selectedPlaylistId = null;
@@ -589,6 +594,7 @@ public sealed partial class LibraryPage : Page
 
         App.Current.TakePlaylistMembership(entry.CanonicalPath);
         App.Current.Cache.Remove(entry.CanonicalPath);
+        App.Current.Window?.PlayDeleteCue();
         Reload(library);
     }
 

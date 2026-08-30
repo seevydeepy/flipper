@@ -95,8 +95,10 @@ public sealed partial class MainWindow : Window
     public void NotifyAddedToPlaylist(string playlistName)
     {
         ShowInfoToast($"Added to playlist {playlistName}");
-        PlayPlaylistAddCue();
+        PlayCue("playlist-add.wav");
     }
+
+    public void PlayDeleteCue() => PlayCue("delete.wav");
 
     public void ShowDeleteToast(PendingScoreDelete item)
     {
@@ -265,9 +267,9 @@ public sealed partial class MainWindow : Window
         _cuePlayer = null;
     }
 
-    private void PlayPlaylistAddCue()
+    private void PlayCue(string fileName)
     {
-        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "playlist-add.wav");
+        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", fileName);
         if (!System.IO.File.Exists(path))
         {
             return;
