@@ -27,6 +27,8 @@ public sealed partial class LibraryPage : Page
     private const double TrashZoneWidth = 60;
     private const double TrashInsetVertical = 24;
     private const double PlayZoneHeightFraction = 1.0 / 3.0;
+    private const double PlayInsetLeft = 24;
+    private const double PlayInsetRight = 40;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const string WordmarkAsset = "carousel-wordmark.png";
@@ -199,8 +201,15 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        var width = Math.Max(0, TrashDrop.Margin.Left);
+        var left = PlayInsetLeft;
+        var width = Math.Max(0, TrashDrop.Margin.Left - left - PlayInsetRight);
         var height = Math.Max(0, host.ActualHeight * PlayZoneHeightFraction);
+        var margin = new Thickness(left, 0, 0, 0);
+        if (Math.Abs(PlayDrop.Margin.Left - margin.Left) > 0.5)
+        {
+            PlayDrop.Margin = margin;
+        }
+
         if (double.IsNaN(PlayDrop.Width) || Math.Abs(PlayDrop.Width - width) > 0.5)
         {
             PlayDrop.Width = width;
