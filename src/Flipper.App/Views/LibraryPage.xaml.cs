@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Navigation;
 using Microsoft.Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -58,11 +59,15 @@ public sealed partial class LibraryPage : Page
     private bool _hydrating;
     private bool _bindingFolders;
     private bool _suppressItemClick;
+    private bool _resumeGrid;
+    private double? _restoreScroll;
+    private int _scrollRestoreTries;
     private string? _openingCanonical;
 
     public LibraryPage()
     {
         InitializeComponent();
+        NavigationCacheMode = NavigationCacheMode.Required;
         if (TryLoadAssetImage(WordmarkAsset, out var wordmark))
         {
             WordmarkImage.Source = wordmark;
@@ -85,8 +90,27 @@ public sealed partial class LibraryPage : Page
         Unloaded += OnUnloaded;
     }
 
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        _resumeGrid = e.NavigationMode == NavigationMode.Back;
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        PersistSearchIfChanged();
+        _restoreScroll = FindScrollViewer(ScoreGrid)?.VerticalOffset;
+        _scrollRestoreTries = 0;
+        _openingCanonical = null;
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_resumeGrid)
+        {
+            ResumeFromReader();
+            return;
+        }
+
         _hydrating = true;
         RestoreGridChrome();
         DispatcherQueue.TryEnqueue(() =>
@@ -102,6 +126,19 @@ public sealed partial class LibraryPage : Page
         }
 
         Reload(path);
+    }
+
+    private void ResumeFromReader()
+    {
+        _openingCanonical = null;
+        var path = App.Current.Settings.LibraryPath;
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            _watcher.Start(path);
+            _watchedPath = path;
+        }
+
+        RestoreGridScroll();
     }
 
     private void ScoreColumn_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -182,8 +219,7 @@ public sealed partial class LibraryPage : Page
         _scanEpoch++;
         _scanAgain = false;
         CloseSettings();
-        _watcher.Dispose();
-        _automaticCatalog.Dispose();
+        _watcher.Stop();
         _refreshTimer.Stop();
         _searchTimer.Stop();
     }
@@ -1491,6 +1527,7 @@ public sealed partial class LibraryPage : Page
         {
             _snapshot = next;
             App.Current.LastSnapshot = next;
+            RestoreGridScroll();
             return;
         }
 
@@ -1852,6 +1889,54 @@ public sealed partial class LibraryPage : Page
         App.Current.PersistSettings();
     }
 
+    private void RestoreGridScroll()
+    {
+        if (_restoreScroll is not double offset || offset <= 0)
+        {
+            return;
+        }
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var scroll = FindScrollViewer(ScoreGrid);
+            if (scroll is null)
+            {
+                if (_scrollRestoreTries++ < 8)
+                {
+                    RestoreGridScroll();
+                    return;
+                }
+
+                _restoreScroll = null;
+                return;
+            }
+
+            _scrollRestoreTries = 0;
+            scroll.ChangeView(null, offset, null, true);
+            _restoreScroll = null;
+        });
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer scroll)
+        {
+            return scroll;
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var found = FindScrollViewer(VisualTreeHelper.GetChild(root, i));
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
     private void ApplyFilter()
     {
         SkinTrashDrop();
@@ -1882,6 +1967,7 @@ public sealed partial class LibraryPage : Page
 
         if (SameCardOrder(rows))
         {
+            RestoreGridScroll();
             return;
         }
 
@@ -1914,6 +2000,7 @@ public sealed partial class LibraryPage : Page
 
         _cards.ReplaceAll(next);
         RetainAssignment();
+        RestoreGridScroll();
     }
 
     private bool SameCardOrder(IReadOnlyList<ScoreEntry> rows)

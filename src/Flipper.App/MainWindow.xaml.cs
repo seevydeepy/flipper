@@ -81,6 +81,18 @@ public sealed partial class MainWindow : Window
         _readerUnscaled = false;
         AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
         ApplyUiScale();
+        if (RootFrame.Content is LibraryPage)
+        {
+            return;
+        }
+
+        if (RootFrame.BackStack.Count > 0
+            && RootFrame.BackStack[RootFrame.BackStack.Count - 1].SourcePageType == typeof(LibraryPage))
+        {
+            RootFrame.GoBack();
+            return;
+        }
+
         RootFrame.Navigate(typeof(LibraryPage));
     }
 
