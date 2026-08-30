@@ -1408,9 +1408,16 @@ public sealed partial class LibraryPage : Page
         var y = top ? rect.Y + o : rect.Y + rect.Height - o;
         var outsideX = left ? rect.X - o : rect.X + rect.Width + o;
         var outsideY = top ? rect.Y - o : rect.Y + rect.Height + o;
-        if (Covered(pieces, new Point(outsideX, y)) || Covered(pieces, new Point(x, outsideY)))
+        var side = Covered(pieces, new Point(outsideX, y));
+        var adjacent = Covered(pieces, new Point(x, outsideY));
+        if (side && adjacent)
         {
             return 0;
+        }
+
+        if (side || adjacent)
+        {
+            return Covered(pieces, new Point(outsideX, outsideY)) ? radius : 0;
         }
 
         return radius;
