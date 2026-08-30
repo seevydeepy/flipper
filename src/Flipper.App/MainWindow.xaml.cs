@@ -100,6 +100,8 @@ public sealed partial class MainWindow : Window
 
     public void PlayDeleteCue() => PlayCue("delete.wav");
 
+    public void PlayPageTurnCue() => PlayCue("page-turn.wav");
+
     public void ShowDeleteToast(PendingScoreDelete item)
     {
         if (_toasts.ContainsKey(item.Id))

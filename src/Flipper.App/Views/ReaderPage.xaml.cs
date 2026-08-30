@@ -360,7 +360,14 @@ public sealed partial class ReaderPage : Page
         }
 
         var portrait = PageLayout.IsPortrait(ReaderRoot.ActualWidth, ReaderRoot.ActualHeight);
-        _lowestVisible = PageLayout.Turn(_lowestVisible, _pdf.PageCount, portrait, direction);
+        var next = PageLayout.Turn(_lowestVisible, _pdf.PageCount, portrait, direction);
+        if (next == _lowestVisible)
+        {
+            return;
+        }
+
+        _lowestVisible = next;
+        App.Current.Window?.PlayPageTurnCue();
         Draw();
     }
 
