@@ -316,6 +316,45 @@
             </Viewbox>
         </Grid>
         <Grid
+            x:Name="PlayDrop"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Bottom"
+            AllowDrop="True"
+            Visibility="Collapsed"
+            DragOver="PlayDrop_DragOver"
+            Drop="PlayDrop_Drop"
+            AutomationProperties.Name="Play">
+            <Rectangle
+                x:Name="PlayDropFill"
+                RadiusX="12"
+                RadiusY="12"
+                Fill="#C6F5C6"
+                Stroke="#2E7D32"
+                StrokeThickness="2"
+                StrokeDashArray="6,4" />
+            <StackPanel
+                Orientation="Horizontal"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12">
+                <Viewbox
+                    MaxWidth="32"
+                    MaxHeight="32"
+                    VerticalAlignment="Center">
+                    <Path
+                        Width="24"
+                        Height="24"
+                        Fill="#2E7D32"
+                        Data="M8,5 L19,12 L8,19 Z" />
+                </Viewbox>
+                <TextBlock
+                    Text="Play"
+                    FontSize="24"
+                    Foreground="#2E7D32"
+                    VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+        <Grid
             x:Name="SelectionShade"
             Background="Transparent"
             Visibility="Collapsed"

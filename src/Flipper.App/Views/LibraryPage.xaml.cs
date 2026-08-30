@@ -25,6 +25,7 @@ public sealed partial class LibraryPage : Page
     private const double TrashGap = 8;
     private const double TrashZoneWidth = 60;
     private const double TrashInsetVertical = 24;
+    private const double PlayZoneHeightFraction = 1.0 / 3.0;
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const string WordmarkAsset = "carousel-wordmark.png";
@@ -129,6 +130,7 @@ public sealed partial class LibraryPage : Page
         }
 
         PositionTrashDrop(width);
+        PositionPlayDrop();
     }
 
     private void PositionTrashDrop(double scoreWidth)
@@ -150,6 +152,26 @@ public sealed partial class LibraryPage : Page
         if (double.IsNaN(TrashDrop.Width) || Math.Abs(TrashDrop.Width - TrashZoneWidth) > 0.5)
         {
             TrashDrop.Width = TrashZoneWidth;
+        }
+    }
+
+    private void PositionPlayDrop()
+    {
+        if (PlayDrop.Parent is not FrameworkElement host)
+        {
+            return;
+        }
+
+        var width = Math.Max(0, TrashDrop.Margin.Left);
+        var height = Math.Max(0, host.ActualHeight * PlayZoneHeightFraction);
+        if (double.IsNaN(PlayDrop.Width) || Math.Abs(PlayDrop.Width - width) > 0.5)
+        {
+            PlayDrop.Width = width;
+        }
+
+        if (double.IsNaN(PlayDrop.Height) || Math.Abs(PlayDrop.Height - height) > 0.5)
+        {
+            PlayDrop.Height = height;
         }
     }
 
@@ -479,7 +501,15 @@ public sealed partial class LibraryPage : Page
         if (!double.IsNaN(ScoreContent.Width) && ScoreContent.Width > 0)
         {
             PositionTrashDrop(ScoreContent.Width);
+            PositionPlayDrop();
         }
+    }
+
+    private void ShowPlayDrop()
+    {
+        PlayDrop.Visibility = Visibility.Visible;
+        PlayDrop.UpdateLayout();
+        PositionPlayDrop();
     }
 
     private void SkinTrashDrop()
@@ -506,12 +536,56 @@ public sealed partial class LibraryPage : Page
         TrashDrop.Visibility = Visibility.Collapsed;
     }
 
+    private void HidePlayDrop()
+    {
+        if (_assignmentCard is not null || _dragCard is not null)
+        {
+            return;
+        }
+
+        PlayDrop.Visibility = Visibility.Collapsed;
+    }
+
     private void TrashDrop_DragOver(object sender, DragEventArgs e)
     {
         e.AcceptedOperation = e.DataView.Contains(ScoreDragFormat)
             ? DataPackageOperation.Move
             : DataPackageOperation.None;
         e.Handled = true;
+    }
+
+    private void PlayDrop_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = e.DataView.Contains(ScoreDragFormat)
+            ? DataPackageOperation.Copy
+            : DataPackageOperation.None;
+        e.Handled = true;
+    }
+
+    private async void PlayDrop_Drop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (!e.DataView.Contains(ScoreDragFormat))
+        {
+            return;
+        }
+
+        var raw = await e.DataView.GetDataAsync(ScoreDragFormat);
+        if (raw is not string path || string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        var card = _cards.FirstOrDefault(item =>
+                string.Equals(item.Entry.CanonicalPath, path, StringComparison.OrdinalIgnoreCase))
+            ?? _dragCard;
+        if (card is null
+            || !string.Equals(card.Entry.CanonicalPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        OpenScore(card);
     }
 
     private async void TrashDrop_Drop(object sender, DragEventArgs e)
@@ -721,8 +795,8 @@ public sealed partial class LibraryPage : Page
         }
 
         e.Handled = true;
-        _suppressItemClick = true;
-        EnterAssignment(card);
+        SuppressNextItemClick();
+        OpenScore(card);
     }
 
     private void ScoreCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -739,8 +813,15 @@ public sealed partial class LibraryPage : Page
         }
 
         e.Handled = true;
+        SuppressNextItemClick();
+        OpenScore(card);
+    }
+
+    private void SuppressNextItemClick()
+    {
         _suppressItemClick = true;
-        EnterAssignment(card);
+        DispatcherQueue.TryEnqueue(() =>
+            DispatcherQueue.TryEnqueue(() => _suppressItemClick = false));
     }
 
     private void SelectionShade_Tapped(object sender, TappedRoutedEventArgs e)
@@ -757,6 +838,7 @@ public sealed partial class LibraryPage : Page
 
     private void SelectionShade_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        PositionPlayDrop();
         UpdateAssignmentShade();
     }
 
@@ -823,6 +905,7 @@ public sealed partial class LibraryPage : Page
     {
         HidePlaylistDelete();
         ShowTrashDrop();
+        ShowPlayDrop();
         SelectionShade.IsHitTestVisible = interactive;
         SelectionShade.Visibility = Visibility.Visible;
         SelectionShade.UpdateLayout();
@@ -839,6 +922,7 @@ public sealed partial class LibraryPage : Page
         SelectionShade.Visibility = Visibility.Collapsed;
         SelectionShade.IsHitTestVisible = true;
         HideTrashDrop();
+        HidePlayDrop();
     }
 
     private void HandleAssignmentPoint(Point point)
@@ -892,6 +976,9 @@ public sealed partial class LibraryPage : Page
             case AssignmentHitKind.Trash:
                 await ApplyTrashZoneAsync(card.Entry);
                 ExitAssignment();
+                return;
+            case AssignmentHitKind.Play:
+                PlayAssignmentCard();
                 return;
             default:
                 ExitAssignment();
@@ -992,6 +1079,20 @@ public sealed partial class LibraryPage : Page
             AddHit(section, AssignmentHitKind.Stay);
         }
 
+        Rect? cardRect = null;
+        if (ScoreGrid.ContainerFromItem(ShadeCard) is GridViewItem cardItem)
+        {
+            cardRect = ElementRect(cardItem, SelectionShade);
+            AddHole(cardRect.Value);
+        }
+
+        Rect? playRect = null;
+        if (PlayDrop.Visibility == Visibility.Visible)
+        {
+            playRect = ElementRect(PlayDrop, SelectionShade);
+            AddHole(playRect.Value);
+        }
+
         if (TrashDrop.Visibility == Visibility.Visible)
         {
             var trash = ElementRect(TrashDrop, SelectionShade);
@@ -999,11 +1100,14 @@ public sealed partial class LibraryPage : Page
             AddHit(trash, AssignmentHitKind.Trash);
         }
 
-        if (ScoreGrid.ContainerFromItem(ShadeCard) is GridViewItem cardItem)
+        if (playRect is { } play && play.Width >= 1 && play.Height >= 1)
         {
-            var card = ElementRect(cardItem, SelectionShade);
-            AddHole(card);
-            AddHit(card, AssignmentHitKind.SelectedCard);
+            _assignmentHits.Insert(0, new AssignmentHit(Inflate(play, 2), AssignmentHitKind.Play, null));
+        }
+
+        if (cardRect is { } card && card.Width >= 1 && card.Height >= 1)
+        {
+            _assignmentHits.Insert(0, new AssignmentHit(Inflate(card, 2), AssignmentHitKind.SelectedCard, null));
         }
 
         SelectionShadeSoft.Data = ShadeMask(width, height, holes, inflate: 12, radius: 24);
@@ -1015,6 +1119,7 @@ public sealed partial class LibraryPage : Page
     {
         var group = new GeometryGroup { FillRule = FillRule.EvenOdd };
         group.Children.Add(new RectangleGeometry { Rect = new Rect(0, 0, width, height) });
+        var holeGroup = new GeometryGroup { FillRule = FillRule.Nonzero };
         foreach (var hole in holes)
         {
             var rect = ClipToShade(Inflate(hole, inflate), width, height);
@@ -1023,7 +1128,12 @@ public sealed partial class LibraryPage : Page
                 continue;
             }
 
-            group.Children.Add(RoundedRect(rect, radius));
+            holeGroup.Children.Add(RoundedRect(rect, radius));
+        }
+
+        if (holeGroup.Children.Count > 0)
+        {
+            group.Children.Add(holeGroup);
         }
 
         return group;
@@ -1165,16 +1275,33 @@ public sealed partial class LibraryPage : Page
         }
 
         e.Handled = true;
-        OpenScore(card);
-    }
-
-    private void ScoreGrid_ItemClick(object sender, ItemClickEventArgs e)
-    {
-        if (e.ClickedItem is not ScoreCard card)
+        if (_suppressItemClick)
         {
             return;
         }
 
+        EnterAssignment(card);
+    }
+
+    private void ScoreGrid_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (_suppressItemClick || e.ClickedItem is not ScoreCard card)
+        {
+            return;
+        }
+
+        EnterAssignment(card);
+    }
+
+    private void PlayAssignmentCard()
+    {
+        var card = _assignmentCard;
+        if (card is null)
+        {
+            return;
+        }
+
+        ExitAssignment();
         OpenScore(card);
     }
 
@@ -1182,12 +1309,6 @@ public sealed partial class LibraryPage : Page
     {
         if (_assignmentCard is not null)
         {
-            return;
-        }
-
-        if (_suppressItemClick)
-        {
-            _suppressItemClick = false;
             return;
         }
 
@@ -2077,5 +2198,6 @@ internal enum AssignmentHitKind
     Playlist,
     Favourites,
     Trash,
+    Play,
     SelectedCard
 }
