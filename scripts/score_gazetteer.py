@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import re
 import sys
 import tarfile
@@ -19,6 +20,7 @@ INDEX_PATH = ARTIFACTS / "score-gazetteer.jsonl.gz"
 DUMP_DIR = ARTIFACTS / "mb-json"
 REPORT_MD = ARTIFACTS / "score-gazetteer-dry-run.md"
 REPORT_JSON = ARTIFACTS / "score-gazetteer-dry-run.json"
+BACKUP_CATALOG = ARTIFACTS / ".flipper-catalog.pre-gazetteer.json"
 DUMP_LATEST = "https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/LATEST"
 DUMP_WORK = "https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/{stamp}/work.tar.xz"
 USER_AGENT = "Carousel-score-gazetteer/1.0 (https://github.com/seevydeepy/flipper)"
@@ -517,6 +519,45 @@ def refuse_catalog_write(path: Path) -> None:
         raise SystemExit(f"refusing to write catalog path: {path}")
 
 
+def write_catalog(path: Path, catalog: dict[str, dict[str, str]]) -> None:
+    payload = json.dumps(catalog, indent=2, ensure_ascii=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def catalog_key(catalog: dict[str, dict[str, str]], path: str) -> str | None:
+    if path in catalog:
+        return path
+    folded = {key.lower(): key for key in catalog}
+    return folded.get(path.lower())
+
+
+def apply_updates(
+    catalog: dict[str, dict[str, str]],
+    rows: list[dict[str, str]],
+) -> tuple[list[str], list[dict[str, str]]]:
+    applied: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for row in rows:
+        path = row.get("path") or ""
+        key = catalog_key(catalog, path)
+        if key is None:
+            skipped.append({"path": path, "reason": "missing"})
+            continue
+        facts = catalog[key]
+        if (facts.get("title") or "") != (row.get("current_title") or "") or (
+            facts.get("composer") or ""
+        ) != (row.get("current_composer") or ""):
+            skipped.append({"path": path, "reason": "stale"})
+            continue
+        facts["title"] = row.get("proposed_title") or facts.get("title") or ""
+        facts["composer"] = row.get("proposed_composer") or facts.get("composer") or ""
+        applied.append(key)
+    return applied, skipped
+
+
 def proposed_facts(current: dict[str, str], matched: Match) -> dict[str, str]:
     title = matched.title
     composer = matched.composer or usable_composer(current.get("composer"))
@@ -666,6 +707,47 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apply(args: argparse.Namespace) -> int:
+    report = json.loads(Path(args.json_report).read_text(encoding="utf-8"))
+    rows = list(report.get("rows") or [])
+    catalog_path = Path(args.catalog)
+    catalog = load_catalog(catalog_path)
+    backup = Path(args.backup)
+    refuse_catalog_write(backup)
+    write_catalog(backup, catalog)
+    applied, skipped = apply_updates(catalog, rows)
+    write_catalog(catalog_path, catalog)
+    read_back = load_catalog(catalog_path)
+    by_key = {}
+    for row in rows:
+        key = catalog_key(read_back, row.get("path") or "")
+        if key:
+            by_key[key] = row
+    confirmed = 0
+    for path in applied:
+        facts = read_back.get(path) or {}
+        row = by_key.get(path) or {}
+        if (facts.get("title") or "") == (row.get("proposed_title") or "") and (
+            facts.get("composer") or ""
+        ) == (row.get("proposed_composer") or ""):
+            confirmed += 1
+    print(
+        json.dumps(
+            {
+                "catalog": str(catalog_path),
+                "backup": str(backup),
+                "rows": len(rows),
+                "applied": len(applied),
+                "skipped": skipped,
+                "confirmed": confirmed,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0 if confirmed == len(applied) else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -679,6 +761,11 @@ def main() -> int:
     dry_p.add_argument("--report", default=str(REPORT_MD))
     dry_p.add_argument("--json-report", default=str(REPORT_JSON))
     dry_p.set_defaults(func=cmd_dry_run)
+    apply_p = sub.add_parser("apply")
+    apply_p.add_argument("--catalog", default=str(CATALOG))
+    apply_p.add_argument("--json-report", default=str(REPORT_JSON))
+    apply_p.add_argument("--backup", default=str(BACKUP_CATALOG))
+    apply_p.set_defaults(func=cmd_apply)
     args = parser.parse_args()
     return args.func(args)
 
