@@ -24,6 +24,7 @@ namespace Flipper.App.Views;
 public sealed partial class LibraryPage : Page
 {
     private const double CardSlot = 192;
+    private const double CardGutter = 8;
     private const double TrashGap = 8;
     private const double TrashZoneWidth = 60;
     private const double TrashInsetVertical = 24;
@@ -201,16 +202,17 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        if (ScoreHeader.ActualWidth < 1 || SearchBox.ActualHeight < 1)
+        if (ScoreContent.Width < 1 || SearchBox.ActualHeight < 1)
         {
             return;
         }
 
-        var left = ScoreHeader.TransformToVisual(host).TransformPoint(new Point(0, 0)).X;
+        var origin = ScoreContent.TransformToVisual(host).TransformPoint(new Point(0, 0));
         var searchBottom = SearchBox.TransformToVisual(host)
             .TransformPoint(new Point(0, SearchBox.ActualHeight)).Y;
+        var left = origin.X + CardGutter;
         var top = ShadeHolePad + PlayTopClearance;
-        var width = ScoreHeader.ActualWidth;
+        var width = Math.Max(0, ScoreContent.Width - (CardGutter * 2));
         var height = Math.Max(0, searchBottom - ShadeHolePad - top);
         var margin = new Thickness(left, top, 0, 0);
         if (Math.Abs(PlayDrop.Margin.Left - margin.Left) > 0.5
