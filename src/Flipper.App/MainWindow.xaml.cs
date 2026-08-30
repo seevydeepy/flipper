@@ -6,12 +6,15 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 
 namespace Flipper.App;
 
 public sealed partial class MainWindow : Window
 {
     private readonly Dictionary<Guid, LiveToast> _toasts = new();
+    private MediaPlayer? _cuePlayer;
     private bool _readerUnscaled;
 
     public MainWindow()
@@ -89,6 +92,12 @@ public sealed partial class MainWindow : Window
         RootFrame.Navigate(typeof(ReaderPage), new ReaderOpenArgs(score, cachePath));
     }
 
+    public void NotifyAddedToPlaylist(string playlistName)
+    {
+        ShowInfoToast($"Added to playlist {playlistName}");
+        PlayPlaylistAddCue();
+    }
+
     public void ShowDeleteToast(PendingScoreDelete item)
     {
         if (_toasts.ContainsKey(item.Id))
@@ -100,6 +109,17 @@ public sealed partial class MainWindow : Window
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         timer.Tick += (_, _) => Expire(item.Id);
         _toasts[item.Id] = new LiveToast(item.Id, root, timer);
+        ToastHost.Children.Add(root);
+        timer.Start();
+    }
+
+    private void ShowInfoToast(string message)
+    {
+        var id = Guid.NewGuid();
+        var root = BuildInfoToast(message);
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        timer.Tick += (_, _) => Dismiss(id);
+        _toasts[id] = new LiveToast(id, root, timer);
         ToastHost.Children.Add(root);
         timer.Start();
     }
@@ -139,6 +159,27 @@ public sealed partial class MainWindow : Window
         row.Children.Add(text);
         row.Children.Add(undo);
 
+        return ToastChrome(row);
+    }
+
+    private static UIElement BuildInfoToast(string message)
+    {
+        var ink = (Brush)Application.Current.Resources["InkBrush"];
+        var text = new TextBlock
+        {
+            Text = message,
+            FontSize = 20,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ink,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        return ToastChrome(text);
+    }
+
+    private static Border ToastChrome(UIElement child)
+    {
+        var paper = (Brush)Application.Current.Resources["CardBrush"];
+        var gold = (Brush)Application.Current.Resources["GoldBrush"];
         return new Border
         {
             Background = paper,
@@ -147,7 +188,7 @@ public sealed partial class MainWindow : Window
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(16, 12, 16, 12),
             HorizontalAlignment = HorizontalAlignment.Center,
-            Child = row
+            Child = child
         };
     }
 
@@ -220,6 +261,25 @@ public sealed partial class MainWindow : Window
 
         _toasts.Clear();
         ToastHost.Children.Clear();
+        _cuePlayer?.Dispose();
+        _cuePlayer = null;
+    }
+
+    private void PlayPlaylistAddCue()
+    {
+        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "playlist-add.wav");
+        if (!System.IO.File.Exists(path))
+        {
+            return;
+        }
+
+        _cuePlayer ??= new MediaPlayer
+        {
+            AudioCategory = MediaPlayerAudioCategory.SoundEffects
+        };
+        _cuePlayer.CommandManager.IsEnabled = false;
+        _cuePlayer.Source = MediaSource.CreateFromUri(new Uri(path));
+        _cuePlayer.Play();
     }
 
     private static string EnsureIconFile()

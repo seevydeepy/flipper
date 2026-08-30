@@ -622,15 +622,29 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
-        if (mark.PlaylistId is not { } id || !App.Current.AddToPlaylist(id, path))
+        if (mark.PlaylistId is not { } id)
         {
             return;
         }
 
-        if (string.Equals(_selectedPlaylistId, id, StringComparison.OrdinalIgnoreCase))
+        CompletePlaylistAdd(id, path);
+    }
+
+    private void CompletePlaylistAdd(string playlistId, string canonicalPath)
+    {
+        var playlist = PlaylistBook.Find(App.Current.Settings.Playlists, playlistId);
+        if (playlist is null)
+        {
+            return;
+        }
+
+        if (App.Current.AddToPlaylist(playlistId, canonicalPath)
+            && string.Equals(_selectedPlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))
         {
             ApplyFilter();
         }
+
+        App.Current.Window?.NotifyAddedToPlaylist(playlist.Name);
     }
 
     private void ApplyFavouriteDrop(string path)
@@ -863,12 +877,8 @@ public sealed partial class LibraryPage : Page
         switch (hit.Kind)
         {
             case AssignmentHitKind.Playlist when hit.PlaylistId is { } playlistId:
-                App.Current.AddToPlaylist(playlistId, card.Entry.CanonicalPath);
-                if (string.Equals(_selectedPlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))
-                {
-                    ApplyFilter();
-                }
-
+                CompletePlaylistAdd(playlistId, card.Entry.CanonicalPath);
+                ExitAssignment();
                 return;
             case AssignmentHitKind.Favourites:
                 ApplyFavouriteDrop(card.Entry.CanonicalPath);
