@@ -318,16 +318,16 @@
         <Grid
             x:Name="PlayDrop"
             HorizontalAlignment="Left"
-            VerticalAlignment="Bottom"
+            VerticalAlignment="Top"
             AllowDrop="True"
             Visibility="Collapsed"
             DragOver="PlayDrop_DragOver"
             Drop="PlayDrop_Drop"
             AutomationProperties.Name="Play">
-            <Path
+            <Rectangle
                 x:Name="PlayDropFill"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Stretch"
+                RadiusX="12"
+                RadiusY="12"
                 Fill="#C6F5C6"
                 Stroke="#2E7D32"
                 StrokeThickness="2"
