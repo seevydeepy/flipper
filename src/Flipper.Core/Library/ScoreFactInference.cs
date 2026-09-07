@@ -1061,12 +1061,17 @@ public static class ScoreFactInference
     /// Quoted series headers ('"Sechs Sonaten für Violine"') name a collection,
     /// never a work: they are bad titles and bad composer credits alike.
     /// Trailing-quote form ('Sechs Sonaten für Violine"') matches too, since
-    /// engraving extraction often drops the opening quote.
+    /// engraving extraction often drops the opening quote. A bare fragment
+    /// check needs the quotes stripped: '"Sechs …"' is name-like only with
+    /// them removed.
     /// </summary>
     private static bool IsQuotedSeriesHeader(string value)
     {
-        var text = value.Trim().Trim('"');
-        return text.Length >= 2 && LooksLikeName(UnwrapWhole(value) ?? text);
+        var text = value.Trim();
+        var stripped = text.Trim('"');
+        return stripped.Length >= 2
+            && stripped.Length < text.Length
+            && LooksLikeName(UnwrapWhole(stripped) ?? stripped);
     }
 
     private static bool LooksLikeName(string value)
