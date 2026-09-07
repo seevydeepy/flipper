@@ -1182,26 +1182,18 @@ public static class ScoreFactInference
                 }
 
                 // A person-like line that the composer pass also claims is a
-                // credit, not a title — with two exceptions:
-                // (a) when no other non-credit title-shaped line exists, the
-                //     credit-adjacent line still resolves (Clair/uppercase);
-                // (b) when THIS line is filename-corroborated (overlap>=1 with
-                //     no rival person line, or overlap>=2 / prefix), it is the
-                //     work, not a credit (Moonlight Sonata must not yield to
-                //     the composer line; but Chopin's étude line yields to the
-                //     real title because a rival person line exists there).
+                // credit, not a title — unless the filename corroborates THIS
+                // line (overlap or prefix): then it is the work, not a credit
+                // (Moonlight Sonata must not yield to the composer line, and
+                // "12 Études" / "Clair de Lune" stay titles). Uncorroborated
+                // person-like lines yield to real title candidates.
                 var otherTitleShaped = _lines.Any(l =>
                     !string.Equals(l, line, StringComparison.OrdinalIgnoreCase)
                     && !IsBadTitle(l) && !IsDirection(l) && !IsCreditLine(l));
-                var rivalPerson = _lines.Any(l =>
-                    !string.Equals(l, line, StringComparison.OrdinalIgnoreCase)
-                    && LooksLikeName(UnwrapWhole(l) ?? l)
-                    && ComposerClaims(l, _lines));
-                var strongThis = overlap >= 2 || PrefixMatches(inner, _fileTitle);
                 if (score <= 1
                     && LooksLikeName(inner)
                     && ComposerClaims(inner, _lines)
-                    && (overlap == 0 || (rivalPerson && !strongThis))
+                    && overlap == 0
                     && !PrefixMatches(inner, _fileTitle)
                     && otherTitleShaped)
                 {
