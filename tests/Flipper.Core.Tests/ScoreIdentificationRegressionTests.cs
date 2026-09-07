@@ -51,12 +51,18 @@ public sealed class ScoreIdentificationRegressionTests
         Assert.Equal("Dario Marianelli", facts.Composer);
     }
 
-    [Theory]
-    [InlineData(new[] { "Music by", "Dario Marianelli", "Dawn" })]
-    [InlineData(new[] { "music by dario marianelli", "dawn" })]
-    public void LabelledAndSplitLineCredits_ParseRegardlessOfCase(string[] lines)
+    [Fact]
+    public void SplitLineCredit_Parses()
     {
-        var facts = Infer("dawn.pdf", default, lines);
+        var facts = Infer("dawn.pdf", default, ["Music by", "Dario Marianelli", "Dawn"]);
+
+        Assert.Equal("Dario Marianelli", facts.Composer);
+    }
+
+    [Fact]
+    public void LowercaseCredit_ParsesRegardlessOfCase()
+    {
+        var facts = Infer("dawn.pdf", default, ["dawn", "music by dario marianelli"]);
 
         Assert.Equal("Dario Marianelli", facts.Composer, ignoreCase: true);
     }
