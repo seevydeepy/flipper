@@ -231,6 +231,32 @@ public static class ScoreCatalog
         }
     }
 
+    /// <summary>
+    /// Resolve a catalog key back to a source PDF path for fingerprinting.
+    /// Null when the file is absent (fingerprint stays zeros, refreshable).
+    /// </summary>
+    private static string? SourcePathForKey(string root, string key)
+    {
+        try
+        {
+            var relative = key.Replace('\\', Path.DirectorySeparatorChar);
+            var full = Path.Combine(root, relative);
+            return File.Exists(full) ? full : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
     public static bool TryRewriteRootFolder(string root, string oldName, string newName)
     {
         var path = Path.Combine(root, FileName);
@@ -424,14 +450,37 @@ public static class ScoreCatalog
             var stored = TryFindKey(catalog, key.Replace('/', '\\'), out var actualKey) && actualKey is not null
                 ? CatalogProvenanceJson.ParseEntry(catalog[actualKey])
                 : new ScoreCatalogEntry();
+            var wasLegacy = stored.Provenance is null;
             var provenance = stored.Provenance ?? new CatalogProvenance
             {
                 ExtractorVersion = ScoreFacts.CurrentExtractorVersion,
                 Status = ExtractionStatus.Partial
             };
-            ApplyCorrection(stored, provenance, "title", title, clearTitle);
-            ApplyCorrection(stored, provenance, "composer", composer, clearComposer);
-            ApplyCorrection(stored, provenance, "subtitle", subtitle, clearSubtitle);
+            if (wasLegacy)
+            {
+                // First provenance attach on a legacy entry: fingerprint the
+                // real source PDF when present so the entry does not look
+                // "source changed", and mark every unedited field Legacy so
+                // later refreshes never touch inherited values the extractor
+                // did not produce.
+                var pdfPath = SourcePathForKey(root, key);
+                if (pdfPath is not null)
+                {
+                    var info = new FileInfo(pdfPath);
+                    provenance.SourceLength = info.Length;
+                    provenance.SourceLastWriteUtc = info.LastWriteTimeUtc;
+                }
+
+                ApplyCorrection(stored, provenance, "title", title, clearTitle, markUneditedLegacy: true);
+                ApplyCorrection(stored, provenance, "composer", composer, clearComposer, markUneditedLegacy: true);
+                ApplyCorrection(stored, provenance, "subtitle", subtitle, clearSubtitle, markUneditedLegacy: true);
+            }
+            else
+            {
+                ApplyCorrection(stored, provenance, "title", title, clearTitle);
+                ApplyCorrection(stored, provenance, "composer", composer, clearComposer);
+                ApplyCorrection(stored, provenance, "subtitle", subtitle, clearSubtitle);
+            }
             catalog[actualKey ?? key.Replace('/', '\\')] =
                 CatalogProvenanceJson.ToNode(stored.Facts, provenance);
             SidecarReplace.Write(path, catalog.ToJsonString(SaveOptions));
@@ -456,10 +505,16 @@ public static class ScoreCatalog
         CatalogProvenance provenance,
         string field,
         string? value,
-        bool clear)
+        bool clear,
+        bool markUneditedLegacy = false)
     {
         if (!clear && value is null)
         {
+            if (markUneditedLegacy)
+            {
+                provenance.Field(field).Origin = ScoreFieldOrigin.Legacy;
+            }
+
             return;
         }
 
@@ -670,7 +725,8 @@ public static class ScoreCatalog
         string? incoming,
         CatalogProvenance? incomingProvenance)
     {
-        if (provenance.Fields.TryGetValue(field, out var current) && current.Origin == ScoreFieldOrigin.Manual)
+        if (provenance.Fields.TryGetValue(field, out var current)
+            && (current.Origin == ScoreFieldOrigin.Manual || current.Origin == ScoreFieldOrigin.Legacy))
         {
             return;
         }

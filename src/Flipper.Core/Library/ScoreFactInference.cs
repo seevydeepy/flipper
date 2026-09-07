@@ -459,10 +459,12 @@ public static class ScoreFactInference
     {
         var fileTitle = CleanFileName(fileName);
         var segments = ParseFilenameSegments(fileName);
+        // No hard line cap: extraction already budgets by pages (default 3
+        // early pages). A cover page can hold many engraving rows; truncating
+        // to the first 10 useful lines would drop the real title/composer.
         var lines = pageLines
             .Select(CleanText)
             .Where(IsUsefulLine)
-            .Take(10)
             .ToArray();
         var credits = ExtractCredits(lines);
         var metadataTitle = CleanTitle(metadata.Title);
@@ -518,7 +520,7 @@ public static class ScoreFactInference
 
     public static bool HasUsefulPageText(string fileName, IReadOnlyList<string> pageLines)
     {
-        var lines = pageLines.Select(CleanText).Where(IsUsefulLine).Take(10).ToArray();
+        var lines = pageLines.Select(CleanText).Where(IsUsefulLine).ToArray();
         return lines.Sum(line => line.Count(char.IsLetter)) >= 20
             && PickPageTitle(lines, CleanFileName(fileName), null, null) is not null;
     }

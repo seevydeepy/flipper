@@ -207,4 +207,50 @@ public sealed class ScoreCatalogLifecycleTests
         Assert.Contains(preview.Preserved, key => key == "A.pdf");
         Assert.Contains(preview.Preserved, key => key == "L.pdf");
     }
+
+    [Fact]
+    public void Correct_PartialLegacyCorrection_ProtectsSiblingFields()
+    {
+        using var root = new TempDir();
+        Directory.CreateDirectory(Path.Combine(root.Path, "Sub"));
+        var pdfPath = Path.Combine(root.Path, "Sub", "Piece.pdf");
+        File.WriteAllBytes(pdfPath, new byte[10]);
+        File.WriteAllText(
+            Path.Combine(root.Path, ScoreCatalog.FileName),
+            "{\"Sub\\\\Piece.pdf\":{\"title\":\"Curated\",\"composer\":\"Inherited Maestro\"}}");
+
+        Assert.True(ScoreCatalog.TryCorrect(root.Path, "Sub\\Piece.pdf", "Curated", null, null));
+
+        var entry = ScoreCatalog.LoadEntry(root.Path, "Sub\\Piece.pdf");
+        Assert.NotNull(entry);
+        Assert.False(entry!.IsLegacy);
+        Assert.Equal(ScoreFieldOrigin.Manual, entry.OriginOf("title"));
+        Assert.Equal(ScoreFieldOrigin.Legacy, entry.OriginOf("composer"));
+        Assert.Equal("Inherited Maestro", entry.Facts.Composer);
+
+        // A later refresh must not touch the inherited sibling field, even
+        // when the extractor now claims a different composer.
+        var info = new FileInfo(pdfPath);
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, CatalogMergeCandidate>
+            {
+                ["Sub\\Piece.pdf"] = new CatalogMergeCandidate(
+                    new ScoreFacts { Title = "Auto", Composer = "Auto C" },
+                    info.FullName,
+                    info.Length,
+                    info.LastWriteTimeUtc,
+                    CatalogProvenance.ForGenerated(
+                        ScoreFacts.CurrentExtractorVersion,
+                        info.Length,
+                        info.LastWriteTimeUtc,
+                        new ScoreFacts { Title = "Auto", Composer = "Auto C" },
+                        ExtractionStatus.Complete))
+            });
+
+        entry = ScoreCatalog.LoadEntry(root.Path, "Sub\\Piece.pdf");
+        Assert.Equal("Inherited Maestro", entry!.Facts.Composer);
+        Assert.Equal(ScoreFieldOrigin.Legacy, entry.OriginOf("composer"));
+        Assert.Equal(CatalogMergeStatus.NoChanges, result.Status);
+    }
 }

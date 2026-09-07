@@ -30,19 +30,42 @@ public sealed class ScoreExtractionTests
     [Fact]
     public void ReadRich_ReadsBeyondPageOne()
     {
-        // Cover-only first pages resolve via a later early page. Real 2-page
-        // shape (pymupdf-built): page 2 lines carry PageNumber 2.
-        var path = Path.Combine(Path.GetTempPath(), "flipper-cover2.pdf");
-        if (!File.Exists(path))
-        {
-            Assert.True(true, "cover2 probe pdf missing; extraction covered by layout test");
-            return;
-        }
+        // Cover-only first pages resolve via a later early page. The shared
+        // test builder emits a real 2-page PDF: page 2 lines carry PageNumber 2.
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, "cover2.pdf");
+        File.WriteAllBytes(path, BuildPdf(["Cover"], ["Real Title", "Real Composer"]));
 
         var one = PdfEmbeddedTextReader.ReadRich(path, maxPages: 1);
         var two = PdfEmbeddedTextReader.ReadRich(path, maxPages: 3);
         Assert.True(two.Lines.Count >= one.Lines.Count);
         Assert.Contains(two.Lines, line => line.PageNumber == 2);
+    }
+
+    [Fact]
+    public void Inference_SeesPastTenCoverRows()
+    {
+        // A cover page with many engraving rows must not hide the real
+        // title/composer from inference: no hard line cap. Junk rows are
+        // plausible engraved credits for OTHER composers (each passes
+        // IsUsefulLine and LooksLikeName); the filename-corroborated title +
+        // composer must still win over all of them.
+        var others = new[]
+        {
+            "Wolfgang Amadeus Mozart", "Johann Sebastian Bach",
+            "Frédéric Chopin", "Franz Schubert",
+            "Robert Schumann", "Johannes Brahms",
+            "Pyotr Ilyich Tchaikovsky", "Claude Debussy",
+            "Maurice Ravel", "Igor Stravinsky",
+            "Dmitri Shostakovich", "Sergei Rachmaninoff",
+        };
+        var facts = ScoreFactInference.Infer(
+            "moonlight-sonata.pdf",
+            default,
+            [.. others, "Moonlight Sonata", "Ludwig van Beethoven"]);
+
+        Assert.Equal("Moonlight Sonata", facts.Title);
+        Assert.Equal("Ludwig van Beethoven", facts.Composer);
     }
 
     [Fact]
