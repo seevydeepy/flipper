@@ -1459,13 +1459,15 @@ public static class ScoreFactInference
                 }
 
                 // Close runner-up: a second distinct person-like line means the
-                // attribution is genuinely ambiguous — abstain.
+                // attribution is genuinely ambiguous — abstain. Quoted series
+                // headers are collection names, not rival people.
                 var rivals = _lines.Count(other =>
                     !string.Equals(other, line, StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(other, title, StringComparison.OrdinalIgnoreCase)
                     && UnwrapWhole(other) is null
                     && !IsPiece(other)
                     && !IsCreditLine(other)
+                    && !IsQuotedSeriesHeader(other)
                     && LooksLikeName(other)
                     && CleanComposer(other) is not null);
                 if (rivals > 0)
