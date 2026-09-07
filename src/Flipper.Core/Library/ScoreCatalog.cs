@@ -12,8 +12,9 @@ public sealed class ScoreFacts
     /// <summary>
     /// Current extractor version. Bump when inference behaviour changes so
     /// existing entries become eligible for deliberate reanalysis.
+    /// Mirrors <see cref="ScoreFactInference.InferenceVersion"/>.
     /// </summary>
-    public const int CurrentExtractorVersion = 1;
+    public const int CurrentExtractorVersion = ScoreFactInference.InferenceVersion;
 }
 
 public sealed class ScoreCatalogCache

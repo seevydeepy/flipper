@@ -6,8 +6,16 @@ namespace Flipper.Core.Library;
 public static class ScoreFactInference
 {
     private static readonly Regex CopySuffix = new(
-        @"(?:\s*[-–—]\s*)?(?:copy|duplicate)(?:\s*\(\d+\)|\s+\d+)?\s*$",
+        @"(?:\s*[-–—]\s*|^)(?:copy|duplicate)(?:\s*\(\d+\)|\s+\d+)?\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extractor version for <see cref="ScoreFacts.CurrentExtractorVersion"/>.
+    /// This inference implementation is version 2: evidence-scored selection
+    /// (credits parsed with roles, structured filename segments) replaced the
+    /// name-capitalisation heuristic ranking.
+    /// </summary>
+    public const int InferenceVersion = 2;
 
     private static readonly Regex NumberSuffix = new(
         @"\s*\(\d+\)\s*$",
@@ -41,6 +49,16 @@ public static class ScoreFactInference
         + @"maestoso|andantino|rubato|a tempo|rit\.?)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    /// <summary>
+    /// Multiword tempo/performance directions that are never work titles, but
+    /// only when nothing corroborates them (a real title may coincide).
+    /// </summary>
+    private static readonly Regex TempoPhrase = new(
+        @"^(?:allegro|allegretto|andante|andantino|adagio|largo|lento|moderato|presto|"
+        + @"vivace|maestoso)\b.*\b(?:con\s+brio|con\s+moto|con\s+spirito|assai|molto|"
+        + @"cantabile|espressivo|dolce|maestoso)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex BadRole = new(
         @"^(pedal|piano|basso|violino|viola|cello|flute|guitar|soprano|alto|tenor|"
         + @"bass|tema|andantino|allegro|andante|adagio|hob\.|op\.|bwv|arr\.|"
@@ -48,8 +66,26 @@ public static class ScoreFactInference
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex Collection = new(
-        @"^\d+\s*(?:\(\d+\))?\s+(?:pieces|studies|etudes|études|duets|lessons|caprices|exercises|airs)\b",
+        @"^\d+\s*(?:\(\d+\))?\s+(?:pieces?|pi[eè]ces?|studies|etudes|études|duets?|lessons|caprices|exercises|airs)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Collection headers ("12 Études", "6 Lieder") are bad titles only when
+    /// bare: with an opus/catalogue number, key, or composer attribution they
+    /// are meaningful work titles.
+    /// </summary>
+    private static bool IsBareCollection(string value)
+    {
+        if (!Collection.IsMatch(value))
+        {
+            return false;
+        }
+
+        return !Regex.IsMatch(
+            value,
+            @"\b(?:op(?:us)?\.?|bwv|kv|k\.?\s*\d|hob|rv|no\.?|nr\.?|n°|nº)\b|\b[a-g][#♯b♭]?\s+(?:major|minor|dur|moll)\b|,\s*op\.?",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
 
     private static readonly Regex WholeParen = new(
         @"^\(([^()]*)\)\s*$",
@@ -64,12 +100,73 @@ public static class ScoreFactInference
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex Direction = new(
-        @"^(?:(?:\d+\s+)?times|forte|piano|pianissimo|fortissimo|alio modo|ad lib\.?|repeat)$",
+        @"^(?:(?:\d+\s+)?times|forte|piano|pianissimo|fortissimo|alio modo|ad lib\.?|repeat|"
+        + @"allegro con brio|allegro|allegretto|andante|andantino|adagio|largo|lento|moderato|"
+        + @"presto|vivace|maestoso|rubato|a tempo|rit\.?|rall\.?|accel\.?|dolce|cantabile|"
+        + @"espressivo|con moto|con brio|con spirito|molto allegro|allegro assai|presto assai)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex Byline = new(
         @"^(?:by|arr\.?|arranged by|transc(?:ribed)?\.? by|composed by|music by)\s+(.+)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>Credit roles: only composer/composed/music-by may propose the composer.</summary>
+    internal enum CreditRole
+    {
+        None,
+        Composer,
+        Arranger,
+        Other
+    }
+
+    private static readonly Regex ComposerCredit = new(
+        @"^(?:composed\s+by|music\s+by|by)\s+(.+)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ArrangerCredit = new(
+        @"^(?:arr\.?|arranged\s+by|transc(?:ribed)?\.?\s+by)\s+(.+)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex OtherCredit = new(
+        @"^(?:words\s+by|lyrics\s+by|performed\s+by|transcribed\s+by)\s+(.+)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static CreditRole ClassifyCredit(string line, out string? name)
+    {
+        name = null;
+        var match = ComposerCredit.Match(line);
+        if (match.Success)
+        {
+            name = match.Groups[1].Value.Trim();
+            return CreditRole.Composer;
+        }
+
+        match = ArrangerCredit.Match(line);
+        if (match.Success)
+        {
+            name = match.Groups[1].Value.Trim();
+            return CreditRole.Arranger;
+        }
+
+        match = OtherCredit.Match(line);
+        if (match.Success)
+        {
+            name = match.Groups[1].Value.Trim();
+            return CreditRole.Other;
+        }
+
+        match = LabelledComposer.Match(line);
+        if (match.Success)
+        {
+            var label = line[..line.IndexOf(':')].Trim().ToLowerInvariant();
+            name = match.Groups[1].Value.Trim();
+            return label.Contains("arrang") ? CreditRole.Arranger
+                : label.Contains("composer") ? CreditRole.Composer
+                : CreditRole.Other;
+        }
+
+        return CreditRole.None;
+    }
 
     private static readonly Regex CreditLabel = new(
         @"^(?:music|composed|arranged|transcribed)\s+by$",
@@ -129,31 +226,77 @@ public static class ScoreFactInference
         ScoreMetadata metadata,
         IReadOnlyList<string> pageLines)
     {
+        return InferWithEvidence(fileName, metadata, pageLines, relativeFolder: null).Facts;
+    }
+
+    /// <summary>
+    /// Infer plus the evidence behind the decision: winning candidates, their
+    /// corroboration, and the runner-up. A readable filename fallback is always
+    /// available but reported as unverified, never as a confirmed title.
+    /// </summary>
+    public static InferenceDecision InferWithEvidence(
+        string fileName,
+        ScoreMetadata metadata,
+        IReadOnlyList<string> pageLines,
+        string? relativeFolder = null)
+    {
         var fileTitle = CleanFileName(fileName);
+        var segments = ParseFilenameSegments(fileName);
         var lines = pageLines
             .Select(CleanText)
             .Where(IsUsefulLine)
             .Take(10)
             .ToArray();
+        var credits = ExtractCredits(lines);
         var metadataTitle = CleanTitle(metadata.Title);
         var metadataComposer = CleanComposer(metadata.Author);
         var metadataSubtitle = CleanSubtitle(metadata.Subject);
-        var headings = PickHeadings(lines, fileTitle, metadataTitle, metadataComposer);
-        var title = headings.Title ?? metadataTitle ?? fileTitle;
-        var composer = metadataComposer ?? PickComposer(lines, title);
-        var subtitle = headings.Subtitle ?? metadataSubtitle;
+        var folderHint = FolderComposerHint(relativeFolder);
+
+        var selector = new EvidenceSelector(fileTitle, segments, lines, credits, folderHint);
+        var titleDecision = selector.SelectTitle(metadataTitle);
+        var composerDecision = selector.SelectComposer(
+            titleDecision.Value ?? metadataTitle ?? fileTitle,
+            metadataComposer,
+            credits);
+
+        var title = titleDecision.Value ?? metadataTitle ?? fileTitle;
+        var titleVerified = titleDecision.Value is not null || metadataTitle is not null;
+        string? composer;
+        if (metadataComposer is not null && composerDecision.Corroborated)
+        {
+            // An explicit printed composer credit corroborates generic PDF Author
+            // metadata; the printed credit wins and the metadata is supporting
+            // evidence rather than the decision.
+            composer = composerDecision.Value ?? metadataComposer;
+        }
+        else if (composerDecision.Value is not null)
+        {
+            composer = composerDecision.Value;
+        }
+        else
+        {
+            composer = metadataComposer;
+        }
+
+        var subtitle = PickSubtitle(lines, title, credits) ?? metadataSubtitle;
 
         if (string.Equals(title, composer, StringComparison.OrdinalIgnoreCase))
         {
             composer = null;
         }
 
-        return new ScoreFacts
-        {
-            Title = Limit(title, 160),
-            Composer = Limit(composer, 80),
-            Subtitle = Limit(subtitle, 160)
-        };
+        return new InferenceDecision(
+            new ScoreFacts
+            {
+                Title = Limit(title, 160),
+                Composer = Limit(composer, 80),
+                Subtitle = Limit(subtitle, 160)
+            },
+            titleVerified,
+            titleDecision.Evidence,
+            composerDecision.Evidence,
+            titleDecision.RunnerUp);
     }
 
     public static bool HasUsefulPageText(string fileName, IReadOnlyList<string> pageLines)
@@ -161,6 +304,161 @@ public static class ScoreFactInference
         var lines = pageLines.Select(CleanText).Where(IsUsefulLine).Take(10).ToArray();
         return lines.Sum(line => line.Count(char.IsLetter)) >= 20
             && PickPageTitle(lines, CleanFileName(fileName), null, null) is not null;
+    }
+
+    /// <summary>
+    /// Split-line credit handling: a trailing "Music by"-style label joins with
+    /// the next useful line, and a leading "by <name>" byline attaches to the
+    /// previous line's context. Returns the merged lines plus parsed credits.
+    /// </summary>
+    internal static IReadOnlyList<ParsedCredit> ExtractCredits(IReadOnlyList<string> lines)
+    {
+        var credits = new List<ParsedCredit>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            if (CreditLabel.IsMatch(line) && i + 1 < lines.Count)
+            {
+                var next = lines[i + 1].Trim();
+                if (next.Length >= 3)
+                {
+                    var role = line.StartsWith("music", StringComparison.OrdinalIgnoreCase)
+                        || line.StartsWith("composed", StringComparison.OrdinalIgnoreCase)
+                        ? CreditRole.Composer
+                        : CreditRole.Arranger;
+                    credits.Add(new ParsedCredit(next, role, Labelled: true, LineIndex: i));
+                    i++;
+                    continue;
+                }
+            }
+
+            var role2 = ClassifyCredit(line, out var name);
+            if (role2 != CreditRole.None && !string.IsNullOrWhiteSpace(name))
+            {
+                credits.Add(new ParsedCredit(name!.Trim(), role2, Labelled: true, LineIndex: i));
+            }
+        }
+
+        return credits;
+    }
+
+    /// <summary>
+    /// Structured filename segments: split on " - " first, then parse an
+    /// explicit "by &lt;name&gt;" byline from either side. Returns title/composer
+    /// candidates usable only when no better evidence exists.
+    /// </summary>
+    internal static FilenameSegments ParseFilenameSegments(string fileName)
+    {
+        var stem = Path.GetFileNameWithoutExtension(fileName ?? string.Empty).Trim();
+        var dash = Regex.Split(stem, @"\s+[-\u2013\u2014]\s+", RegexOptions.CultureInvariant);
+        string? title = null;
+        string? composer = null;
+        if (dash.Length >= 2)
+        {
+            // Conservative: "Title - Music by Name" or "Name - Title".
+            // A "by <name>" byline is strong; otherwise keep both sides as
+            // title candidates and let corroboration decide.
+            var left = CleanFileName(dash[0]);
+            var right = dash[^1].Trim();
+            var byRight = Regex.Match(right, @"^(?:music\s+by|composed\s+by|by)\s+(.+)$", RegexOptions.IgnoreCase);
+            var byLeft = Regex.Match(dash[0].Trim(), @"^(?:music\s+by|composed\s+by|by)\s+(.+)$", RegexOptions.IgnoreCase);
+            if (byRight.Success && byRight.Groups[1].Value.Trim().Length >= 3)
+            {
+                title = left;
+                composer = byRight.Groups[1].Value.Trim();
+            }
+            else if (byLeft.Success && left.Length >= 3)
+            {
+                composer = byLeft.Groups[1].Value.Trim();
+                title = CleanFileName(dash[^1]);
+            }
+            else
+            {
+                title = left;
+            }
+        }
+        else
+        {
+            var byWhole = Regex.Match(stem, @"^(.*?)\s+(?:music\s+by|composed\s+by|by)\s+(.+)$", RegexOptions.IgnoreCase);
+            if (byWhole.Success
+                && byWhole.Groups[1].Value.Trim().Length >= 3
+                && byWhole.Groups[2].Value.Trim().Length >= 3)
+            {
+                title = CleanFileName(byWhole.Groups[1].Value);
+                composer = byWhole.Groups[2].Value.Trim();
+            }
+        }
+
+        return new FilenameSegments(
+            string.IsNullOrWhiteSpace(title) ? null : title,
+            string.IsNullOrWhiteSpace(composer) ? null : composer);
+    }
+
+    internal static string? FolderComposerHint(string? relativeFolder)
+    {
+        if (string.IsNullOrWhiteSpace(relativeFolder))
+        {
+            return null;
+        }
+
+        var parts = relativeFolder.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2 && parts[0].Equals("corpus", StringComparison.OrdinalIgnoreCase))
+        {
+            return parts[1].Trim();
+        }
+
+        return null;
+    }
+
+    private static string? PickSubtitle(
+        IReadOnlyList<string> lines,
+        string title,
+        IReadOnlyList<ParsedCredit> credits)
+    {
+        var creditLines = credits.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in lines)
+        {
+            if (creditLines.Contains(line))
+            {
+                continue;
+            }
+
+            var whole = UnwrapWhole(line);
+            string? candidate = null;
+            if (whole is not null)
+            {
+                if (IsPiece(whole))
+                {
+                    return whole;
+                }
+
+                if (!string.Equals(whole, title, StringComparison.OrdinalIgnoreCase) && !IsDirection(whole))
+                {
+                    candidate = whole;
+                }
+            }
+            else
+            {
+                var trailing = TrailingParen.Match(line);
+                if (trailing.Success)
+                {
+                    var extra = trailing.Groups[2].Value.Trim();
+                    if (extra.Length > 0
+                        && !IsDirection(extra)
+                        && string.Equals(trailing.Groups[1].Value.Trim(), title, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return extra;
+                    }
+                }
+            }
+
+            if (candidate is not null)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static HeadingPair PickHeadings(
@@ -349,8 +647,9 @@ public static class ScoreFactInference
     {
         if (value.Length < 3
             || Junk.IsMatch(value)
-            || Collection.IsMatch(value)
+            || IsBareCollection(value)
             || Tempo.IsMatch(value)
+            || TempoPhrase.IsMatch(value)
             || BadRole.IsMatch(value)
             || CreditLabel.IsMatch(value)
             || value.All(char.IsDigit))
@@ -378,14 +677,17 @@ public static class ScoreFactInference
             return false;
         }
 
-        var letters = text.Where(char.IsLetter).ToArray();
-        if (letters.Length >= 2 && letters.All(char.IsUpper))
+        // Name-like capitalisation is weak evidence (never decisive): accept any
+        // letter case here and let the evidence scorer weigh corroboration.
+        // All-uppercase names ("CLAUDE DEBUSSY") are real composer credits.
+        var capitals = words.Count(word => word.Length > 0 && char.IsUpper(word[0]));
+        var lowercase = words.Count(word => word.Length > 0 && char.IsLower(word[0]));
+        if (lowercase > 1)
         {
             return false;
         }
 
-        var capitals = words.Count(word => word.Length > 0 && char.IsUpper(word[0]));
-        return capitals >= Math.Max(1, words.Length - 1);
+        return capitals >= 1;
     }
 
     private static bool IsPiece(string value)
@@ -407,7 +709,8 @@ public static class ScoreFactInference
     private static HashSet<string> Tokens(string value)
     {
         var folded = value.ToLowerInvariant().Replace("'", string.Empty).Replace("’", string.Empty);
-        return Regex.Matches(folded, "[a-z]{3,}")
+        // Unicode-aware word scan: letters of any script, length 3+.
+        return Regex.Matches(folded, @"\p{L}{3,}")
             .Select(match => match.Value)
             .Where(word => !StopWords.Contains(word))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -436,6 +739,267 @@ public static class ScoreFactInference
         int NotName,
         int Overlap,
         int Prefix);
+
+    /// <summary>A parsed credit line: name, role, and where it was found.</summary>
+    internal readonly record struct ParsedCredit(
+        string Name,
+        CreditRole Role,
+        bool Labelled,
+        int LineIndex);
+
+    internal readonly record struct FilenameSegments(string? Title, string? Composer);
+
+    /// <summary>
+    /// The decision plus its evidence. Confidence is an evidence weight
+    /// (stronger corroboration scores higher), not a calibrated probability.
+    /// </summary>
+    public sealed record InferenceDecision(
+        ScoreFacts Facts,
+        bool TitleVerified,
+        string TitleEvidence,
+        string ComposerEvidence,
+        string? TitleRunnerUp);
+
+    internal sealed class EvidenceSelector
+    {
+        private readonly string _fileTitle;
+        private readonly FilenameSegments _segments;
+        private readonly IReadOnlyList<string> _lines;
+        private readonly IReadOnlyList<ParsedCredit> _credits;
+        private readonly string? _folderHint;
+        private readonly HashSet<string> _fileTokens;
+
+        internal EvidenceSelector(
+            string fileTitle,
+            FilenameSegments segments,
+            IReadOnlyList<string> lines,
+            IReadOnlyList<ParsedCredit> credits,
+            string? folderHint)
+        {
+            _fileTitle = fileTitle;
+            _segments = segments;
+            _lines = lines;
+            _credits = credits;
+            _folderHint = folderHint;
+            _fileTokens = Tokens(fileTitle);
+        }
+
+        internal (string? Value, string Evidence, string? RunnerUp) SelectTitle(string? metadataTitle)
+        {
+            var scored = new List<(string Line, int Score, string Why)>();
+            foreach (var line in _lines)
+            {
+                if (IsBadTitle(line) || IsDirection(line) || IsCreditLine(line))
+                {
+                    continue;
+                }
+
+                var inner = UnwrapWhole(line) ?? line;
+                var tokens = Tokens(inner);
+                var overlap = tokens.Count(token => _fileTokens.Contains(token));
+                var score = 0;
+                var reasons = new List<string>();
+                if (metadataTitle is not null
+                    && string.Equals(inner, metadataTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 4;
+                    reasons.Add("matches embedded title");
+                }
+
+                if (overlap >= 2)
+                {
+                    score += 4;
+                    reasons.Add($"shares {overlap} filename words");
+                }
+                else if (overlap == 1)
+                {
+                    score += 2;
+                    reasons.Add("shares 1 filename word");
+                }
+
+                if (PrefixMatches(inner, _fileTitle))
+                {
+                    score += 1;
+                    reasons.Add("filename prefix");
+                }
+
+                if (_segments.Title is not null
+                    && string.Equals(inner, _segments.Title, StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 1;
+                    reasons.Add("filename segment");
+                }
+
+                // Printed evidence outranks the no-evidence filename fallback:
+                // a page line at neutral score still beats falling back to the
+                // bare filename. Strong negative signals keep their veto below.
+                // Skipped when the filename itself is unreadable (Untitled):
+                // with no filename evidence there is nothing to outrank.
+                if (score == 0 && !_fileTitle.Equals("Untitled", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 1;
+                    reasons.Add("printed over fallback");
+                }
+
+                if (IsPiece(inner))
+                {
+                    score -= 2;
+                    reasons.Add("piece descriptor");
+                }
+
+                if (UnwrapWhole(line) is not null)
+                {
+                    score -= 1;
+                    reasons.Add("parenthesised");
+                }
+
+                // Name-like capitalisation is weak evidence: a small nudge, and
+                // only when nothing stronger has spoken.
+                if (LooksLikeName(inner) && score == 0)
+                {
+                    score += 0;
+                    reasons.Add("name-like (weak, ignored)");
+                }
+
+                if (LooksLikeComposerCredit(inner))
+                {
+                    score -= 3;
+                    reasons.Add("looks like a person credit");
+                }
+
+                scored.Add((line, score, reasons.Count > 0 ? string.Join("; ", reasons) : "no corroboration"));
+            }
+
+            if (scored.Count == 0)
+            {
+                // Structured filename segment is usable when nothing better exists.
+                if (_segments.Title is not null)
+                {
+                    return (_segments.Title, "filename segment (uncorroborated)", null);
+                }
+
+                return (null, "no page evidence", null);
+            }
+
+            // Printed evidence outranks the no-evidence filename fallback (handled
+            // by the neutral-score nudge above); strong negative signals keep
+            // their veto here.
+            scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+            var winner = scored[0];
+            var runnerUp = scored.Count > 1 && scored[1].Score >= winner.Score - 1
+                ? $"{scored[1].Line} ({scored[1].Score}: {scored[1].Why})"
+                : null;
+            if (winner.Score <= -2)
+            {
+                // Only piece-descriptor / credit-like lines: abstain from the page
+                // and let metadata/filename decide.
+                return (null, $"page lines unusable (best: {winner.Line}: {winner.Why})", null);
+            }
+
+            var evidence = winner.Score > 0
+                ? $"{winner.Line} ({winner.Score}: {winner.Why})"
+                : $"{winner.Line} (weak: {winner.Why})";
+            return (UnwrapWhole(winner.Line) is { } whole && !IsPiece(whole) ? whole : winner.Line,
+                evidence, runnerUp);
+        }
+
+        internal (string? Value, string Evidence, bool Corroborated) SelectComposer(
+            string title,
+            string? metadataComposer,
+            IReadOnlyList<ParsedCredit> credits)
+        {
+            // Explicit composer-role credits first: labelled and split-line alike,
+            // independent of capitalisation. Arranger/transcriber/lyricist roles
+            // never propose the composer.
+            var composerCredit = credits.FirstOrDefault(c => c.Role == CreditRole.Composer);
+            if (composerCredit.Name is not null)
+            {
+                var cleaned = CleanComposer(composerCredit.Name);
+                if (cleaned is not null)
+                {
+                    var corroborated = metadataComposer is not null
+                        || (_folderHint is not null && Agrees(cleaned, _folderHint));
+                    return (cleaned,
+                        $"explicit credit '{composerCredit.Name}'" + (metadataComposer is not null ? " + embedded author" : ""),
+                        Corroborated: true);
+                }
+            }
+
+            // Bare person-like lines: weak evidence, needs corroboration from the
+            // filename, folder hint, or metadata before it may decide.
+            foreach (var line in _lines)
+            {
+                if (string.Equals(line, title, StringComparison.OrdinalIgnoreCase)
+                    || UnwrapWhole(line) is not null
+                    || IsPiece(line)
+                    || IsCreditLine(line)
+                    || !LooksLikeName(line))
+                {
+                    continue;
+                }
+
+                var cleaned = CleanComposer(line);
+                if (cleaned is null)
+                {
+                    continue;
+                }
+
+                if (Agrees(cleaned, _fileTitle)
+                    || (_folderHint is not null && Agrees(cleaned, _folderHint))
+                    || (metadataComposer is not null && Agrees(cleaned, metadataComposer)))
+                {
+                    return (cleaned, $"person-like '{line}' + corroboration", Corroborated: true);
+                }
+
+                // Close runner-up: a second distinct person-like line means the
+                // attribution is genuinely ambiguous — abstain.
+                var rivals = _lines.Count(other =>
+                    !string.Equals(other, line, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(other, title, StringComparison.OrdinalIgnoreCase)
+                    && UnwrapWhole(other) is null
+                    && !IsPiece(other)
+                    && !IsCreditLine(other)
+                    && LooksLikeName(other)
+                    && CleanComposer(other) is not null);
+                if (rivals > 0)
+                {
+                    return (null, $"ambiguous person credits ('{line}' + {rivals} rival(s))", Corroborated: false);
+                }
+
+                return (cleaned, $"person-like '{line}' (uncorroborated)", Corroborated: false);
+            }
+
+            // Explicit filename byline, usable only when nothing better exists.
+            if (_segments.Composer is not null && CleanComposer(_segments.Composer) is { } segmentComposer)
+            {
+                return (segmentComposer, "filename byline (uncorroborated)", Corroborated: false);
+            }
+
+            // Folder hint is supporting evidence only, never a decision alone:
+            // keep it out of the composer slot unless a credit agrees with it
+            // (handled above). Abstain instead.
+            return (null, "no composer evidence", Corroborated: false);
+        }
+
+        private bool IsCreditLine(string line)
+        {
+            return ClassifyCredit(line, out _) != CreditRole.None
+                || CreditLabel.IsMatch(line)
+                || _credits.Any(c => string.Equals(c.Name, line, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool LooksLikeComposerCredit(string line)
+        {
+            return LooksLikeName(line);
+        }
+
+        private static bool Agrees(string left, string right)
+        {
+            var l = Tokens(left);
+            var r = Tokens(right);
+            return l.Count > 0 && r.Count > 0 && l.Overlaps(r);
+        }
+    }
 }
 
 public readonly record struct ScoreMetadata(string? Title, string? Author, string? Subject);
