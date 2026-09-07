@@ -235,7 +235,6 @@ public static class ScoreFactInference
         return true;
     }
 }
-    }
 
     /// <summary>
     /// Split "F. Sor Allegro" into name + trailing tempo/role word.
