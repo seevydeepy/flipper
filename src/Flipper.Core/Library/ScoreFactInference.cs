@@ -142,6 +142,17 @@ public static class ScoreFactInference
     }
 
     /// <summary>
+    /// Token agreement between two strings (shared word after folding).
+    /// Static helper for the pre-selector split functions below.
+    /// </summary>
+    private static bool StaticAgrees(string left, string right)
+    {
+        var l = Tokens(left);
+        var r = Tokens(right);
+        return l.Count > 0 && r.Count > 0 && l.Overlaps(r);
+    }
+
+    /// <summary>
     /// Split fused movement + composer lines ("Beati mortui Felix Mendelssohn
     /// Bartholdy"): the trailing words agreeing with the embedded author or
     /// folder hint are the composer; the movement head is not a rival credit.
@@ -150,7 +161,7 @@ public static class ScoreFactInference
     private static (string Name, string Movement)? SplitFusedCredit(string line, string? metadataComposer)
     {
         var words = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 3 || words.Length > 8 || IsMovementHeader(line))
+        if (words.Length < 3 || words.Length > 8)
         {
             return null;
         }
@@ -163,7 +174,7 @@ public static class ScoreFactInference
                 continue;
             }
 
-            if (metadataComposer is not null && Agrees(tail, metadataComposer))
+            if (metadataComposer is not null && StaticAgrees(tail, metadataComposer))
             {
                 return (CleanComposer(tail)!, string.Join(" ", words[..^take]));
             }
@@ -1440,11 +1451,10 @@ public static class ScoreFactInference
 
         private static bool Agrees(string left, string right)
         {
-            var l = Tokens(left);
-            var r = Tokens(right);
-            return l.Count > 0 && r.Count > 0 && l.Overlaps(r);
+            return StaticAgrees(left, right);
         }
-    }
+
+        private static bool IsCreditLine(string line)
 }
 
 public readonly record struct ScoreMetadata(string? Title, string? Author, string? Subject);
