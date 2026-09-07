@@ -1,5 +1,8 @@
 namespace Flipper.Core.Library;
 
+/// <summary>Why a directory was skipped during a scan.</summary>
+public sealed record ScanSkipped(string Path, string Reason);
+
 public static class LibraryScanner
 {
     public static LibrarySnapshot Scan(string? displayRoot, ScoreCatalogCache? catalogCache = null)
@@ -15,8 +18,9 @@ public static class LibraryScanner
         ScoreTrash.Ensure(displayRoot);
         var trashIndex = ScoreTrash.LoadIndex(displayRoot);
         var scores = new List<ScoreEntry>();
-        ScanDirectory(displayRoot, displayRoot, scores, catalog, trashIndex, isRoot: true);
-        return new LibrarySnapshot(displayRoot, scores, true);
+        var skipped = new List<ScanSkipped>();
+        ScanDirectory(displayRoot, displayRoot, scores, catalog, trashIndex, skipped, isRoot: true);
+        return new LibrarySnapshot(displayRoot, scores, true, [.. skipped]);
     }
 
     private static void ScanDirectory(
@@ -25,6 +29,7 @@ public static class LibraryScanner
         List<ScoreEntry> scores,
         IReadOnlyDictionary<string, ScoreFacts> catalog,
         IReadOnlyList<TrashRecord> trashIndex,
+        List<ScanSkipped> skipped,
         bool isRoot)
     {
         DirectoryInfo info;
@@ -34,38 +39,83 @@ public static class LibraryScanner
         }
         catch (UnauthorizedAccessException)
         {
+            skipped.Add(new ScanSkipped(current, "unauthorised"));
             return;
         }
         catch (IOException)
         {
+            skipped.Add(new ScanSkipped(current, "unreadable"));
             return;
         }
-
-        if (!isRoot && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+        catch (System.Security.SecurityException)
         {
+            skipped.Add(new ScanSkipped(current, "unauthorised"));
             return;
         }
 
+        // Attribute access itself can throw on disappearing drives; handle the
+        // folder locally so other readable folders still scan.
+        try
+        {
+            if (!isRoot && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                return;
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            skipped.Add(new ScanSkipped(current, "unauthorised"));
+            return;
+        }
+        catch (IOException)
+        {
+            skipped.Add(new ScanSkipped(current, "unreadable"));
+            return;
+        }
+
+        // Lazy enumerations throw mid-iteration when a child vanishes: force
+        // iteration inside the guard so one disappearing file cannot abort the
+        // scan of unrelated folders.
         try
         {
             foreach (var file in info.EnumerateFiles())
             {
-                if (!file.Extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+                FileInfo stable;
+                try
+                {
+                    // Touch the attributes now; a file deleted between
+                    // enumeration and stat is skipped, not fatal.
+                    stable = new FileInfo(file.FullName);
+                    _ = stable.Length;
+                    _ = stable.LastWriteTimeUtc;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    skipped.Add(new ScanSkipped(file.FullName, "unauthorised"));
+                    continue;
+                }
+                catch (IOException)
+                {
+                    skipped.Add(new ScanSkipped(file.FullName, "unreadable"));
+                    continue;
+                }
+
+                if (!stable.Extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                var relative = Path.GetRelativePath(root, file.DirectoryName ?? root);
+                var relative = Path.GetRelativePath(root, stable.DirectoryName ?? root);
                 if (relative == ".")
                 {
                     relative = string.Empty;
                 }
 
-                var catalogKey = ScoreCatalog.Key(relative, file.Name);
+                var catalogKey = ScoreCatalog.Key(relative, stable.Name);
                 if (ScoreTrash.IsHiddenFolder(relative))
                 {
                     var record = trashIndex.FirstOrDefault(item =>
-                        string.Equals(item.FileName, file.Name, StringComparison.OrdinalIgnoreCase));
+                        string.Equals(item.FileName, stable.Name, StringComparison.OrdinalIgnoreCase));
                     if (record is not null && !string.IsNullOrWhiteSpace(record.OriginalRelativePath))
                     {
                         catalogKey = record.OriginalRelativePath.Replace('/', '\\');
@@ -74,12 +124,12 @@ public static class LibraryScanner
 
                 var hasCatalogEntry = catalog.TryGetValue(catalogKey, out var facts);
                 scores.Add(new ScoreEntry(
-                    Path.GetFileNameWithoutExtension(file.Name),
+                    Path.GetFileNameWithoutExtension(stable.Name),
                     relative,
-                    file.FullName,
-                    file.FullName,
-                    file.Length,
-                    file.LastWriteTimeUtc,
+                    stable.FullName,
+                    stable.FullName,
+                    stable.Length,
+                    stable.LastWriteTimeUtc,
                     facts?.Title,
                     facts?.Composer,
                     facts?.Subtitle,
@@ -88,28 +138,45 @@ public static class LibraryScanner
         }
         catch (UnauthorizedAccessException)
         {
+            skipped.Add(new ScanSkipped(current, "unauthorised"));
         }
         catch (IOException)
         {
+            skipped.Add(new ScanSkipped(current, "unreadable"));
         }
 
-        IEnumerable<DirectoryInfo> children;
+        List<DirectoryInfo> children;
         try
         {
-            children = info.EnumerateDirectories();
+            // Materialise: a directory deleted mid-scan ends here, not in the
+            // caller's foreach.
+            children = info.EnumerateDirectories().ToList();
         }
         catch (UnauthorizedAccessException)
         {
+            skipped.Add(new ScanSkipped(current, "unauthorised"));
             return;
         }
         catch (IOException)
         {
+            skipped.Add(new ScanSkipped(current, "unreadable"));
             return;
         }
 
         foreach (var child in children)
         {
-            ScanDirectory(root, child.FullName, scores, catalog, trashIndex, isRoot: false);
+            string childPath;
+            try
+            {
+                childPath = child.FullName;
+            }
+            catch (IOException)
+            {
+                skipped.Add(new ScanSkipped(current, "unreadable-child"));
+                continue;
+            }
+
+            ScanDirectory(root, childPath, scores, catalog, trashIndex, skipped, isRoot: false);
         }
     }
 }

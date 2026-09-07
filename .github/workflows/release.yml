@@ -34,7 +34,10 @@ jobs:
           python-version: "3.11"
 
       - name: Test
-        run: dotnet test Flipper.sln -c Release
+        run: dotnet test Flipper.sln -c Release -p:Platform=x64
+
+      - name: Python tests
+        run: python -m unittest discover -s tests -p "test_*.py"
 
       - name: Publish
         run: pwsh -File scripts/publish.ps1
