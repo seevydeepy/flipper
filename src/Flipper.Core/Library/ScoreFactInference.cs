@@ -76,12 +76,32 @@ public static class ScoreFactInference
     /// bare: with an opus/catalogue number, key, or composer attribution they
     /// are meaningful work titles.
     /// </summary>
+    /// <summary>
+    /// Bare catalogue fragments ("Op. 50", "BWV Anh. 114") carry no work
+    /// identity on their own. A line with a substantial non-marker word
+    /// ("Sonata" in "Sonata II BWV 1003", "Études" in "12 Études, Op. 10")
+    /// names a work and is never a fragment.
+    /// </summary>
+    private static readonly HashSet<string> CatalogueMarkers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "op", "opus", "bwv", "kv", "hob", "rv", "anh", "no", "nr", "number", "d", "k"
+    };
+
     private static bool IsCatalogueFragment(string value)
     {
         var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0 || words.Length > 4)
         {
             return false;
+        }
+
+        foreach (var word in words)
+        {
+            var letters = new string(word.Where(char.IsLetter).ToArray());
+            if (letters.Length >= 5 && !CatalogueMarkers.Contains(letters))
+            {
+                return false;
+            }
         }
 
         var tiny = words.Count(w =>
@@ -166,25 +186,55 @@ public static class ScoreFactInference
             return null;
         }
 
-        // Longest metadata-agreeing trailing run wins: "Beati mortui Felix
-        // Mendelssohn Bartholdy" yields the 3-word composer, not "mortui +…".
-        string? best = null;
+        // Every tail word must agree with the embedded author: "Beati mortui
+        // Felix Mendelssohn Bartholdy" yields "Felix Mendelssohn Bartholdy",
+        // not "mortui + …". Longest agreeing run wins.
         for (var take = Math.Min(4, words.Length - 1); take >= 1; take--)
         {
-            var tail = string.Join(" ", words[^take..]);
+            var tailWords = words[^take..];
+            var tail = string.Join(" ", tailWords);
             if (!LooksLikeName(tail) || CleanComposer(tail) is null)
             {
                 continue;
             }
 
-            if (metadataComposer is not null && StaticAgrees(tail, metadataComposer))
+            if (metadataComposer is not null && TailAgrees(tailWords, metadataComposer))
             {
-                best = CleanComposer(tail)!;
-                break;
+                return (CleanComposer(tail)!, string.Join(" ", words[..^take]));
             }
         }
 
-        return best is null ? null : (best, string.Join(" ", words[..^(best.Split(' ').Length)]));
+        return null;
+    }
+
+    private static bool TailAgrees(string[] tailWords, string metadataComposer)
+    {
+        var meta = Tokens(metadataComposer);
+        if (meta.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var word in tailWords)
+        {
+            var folded = word.ToLowerInvariant().Replace("'", string.Empty).Replace("’", string.Empty);
+            var parts = Regex.Matches(folded, @"\p{L}{3,}")
+                .Select(match => match.Value)
+                .ToArray();
+            if (parts.Length == 0)
+            {
+                continue;
+            }
+
+            if (parts.Any(part => !meta.Contains(part)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
     }
 
     /// <summary>
@@ -1012,11 +1062,13 @@ public static class ScoreFactInference
     /// <summary>
     /// Quoted series headers ('"Sechs Sonaten für Violine"') name a collection,
     /// never a work: they are bad titles and bad composer credits alike.
+    /// Trailing-quote form ('Sechs Sonaten für Violine"') matches too, since
+    /// engraving extraction often drops the opening quote.
     /// </summary>
     private static bool IsQuotedSeriesHeader(string value)
     {
-        var text = value.Trim();
-        return text.Length >= 2 && text.StartsWith('"') && LooksLikeName(UnwrapWhole(text) ?? text);
+        var text = value.Trim().Trim('"');
+        return text.Length >= 2 && LooksLikeName(UnwrapWhole(value) ?? text);
     }
 
     private static bool LooksLikeName(string value)
