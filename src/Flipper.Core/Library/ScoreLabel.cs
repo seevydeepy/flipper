@@ -5,6 +5,9 @@ namespace Flipper.Core.Library;
 
 public static class ScoreLabel
 {
+    // Presentation only: ScoreLabel never makes identity decisions. It renders
+    // the stored facts with an explicit filename fallback. All title/composer
+    // selection lives in ScoreFactInference (see InferWithEvidence).
     private static readonly Regex Junk = new(
         @"public domain|creative commons|mutopia|typeset|licensed under|reference:|"
         + @"free to download|creativecommons|copyright|this sheet music|"
@@ -23,8 +26,14 @@ public static class ScoreLabel
         @"^(?:(?:main|love|end|opening|closing)\s+)?theme(?:\s+from\b.*)?$|^from\b.+$|^(?:piano\s+)?version$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    // Display-level direction guard, mirroring inference's Direction set.
+    // Kept in presentation so a stored direction-like title still renders a
+    // readable fallback; identity itself is decided upstream.
     private static readonly Regex Direction = new(
-        @"^(?:(?:\d+\s+)?times|forte|piano|pianissimo|fortissimo|alio modo|ad lib\.?|repeat)$",
+        @"^(?:(?:\d+\s+)?times|forte|piano|pianissimo|fortissimo|alio modo|ad lib\.?|repeat|"
+        + @"allegro con brio|allegro|allegretto|andante|andantino|adagio|largo|lento|moderato|"
+        + @"presto|vivace|maestoso|rubato|a tempo|rit\.?|rall\.?|accel\.?|dolce|cantabile|"
+        + @"espressivo|con moto|con brio|con spirito|molto allegro|allegro assai|presto assai)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex Dash = new(
@@ -88,6 +97,9 @@ public static class ScoreLabel
             }
         }
 
+        // Presentation fallback only: the stored facts are shown as-is unless
+        // they are junk/direction-like, in which case the readable filename
+        // stands in. This never re-decides identity.
         if (IsPieceDescriptor(work) || IsDirection(work) || IsJunk(work))
         {
             extra = First(extra, IsPieceDescriptor(work) ? Unwrap(work) : extra);

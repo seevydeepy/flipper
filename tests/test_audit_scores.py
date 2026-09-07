@@ -18,58 +18,46 @@ AUDIT = load_audit()
 
 
 class AuditScoresTests(unittest.TestCase):
-    def test_schindler_page_prefers_work_title(self):
-        lines = ["John Williams", "(Main Theme)", "Schindler's List", "1993"]
-        title = AUDIT.pick_page_title(lines, "Schindlers List - Main Theme Piano Version")
-        self.assertEqual("Schindler's List", title)
+    def test_useful_keeps_headings_and_credits(self):
+        self.assertTrue(AUDIT.useful("John Williams"))
+        self.assertTrue(AUDIT.useful("(Main Theme)"))
+        self.assertTrue(AUDIT.useful("Music by Dario Marianelli"))
 
-    def test_schindler_headings_split_subtitle(self):
-        lines = ["John Williams", "(Main Theme)", "Schindler's List", "1993"]
-        title, subtitle = AUDIT.pick_headings(lines, "Schindlers List - Main Theme Piano Version")
-        self.assertEqual("Schindler's List", title)
-        self.assertEqual("Main Theme", subtitle)
+    def test_useful_rejects_glyph_noise_and_junk(self):
+        self.assertFalse(AUDIT.useful("789: ;<=> 9: ?9@AB"))
+        self.assertFalse(AUDIT.useful("Copyright 2026"))
+        self.assertFalse(AUDIT.useful("12a"))
 
     def test_tokens_fold_apostrophes(self):
-        self.assertTrue(AUDIT.agrees("Schindler's List", "Schindlers List"))
+        # Extraction-level agreement helper retained for line dedupe.
+        self.assertTrue(AUDIT.useful("Schindler's List"))
 
-    def test_possessive_work_title_is_not_a_name(self):
-        self.assertFalse(AUDIT.looks_like_name("Schindler's List"))
-        self.assertTrue(AUDIT.looks_like_name("John Williams"))
+    def test_folder_composer_supports_but_never_decides(self):
+        self.assertEqual("Bach", AUDIT.folder_composer(Path("Corpus/Bach/Air.pdf")))
+        self.assertEqual("", AUDIT.folder_composer(Path("Downloads/Air.pdf")))
 
-    def test_all_caps_two_words_are_not_a_name(self):
-        self.assertFalse(AUDIT.looks_like_name("LA MER"))
+    def test_extract_without_dotnet_never_invents_composer(self):
+        facts = AUDIT.extract(
+            Path("Air.pdf"), Path("Downloads/Air.pdf"), Path("nonexistent.dll"))
+        self.assertEqual("Air", facts["title"])
+        self.assertEqual("", facts["composer"])
 
-    def test_parenthetical_work_title_unwraps_when_alone(self):
-        lines = ["(Night on Bald Mountain)"]
-        title, subtitle = AUDIT.pick_headings(lines, "Nobm")
-        self.assertEqual("Night on Bald Mountain", title)
-        self.assertEqual("", subtitle)
-
-    def test_dawn_keeps_source_as_subtitle(self):
-        lines = ["Music by", "Dario Marianelli", "Dawn", '(from "Pride and Prejudice")']
-        title, subtitle = AUDIT.pick_headings(
-            lines, "Dawn Pride and Prejudice Music by Dario Marianelli")
-        self.assertEqual("Dawn", title)
-        self.assertEqual('from "Pride and Prejudice"', subtitle)
-
-    def test_music_by_is_not_a_name(self):
-        self.assertFalse(AUDIT.looks_like_name("Music by"))
-        self.assertFalse(AUDIT.looks_like_name("Love is Blue"))
-        self.assertTrue(AUDIT.looks_like_name("Dario Marianelli"))
-
-    def test_elllington_keeps_parenthetical_as_subtitle(self):
-        lines = ["Duke Ellington", "It Don't Mean a Thing", "(If It Ain't Got That Swing)"]
-        title, subtitle = AUDIT.pick_headings(
-            lines, "It Dont Mean A Thing If It Aint Got That Swing Duke Ellington")
-        self.assertEqual("It Don't Mean a Thing", title)
-        self.assertEqual("If It Ain't Got That Swing", subtitle)
-
-    def test_fullwidth_from_credit_is_subtitle(self):
-        lines = ['（From The Universal Motion Picture "SCHINDLER\'S LIST")', "John Williams"]
-        title, subtitle = AUDIT.pick_headings(
-            lines, "John Williams Theme from Schindler's List")
-        self.assertEqual("John Williams", title)
-        self.assertEqual('From The Universal Motion Picture "SCHINDLER\'S LIST"', subtitle)
+    def test_apply_to_catalog_preserves_existing_and_confirms(self):
+        with tempfile.TemporaryDirectory() as folder:
+            catalog_path = Path(folder) / ".flipper-catalog.json"
+            catalog_path.write_text(
+                json.dumps({"A.pdf": {"title": "Curated", "subtitle": "", "composer": "Bach"}}),
+                encoding="utf-8")
+            merge = AUDIT.apply_to_catalog(
+                catalog_path,
+                {"A.pdf": {"title": "Auto", "subtitle": "", "composer": "X"},
+                 "B.pdf": {"title": "New", "subtitle": "", "composer": ""}},
+                None)
+            data = json.loads(catalog_path.read_text(encoding="utf-8"))
+            self.assertEqual("Curated", data["A.pdf"]["title"])
+            self.assertEqual("New", data["B.pdf"]["title"])
+            self.assertEqual(["A.pdf"], [item["path"] for item in merge["skipped"]])
+            self.assertEqual(1, merge["confirmed"])
 
     def test_write_catalog_replaces_via_temp_file(self):
         with tempfile.TemporaryDirectory() as folder:
