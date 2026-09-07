@@ -1073,9 +1073,16 @@ public static class ScoreFactInference
             return false;
         }
 
+        // Series/collection names ("Sechs Sonaten für Violine"): a quoted
+        // multi-word title-cased phrase. Instrument words (Violine) are
+        // expected here — they mark a collection, not a person — so check
+        // phrase shape directly instead of LooksLikeName (which rejects
+        // instrument roles). Quoted composer credits are vanishingly rare
+        // on engraved title pages; quotes mark a series, not a person.
         var stripped = text.Trim('"');
-        return stripped.Length >= 2
-            && LooksLikeName(UnwrapWhole(stripped) ?? stripped);
+        var words = stripped.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length >= 2
+            && words.Count(w => w.Length > 0 && char.IsUpper(w[0])) >= 2;
     }
 
     private static bool LooksLikeName(string value)
