@@ -205,37 +205,6 @@ public static class ScoreFactInference
     }
 
     /// <summary>
-    /// Split fused movement + composer lines ("Beati mortui Felix Mendelssohn
-    /// Bartholdy"): the trailing words agreeing with the embedded author or
-    /// folder hint are the composer; the movement head is not a rival credit.
-    /// Returns null without metadata/folder corroboration.
-    /// </summary>
-    private static (string Name, string Movement)? SplitFusedCredit(string line, string? metadataComposer)
-    {
-        var words = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 3 || words.Length > 8 || IsMovementHeader(line))
-        {
-            return null;
-        }
-
-        for (var take = Math.Min(4, words.Length - 1); take >= 1; take--)
-        {
-            var tail = string.Join(" ", words[^take..]);
-            if (!LooksLikeName(tail) || CleanComposer(tail) is null)
-            {
-                continue;
-            }
-
-            if (metadataComposer is not null && Agrees(tail, metadataComposer))
-            {
-                return (CleanComposer(tail)!, string.Join(" ", words[..^take]));
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
     /// Whether the composer pass would claim this line as the composer.
     /// Title selection consults it so a credit line is never recycled as the
     /// work title when a real title candidate exists.
@@ -336,7 +305,11 @@ public static class ScoreFactInference
         return CreditRole.None;
     }
 
-    private static readonly Regex CreditLabel = new(
+    private static readonly Regex MovementHeader = new(
+        @"^(?:[ivxlcdm]+\.|no\.?\s*\d|n°\s*\d|\d+\.)\s+",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static bool IsMovementHeader(string value) => MovementHeader.IsMatch(value.Trim());
         @"^(?:music|composed|arranged|transcribed)\s+by$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
