@@ -101,9 +101,12 @@ public static class PdfEmbeddedTextReader
 
     internal static IReadOnlyList<ScoreTextLine> ReadPageLines(Page page, ScoreTextSource source)
     {
-        // Content-order text for the raw strings, then word boxes for geometry.
-        // Words sharing a baseline band form a line; the line box covers them.
-        var words = page.GetWords().ToArray();
+        // Word boxes for geometry group words into baseline bands; the text of
+        // each band comes from joining its words. PdfPig's word splitter can
+        // fuse two engraved rows into one band (Mazurka: credit + dedication
+        // share y=736); split bands on large horizontal gaps so each printed
+        // row stays its own line.
+        var words = page.GetWords().Where(w => !string.IsNullOrWhiteSpace(w.Text)).ToArray();
         if (words.Length == 0)
         {
             var fallback = ContentOrderTextExtractor.GetText(page)
@@ -123,14 +126,24 @@ public static class PdfEmbeddedTextReader
             var current = groups[^1];
             var band = current.Select(w => w.BoundingBox.Centroid.Y).Average();
             var tolerance = Math.Max(2, current.SelectMany(w => w.Letters).Select(l => l.FontSize).DefaultIfEmpty(12).Average() * 0.4);
-            if (Math.Abs(word.BoundingBox.Centroid.Y - band) <= tolerance)
-            {
-                current.Add(word);
-            }
-            else
+            if (Math.Abs(word.BoundingBox.Centroid.Y - band) > tolerance)
             {
                 groups.Add(new List<Word> { word });
+                continue;
             }
+
+            // Same band but a big horizontal gap after engraving columns:
+            // treat as a new visual row rather than one long line.
+            var rightmost = current.Max(w => w.BoundingBox.Right);
+            var gap = word.BoundingBox.Left - rightmost;
+            var size = word.Letters.Select(l => l.FontSize).DefaultIfEmpty(12).Average();
+            if (gap > size * 3 && current.Count >= 2)
+            {
+                groups.Add(new List<Word> { word });
+                continue;
+            }
+
+            current.Add(word);
         }
 
         return groups

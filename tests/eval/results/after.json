@@ -1,0 +1,345 @@
+{
+  "fixtures": 16,
+  "title_accuracy": 1.0,
+  "composer_accuracy": 0.812,
+  "composer_wrong_attribution": 0,
+  "composer_unresolved": 3,
+  "rows": [
+    {
+      "fixture": "accents-unicode.json",
+      "case": "musical-identity",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dvorak Humoresque.pdf",
+        "title": "Humoresque",
+        "subtitle": null,
+        "composer": "Antonín Dvořák",
+        "titleVerified": true,
+        "titleEvidence": "Humoresque (2: shares 1 filename word)",
+        "composerEvidence": "person-like 'Antonín Dvořák' (uncorroborated)",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Antonín Dvořák",
+        "subtitle": null,
+        "title": "Humoresque"
+      }
+    },
+    {
+      "fixture": "arranger-only-abstains.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "unresolved",
+      "got": {
+        "file": "Air.pdf",
+        "title": "Air on the G String",
+        "subtitle": null,
+        "composer": null,
+        "titleVerified": true,
+        "titleEvidence": "Air on the G String (2: shares 1 filename word)",
+        "composerEvidence": "no composer evidence",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": null,
+        "subtitle": null,
+        "title": "Air on the G String"
+      }
+    },
+    {
+      "fixture": "catalogue-number.json",
+      "case": "musical-identity",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Ave Maria Prelude in C Major BWV 846 - Bach Gounod.pdf",
+        "title": "Prelude in C major, BWV 846",
+        "subtitle": null,
+        "composer": "Johann Sebastian Bach",
+        "titleVerified": true,
+        "titleEvidence": "Prelude in C major, BWV 846 (4: shares 3 filename words)",
+        "composerEvidence": "person-like 'Johann Sebastian Bach' + corroboration",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Johann Sebastian Bach",
+        "subtitle": null,
+        "title": "Prelude in C major, BWV 846"
+      }
+    },
+    {
+      "fixture": "collection-opus.json",
+      "case": "musical-identity",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "12 - Etudes, Op. 10 - Chopin.pdf",
+        "title": "12 Études, Op. 10",
+        "subtitle": null,
+        "composer": "Frédéric Chopin",
+        "titleVerified": true,
+        "titleEvidence": "12 Études, Op. 10 (1: printed over fallback)",
+        "composerEvidence": "person-like 'Frédéric Chopin' + corroboration",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Frédéric Chopin",
+        "subtitle": null,
+        "title": "12 Études, Op. 10"
+      }
+    },
+    {
+      "fixture": "dawn-pride.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dawn Pride and Prejudice Music by Dario Marianelli.pdf",
+        "title": "Dawn",
+        "subtitle": "from Pride and Prejudice",
+        "composer": "Dario Marianelli",
+        "titleVerified": true,
+        "titleEvidence": "Dawn (3: shares 1 filename word; filename prefix)",
+        "composerEvidence": "explicit credit 'Dario Marianelli'",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": "from Pride and Prejudice",
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "explicit-credit-beats-metadata.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Moonlight Sonata scan.pdf",
+        "title": "Moonlight Sonata",
+        "subtitle": null,
+        "composer": "Ludwig van Beethoven",
+        "titleVerified": true,
+        "titleEvidence": "Moonlight Sonata (2: shares 2 filename words; filename prefix; looks like a person credit)",
+        "composerEvidence": "explicit credit 'Ludwig van Beethoven' + embedded author",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Ludwig van Beethoven",
+        "subtitle": null,
+        "title": "Moonlight Sonata"
+      }
+    },
+    {
+      "fixture": "filename-byline.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dawn - Music by Dario Marianelli.pdf",
+        "title": "Dawn",
+        "subtitle": null,
+        "composer": "Dario Marianelli",
+        "titleVerified": true,
+        "titleEvidence": "filename segment (uncorroborated)",
+        "composerEvidence": "filename byline (uncorroborated)",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": null,
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "good-metadata.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "rubbish123.pdf",
+        "title": "Clair de Lune",
+        "subtitle": "Suite bergamasque",
+        "composer": "Claude Debussy",
+        "titleVerified": true,
+        "titleEvidence": "no page evidence",
+        "composerEvidence": "no composer evidence",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Claude Debussy",
+        "subtitle": "Suite bergamasque",
+        "title": "Clair de Lune"
+      }
+    },
+    {
+      "fixture": "lowercase-credit.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "dawn.pdf",
+        "title": "dawn",
+        "subtitle": null,
+        "composer": "dario marianelli",
+        "titleVerified": true,
+        "titleEvidence": "dawn (3: shares 1 filename word; filename prefix)",
+        "composerEvidence": "explicit credit 'dario marianelli'",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": null,
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "moonlight-sonata.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Moonlight Sonata.pdf",
+        "title": "Moonlight Sonata",
+        "subtitle": null,
+        "composer": "Ludwig van Beethoven",
+        "titleVerified": true,
+        "titleEvidence": "Moonlight Sonata (2: shares 2 filename words; filename prefix; looks like a person credit)",
+        "composerEvidence": "person-like 'Ludwig van Beethoven' (uncorroborated)",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Ludwig van Beethoven",
+        "subtitle": null,
+        "title": "Moonlight Sonata"
+      }
+    },
+    {
+      "fixture": "no-evidence.json",
+      "case": "extraction",
+      "title": "ok",
+      "composer": "unresolved",
+      "got": {
+        "file": "scan001.pdf",
+        "title": "Scan 001",
+        "subtitle": null,
+        "composer": null,
+        "titleVerified": false,
+        "titleEvidence": "no page evidence",
+        "composerEvidence": "no composer evidence",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": null,
+        "subtitle": null,
+        "title": "*"
+      }
+    },
+    {
+      "fixture": "photocopy-intact.json",
+      "case": "filenames",
+      "title": "ok",
+      "composer": "unresolved",
+      "got": {
+        "file": "Photocopy.pdf",
+        "title": "Photocopy",
+        "subtitle": null,
+        "composer": null,
+        "titleVerified": false,
+        "titleEvidence": "no page evidence",
+        "composerEvidence": "no composer evidence",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": null,
+        "subtitle": null,
+        "title": "Photocopy"
+      }
+    },
+    {
+      "fixture": "schindler-list.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Schindlers List - Main Theme Piano Version.pdf",
+        "title": "Schindler's List",
+        "subtitle": "Main Theme",
+        "composer": "John Williams",
+        "titleVerified": true,
+        "titleEvidence": "Schindler's List (5: shares 2 filename words; filename prefix)",
+        "composerEvidence": "person-like 'John Williams' (uncorroborated)",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "John Williams",
+        "subtitle": "Main Theme",
+        "title": "Schindler's List"
+      }
+    },
+    {
+      "fixture": "split-line-credit.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dawn.pdf",
+        "title": "Dawn",
+        "subtitle": null,
+        "composer": "Dario Marianelli",
+        "titleVerified": true,
+        "titleEvidence": "Dawn (3: shares 1 filename word; filename prefix)",
+        "composerEvidence": "explicit credit 'Dario Marianelli'",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": null,
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "title-not-composer.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Schindlers List Main Theme Piano Version.pdf",
+        "title": "Schindler's List",
+        "subtitle": null,
+        "composer": null,
+        "titleVerified": true,
+        "titleEvidence": "Schindler's List (5: shares 2 filename words; filename prefix)",
+        "composerEvidence": "no composer evidence",
+        "titleRunnerUp": null
+      },
+      "want": {
+        "composer": "!Schindler's List",
+        "subtitle": null,
+        "title": "Schindler's List"
+      }
+    },
+    {
+      "fixture": "uppercase-composer.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Clair.pdf",
+        "title": "Clair de Lune",
+        "subtitle": null,
+        "composer": "CLAUDE DEBUSSY",
+        "titleVerified": true,
+        "titleEvidence": "Clair de Lune (weak: shares 1 filename word; looks like a person credit)",
+        "composerEvidence": "person-like 'CLAUDE DEBUSSY' (uncorroborated)",
+        "titleRunnerUp": "CLAUDE DEBUSSY (-2: printed over fallback; looks like a person credit)"
+      },
+      "want": {
+        "composer": "Claude Debussy",
+        "subtitle": null,
+        "title": "Clair de Lune"
+      }
+    }
+  ]
+}

@@ -60,13 +60,15 @@ public static class ScoreFactInference
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex BadRole = new(
-        @"^(pedal|piano|basso|violino|viola|cello|flute|guitar|soprano|alto|tenor|"
-        + @"bass|tema|andantino|allegro|andante|adagio|hob\.|op\.|bwv|arr\.|"
-        + @"sheet music|solo|trombone|trumpet|violin|oboe|utente)$",
+        @"^(pedal|piano|basso|violino|viola|cello|flute|guitar|orgue|organ|soprano|alto|tenor|"
+        + @"bass|tema|andantino|allegro|andante(\.?|sostenuto)?|adagio|hob\.|op\.|bwv|arr\.|"
+        + @"sheet music|solo|trombone|trumpet|violin(e)?|oboe|utente|d\.c\.|d\. s\.|al fine|"
+        + @"tempo (i|ii|iii|primo)|cantus|chorus|tutti|refrain|"
+        + @"dedi[ée]e?|dedicated|dedicato)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex Collection = new(
-        @"^\d+\s*(?:\(\d+\))?\s+(?:pieces?|pi[eè]ces?|studies|etudes|études|duets?|lessons|caprices|exercises|airs)\b",
+        @"^\d+\s*(?:\(\d+\))?\s+(?:pieces?|pi[eè]ces?|studies|etudes|études|duets?|lessons|caprices|exercises|airs|fugues?)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
@@ -74,6 +76,27 @@ public static class ScoreFactInference
     /// bare: with an opus/catalogue number, key, or composer attribution they
     /// are meaningful work titles.
     /// </summary>
+    private static bool IsCatalogueFragment(string value)
+    {
+        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0 || words.Length > 4)
+        {
+            return false;
+        }
+
+        var tiny = words.Count(w =>
+            w.Length <= 2 || (w.Length <= 4 && w.All(ch => !char.IsLetter(ch) || char.ToLowerInvariant(ch) == 'z')));
+        if ((double)tiny / words.Length < 0.5)
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            value,
+            @"\b(?:op(?:us)?\.?|bwv|kv|hob|rv|anh\.?|no\.?|nr\.?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
     private static bool IsBareCollection(string value)
     {
         if (!Collection.IsMatch(value))
@@ -85,6 +108,151 @@ public static class ScoreFactInference
             value,
             @"\b(?:op(?:us)?\.?|bwv|kv|k\.?\s*\d|hob|rv|no\.?|nr\.?|n°|nº)\b|\b[a-g][#♯b♭]?\s+(?:major|minor|dur|moll)\b|,\s*op\.?",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    /// <summary>
+    /// Split "F. Chopin. Op.6, No.1." into composer + catalogue parts.
+    /// Returns null unless the head is a plausible name and the tail carries
+    /// an opus/catalogue identifier.
+    /// </summary>
+    private static (string Name, string Catalogue)? SplitComposerCatalogue(string line)
+    {
+        var match = Regex.Match(
+            line.Trim(),
+            @"^(.+?)\.\s*((?:op(?:us)?\.?|bwv|kv|hob|rv|anh\.?|d\.?)\s*.+)$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var name = match.Groups[1].Value.Trim().TrimEnd('.');
+        // "F. Chopin" is name-like only under the relaxed single-lowercase
+        // rule; accept it when it has capitals and no glue words.
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var ok = words.Length is >= 1 and <= 6
+            && words.Any(w => w.Length > 0 && char.IsUpper(w[0]))
+            && words.All(w => !TitleGlue.Contains(w));
+        if (!ok || CleanComposer(name) is null)
+        {
+            return null;
+        }
+
+        return (name, match.Groups[2].Value.Trim());
+    }
+
+    /// <summary>
+    /// Split fused movement + composer lines ("Beati mortui Felix Mendelssohn
+    /// Bartholdy"): the trailing words agreeing with the embedded author or
+    /// folder hint are the composer; the movement head is not a rival credit.
+    /// Returns null without metadata/folder corroboration.
+    /// </summary>
+    private static (string Name, string Movement)? SplitFusedCredit(string line, string? metadataComposer)
+    {
+        var words = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length < 3 || words.Length > 8 || IsMovementHeader(line))
+        {
+            return null;
+        }
+
+        for (var take = Math.Min(4, words.Length - 1); take >= 1; take--)
+        {
+            var tail = string.Join(" ", words[^take..]);
+            if (!LooksLikeName(tail) || CleanComposer(tail) is null)
+            {
+                continue;
+            }
+
+            if (metadataComposer is not null && Agrees(tail, metadataComposer))
+            {
+                return (CleanComposer(tail)!, string.Join(" ", words[..^take]));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Split "F. Sor Allegro" into name + trailing tempo/role word.
+    /// Returns null unless the head is a plausible name and the tail is a
+    /// single known direction/role word.
+    /// </summary>
+    private static (string Name, string Tail)? SplitComposerTempo(string line)
+    {
+        var words = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length < 2 || words.Length > 6)
+        {
+            return null;
+        }
+
+        var tail = words[^1].TrimEnd('.');
+        if (!Tempo.IsMatch(tail) && !TempoPhrase.IsMatch(tail) && !BadRole.IsMatch(tail))
+        {
+            return null;
+        }
+
+        var name = string.Join(" ", words[..^1]).Trim().TrimEnd('.');
+        var nameWords = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var ok = nameWords.Length is >= 1 and <= 6
+            && nameWords.Any(w => w.Length > 0 && char.IsUpper(w[0]))
+            && nameWords.All(w => !TitleGlue.Contains(w));
+        if (!ok || CleanComposer(name) is null)
+        {
+            return null;
+        }
+
+        return (name, tail);
+    }
+
+    /// <summary>
+    /// Split fused movement + composer lines ("Beati mortui Felix Mendelssohn
+    /// Bartholdy"): the trailing words agreeing with the embedded author or
+    /// folder hint are the composer; the movement head is not a rival credit.
+    /// Returns null without metadata/folder corroboration.
+    /// </summary>
+    private static (string Name, string Movement)? SplitFusedCredit(string line, string? metadataComposer)
+    {
+        var words = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length < 3 || words.Length > 8 || IsMovementHeader(line))
+        {
+            return null;
+        }
+
+        for (var take = Math.Min(4, words.Length - 1); take >= 1; take--)
+        {
+            var tail = string.Join(" ", words[^take..]);
+            if (!LooksLikeName(tail) || CleanComposer(tail) is null)
+            {
+                continue;
+            }
+
+            if (metadataComposer is not null && Agrees(tail, metadataComposer))
+            {
+                return (CleanComposer(tail)!, string.Join(" ", words[..^take]));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether the composer pass would claim this line as the composer.
+    /// Title selection consults it so a credit line is never recycled as the
+    /// work title when a real title candidate exists.
+    /// </summary>
+    private static bool ComposerClaims(string line, IReadOnlyList<string> lines)
+    {
+        if (ClassifyCredit(line, out _) != CreditRole.None || !LooksLikeName(line))
+        {
+            return false;
+        }
+
+        if (CleanComposer(line) is null || UnwrapWhole(line) is not null || IsPiece(line))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static readonly Regex WholeParen = new(
@@ -424,7 +592,8 @@ public static class ScoreFactInference
     /// <summary>
     /// Structured filename segments: split on " - " first, then parse an
     /// explicit "by &lt;name&gt;" byline from either side. Returns title/composer
-    /// candidates usable only when no better evidence exists.
+    /// candidates usable only when no better evidence exists. A bare fragment
+    /// ("Bwv", "Op") is never a title segment.
     /// </summary>
     internal static FilenameSegments ParseFilenameSegments(string fileName)
     {
@@ -468,6 +637,11 @@ public static class ScoreFactInference
             }
         }
 
+        if (title is not null && (IsBadTitle(title) || BadRole.IsMatch(title) || IsCatalogueFragment(title)))
+        {
+            title = null;
+        }
+
         return new FilenameSegments(
             string.IsNullOrWhiteSpace(title) ? null : title,
             string.IsNullOrWhiteSpace(composer) ? null : composer);
@@ -495,6 +669,11 @@ public static class ScoreFactInference
         IReadOnlyList<ParsedCredit> credits)
     {
         var creditLines = credits.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // A translation/subtitle line carries separator marks (*, /, |, —):
+        // prefer it as subtitle so the composer pass never sees it as a
+        // person credit ("Fortschritt * Progress" is a gloss of "Progrès").
+        var marked = new List<string>();
+        var plain = new List<string>();
         foreach (var line in lines)
         {
             if (creditLines.Contains(line))
@@ -533,11 +712,17 @@ public static class ScoreFactInference
 
             if (candidate is not null)
             {
-                return candidate;
+                (HasSeparatorMark(candidate) ? marked : plain).Add(candidate);
             }
         }
 
-        return null;
+        return marked.FirstOrDefault() ?? plain.FirstOrDefault();
+    }
+
+    internal static bool HasSeparatorMark(string value)
+    {
+        return value.Contains('*') || value.Contains('/') || value.Contains('|')
+            || value.Contains('—') || value.Contains(" - ");
     }
 
     private static HeadingPair PickHeadings(
@@ -708,6 +893,34 @@ public static class ScoreFactInference
             @"^(?:performer|artist|composer|arranger)\s*:\s*",
             string.Empty,
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        if (IsQuotedSeriesHeader(text))
+        {
+            return null;
+        }
+        // Trailing parenthetical dates ("Name (1685-1750)") and catalogue
+        // suffixes ("Op. 57") belong to the credit line, not the name.
+        // Keep the original display spelling: only strip when the remainder
+        // stays a plausible name.
+        var stripped = Regex.Replace(
+            text,
+            @"\s*\(\s*\d{3,4}(?:\s*[–—-]\s*\d{2,4})?\s*\)\s*$",
+            string.Empty,
+            RegexOptions.CultureInvariant).Trim();
+        if (LooksLikeName(stripped) || stripped.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 2)
+        {
+            text = stripped;
+        }
+
+        stripped = Regex.Replace(
+            text,
+            @"\s*(?:op(?:us)?\.?\s*\d+.*|bwv\s*\d+.*|hob.*|rv.*)$",
+            string.Empty,
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        if (stripped.Length >= 3 && (LooksLikeName(stripped) || stripped.Contains(' ')))
+        {
+            text = stripped;
+        }
+
         return text.Length < 3 || Junk.IsMatch(text) || BadRole.IsMatch(text) ? null : text;
     }
 
@@ -717,6 +930,30 @@ public static class ScoreFactInference
         {
             return false;
         }
+
+        // Single Roman numerals ("III", "VI V") and bare movement numbers are
+        // engraving marks, not headings.
+        if (Regex.IsMatch(line.Trim(), @"^(?:[ivxlcdm]+\s*){1,3}\.?$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            return false;
+        }
+
+        // Engraving tablature / note-glyph rows ("4 Z Z Z Z Z", "Guitar 0 Z 0 Z"):
+        // single letters and digits with almost no real words are not text.
+        var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length >= 3)
+        {
+            var tiny = words.Count(w =>
+                w.Length <= 2 || (w.Length <= 4 && w.All(ch => !char.IsLetter(ch) || char.ToLowerInvariant(ch) == 'z')));
+            if ((double)tiny / words.Length >= 0.6)
+            {
+                return false;
+            }
+        }
+
+        // Single-instrument labels ("Guitar") and bare catalogue numbers are
+        // roles, not headings; the BadRole check below covers whole-line hits.
 
         // Music-font glyph noise (single symbols, figured-bass digits): a line
         // with almost no letters is engraving, not text.
@@ -774,8 +1011,9 @@ public static class ScoreFactInference
             || IsBareCollection(value)
             || Tempo.IsMatch(value)
             || TempoPhrase.IsMatch(value)
-            || BadRole.IsMatch(value)
+            || BadRole.IsMatch(value.Trim())
             || CreditLabel.IsMatch(value)
+            || IsQuotedSeriesHeader(value)
             || value.All(char.IsDigit))
         {
             return true;
@@ -785,10 +1023,28 @@ public static class ScoreFactInference
         return letters < 3 || (double)letters / value.Length < 0.35;
     }
 
+    /// <summary>
+    /// Quoted series headers ('"Sechs Sonaten für Violine"') name a collection,
+    /// never a work: they are bad titles and bad composer credits alike.
+    /// </summary>
+    private static bool IsQuotedSeriesHeader(string value)
+    {
+        var text = value.Trim();
+        return text.Length >= 2 && text.StartsWith('"') && LooksLikeName(UnwrapWhole(text) ?? text);
+    }
+
     private static bool LooksLikeName(string value)
     {
         var text = Years.Replace(value, string.Empty).Trim();
         if (text.Length == 0 || WholeParen.IsMatch(text) || Regex.IsMatch(text, @"[A-Za-z]['’]s\b"))
+        {
+            return false;
+        }
+
+        // Dedication lines ("À Mlle la Comtesse PAULINE PLATER.",
+        // "dédiés aux amateurs de la Musique") are not composers.
+        if (Regex.IsMatch(text, @"^(à|a|to|for|dediée|dedicated|pour|dédiés)\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
         {
             return false;
         }
@@ -876,6 +1132,7 @@ public static class ScoreFactInference
     /// <summary>
     /// The decision plus its evidence. Confidence is an evidence weight
     /// (stronger corroboration scores higher), not a calibrated probability.
+    /// TitleVerified is false when the title is only the filename fallback.
     /// </summary>
     public sealed record InferenceDecision(
         ScoreFacts Facts,
@@ -930,6 +1187,41 @@ public static class ScoreFactInference
                     reasons.Add("matches embedded title");
                 }
 
+                // A bare catalogue fragment ("Op. 50", "BWV Anh. 114") is not a
+                // title candidate: it only scores via full agreement above.
+                // Skip it so metadata-agreeing titles always win.
+                if (score == 0 && IsCatalogueFragment(inner))
+                {
+                    continue;
+                }
+
+                // A person-like line that the composer pass also claims is a
+                // credit, not a title — with two exceptions:
+                // (a) when no other non-credit title-shaped line exists, the
+                //     credit-adjacent line still resolves (Clair/uppercase);
+                // (b) when THIS line is filename-corroborated (overlap>=1 with
+                //     no rival person line, or overlap>=2 / prefix), it is the
+                //     work, not a credit (Moonlight Sonata must not yield to
+                //     the composer line; but Chopin's étude line yields to the
+                //     real title because a rival person line exists there).
+                var otherTitleShaped = _lines.Any(l =>
+                    !string.Equals(l, line, StringComparison.OrdinalIgnoreCase)
+                    && !IsBadTitle(l) && !IsDirection(l) && !IsCreditLine(l));
+                var rivalPerson = _lines.Any(l =>
+                    !string.Equals(l, line, StringComparison.OrdinalIgnoreCase)
+                    && LooksLikeName(UnwrapWhole(l) ?? l)
+                    && ComposerClaims(l, _lines));
+                var strongThis = overlap >= 2 || PrefixMatches(inner, _fileTitle);
+                if (score <= 1
+                    && LooksLikeName(inner)
+                    && ComposerClaims(inner, _lines)
+                    && (overlap == 0 || (rivalPerson && !strongThis))
+                    && !PrefixMatches(inner, _fileTitle)
+                    && otherTitleShaped)
+                {
+                    continue;
+                }
+
                 if (overlap >= 2)
                 {
                     score += 4;
@@ -963,12 +1255,6 @@ public static class ScoreFactInference
                 {
                     score += 1;
                     reasons.Add("printed over fallback");
-                }
-
-                if (IsPiece(inner))
-                {
-                    score -= 2;
-                    reasons.Add("piece descriptor");
                 }
 
                 if (UnwrapWhole(line) is not null)
@@ -1049,10 +1335,70 @@ public static class ScoreFactInference
                 }
             }
 
-            // Bare person-like lines: weak evidence, needs corroboration from the
-            // filename, folder hint, or metadata before it may decide.
+            // Quoted aliases ("Sechs Sonaten für Violine") are series headers,
+            // not person credits: the composer pass must not claim them.
+            // Separator-marked subtitle lines ("Fortschritt * Progress") are
+            // translation glosses, not people either.
+            // Composer-style inline lines ("F. Chopin. Op.6, No.1.") split
+            // into name + catalogue: the name proposes the composer while
+            // the catalogue tail never does.
+            // "F. Sor Allegro": name + trailing tempo word, no punctuation.
+            // Skip movement headers ("I. Beati mortui", "1. Grave"): the
+            // numeral head is a movement marker, not a person initial.
             foreach (var line in _lines)
             {
+                if (IsMovementHeader(line))
+                {
+                    continue;
+                }
+
+                if (IsQuotedSeriesHeader(line) || HasSeparatorMark(line))
+                {
+                    continue;
+                }
+
+                if (line.Length >= 2 && line.StartsWith('"'))
+                {
+                    continue;
+                }
+
+                var split = SplitComposerCatalogue(line);
+                if (split is not null && CleanComposer(split.Value.Name) is { } splitName)
+                {
+                    return (splitName, $"composer + catalogue '{line}'", Corroborated: true);
+                }
+
+                // Multi-name credits ("Beati mortui Felix Mendelssohn Bartholdy")
+                // are movement + composer fused by engraving order: the trailing
+                // name agreeing with metadata/folder wins, the movement head does
+                // not become a rival.
+                var fused = SplitFusedCredit(line, metadataComposer);
+                if (fused is not null)
+                {
+                    return (fused.Value.Name, $"fused credit '{line}'", Corroborated: true);
+                }
+
+                var pair = SplitComposerTempo(line);
+                if (pair is not null && CleanComposer(pair.Value.Name) is { } pairName)
+                {
+                    return (pairName, $"composer + tempo '{line}'", Corroborated: true);
+                }
+            }
+
+            // Bare person-like lines: weak evidence, needs corroboration from
+            // the filename, folder hint, or metadata before it may decide.
+            foreach (var line in _lines)
+            {
+                if (IsQuotedSeriesHeader(line) || HasSeparatorMark(line))
+                {
+                    continue;
+                }
+
+                if (line.Length >= 2 && line.StartsWith('"'))
+                {
+                    continue;
+                }
+
                 if (string.Equals(line, title, StringComparison.OrdinalIgnoreCase)
                     || UnwrapWhole(line) is not null
                     || IsPiece(line)
