@@ -1,0 +1,1 @@
+{"case": "credits", "expected": {"composer": "Dario Marianelli", "subtitle": null, "title": "Dawn"}, "fileName": "dawn.pdf", "lines": ["dawn", "music by dario marianelli"], "metadata": {}, "notes": "Lowercase labelled credit must parse independently of capitalisation."}

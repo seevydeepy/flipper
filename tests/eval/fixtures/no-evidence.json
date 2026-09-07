@@ -1,0 +1,1 @@
+{"case": "extraction", "expected": {"composer": null, "subtitle": null, "title": "*"}, "fileName": "scan001.pdf", "lines": [], "metadata": {}, "notes": "No evidence anywhere: some readable filename fallback, unverified composer stays unknown."}

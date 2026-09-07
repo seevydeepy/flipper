@@ -1,0 +1,1 @@
+{"case": "credits", "expected": {"composer": "Claude Debussy", "subtitle": "Suite bergamasque", "title": "Clair de Lune"}, "fileName": "rubbish123.pdf", "lines": [], "metadata": {"author": "Claude Debussy", "subject": "Suite bergamasque", "title": "Clair de Lune"}, "notes": "Useful embedded metadata is strong evidence when present."}

@@ -1,0 +1,1 @@
+{"case": "credits", "expected": {"composer": "Claude Debussy", "subtitle": null, "title": "Clair de Lune"}, "fileName": "Clair.pdf", "lines": ["Clair de Lune", "CLAUDE DEBUSSY"], "metadata": {}, "notes": "All-uppercase composer names must not be rejected categorically."}

@@ -1,0 +1,281 @@
+{
+  "fixtures": 16,
+  "title_accuracy": 0.688,
+  "composer_accuracy": 0.5,
+  "composer_wrong_attribution": 4,
+  "composer_unresolved": 4,
+  "rows": [
+    {
+      "fixture": "accents-unicode.json",
+      "case": "musical-identity",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dvorak Humoresque.pdf",
+        "title": "Humoresque",
+        "subtitle": null,
+        "composer": "Antonín Dvořák"
+      },
+      "want": {
+        "composer": "Antonín Dvořák",
+        "subtitle": null,
+        "title": "Humoresque"
+      }
+    },
+    {
+      "fixture": "arranger-only-abstains.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "wrong",
+      "got": {
+        "file": "Air.pdf",
+        "title": "Air on the G String",
+        "subtitle": null,
+        "composer": "John Smith"
+      },
+      "want": {
+        "composer": null,
+        "subtitle": null,
+        "title": "Air on the G String"
+      }
+    },
+    {
+      "fixture": "catalogue-number.json",
+      "case": "musical-identity",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Ave Maria Prelude in C Major BWV 846 - Bach Gounod.pdf",
+        "title": "Prelude in C major, BWV 846",
+        "subtitle": null,
+        "composer": "Johann Sebastian Bach"
+      },
+      "want": {
+        "composer": "Johann Sebastian Bach",
+        "subtitle": null,
+        "title": "Prelude in C major, BWV 846"
+      }
+    },
+    {
+      "fixture": "collection-opus.json",
+      "case": "musical-identity",
+      "title": "wrong",
+      "composer": "unresolved",
+      "got": {
+        "file": "12 Etudes Op 10.pdf",
+        "title": "Frédéric Chopin",
+        "subtitle": null,
+        "composer": null
+      },
+      "want": {
+        "composer": "Frédéric Chopin",
+        "subtitle": null,
+        "title": "12 Études, Op. 10"
+      }
+    },
+    {
+      "fixture": "dawn-pride.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dawn Pride and Prejudice Music by Dario Marianelli.pdf",
+        "title": "Dawn",
+        "subtitle": "from Pride and Prejudice",
+        "composer": "Dario Marianelli"
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": "from Pride and Prejudice",
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "explicit-credit-beats-metadata.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "wrong-attribution",
+      "got": {
+        "file": "scan.pdf",
+        "title": "Moonlight Sonata",
+        "subtitle": null,
+        "composer": "Someone Uploader"
+      },
+      "want": {
+        "composer": "Ludwig van Beethoven",
+        "subtitle": null,
+        "title": "Moonlight Sonata"
+      }
+    },
+    {
+      "fixture": "filename-byline.json",
+      "case": "credits",
+      "title": "wrong",
+      "composer": "unresolved",
+      "got": {
+        "file": "Dawn - Music by Dario Marianelli.pdf",
+        "title": "Dawn Music by Dario Marianelli",
+        "subtitle": null,
+        "composer": null
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": null,
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "good-metadata.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "rubbish123.pdf",
+        "title": "Clair de Lune",
+        "subtitle": "Suite bergamasque",
+        "composer": "Claude Debussy"
+      },
+      "want": {
+        "composer": "Claude Debussy",
+        "subtitle": "Suite bergamasque",
+        "title": "Clair de Lune"
+      }
+    },
+    {
+      "fixture": "lowercase-credit.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "dawn.pdf",
+        "title": "dawn",
+        "subtitle": null,
+        "composer": "dario marianelli"
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": null,
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "moonlight-sonata.json",
+      "case": "identity-selection",
+      "title": "wrong",
+      "composer": "wrong-attribution",
+      "got": {
+        "file": "Moonlight Sonata.pdf",
+        "title": "Allegro con brio",
+        "subtitle": null,
+        "composer": "Moonlight Sonata"
+      },
+      "want": {
+        "composer": "Ludwig van Beethoven",
+        "subtitle": null,
+        "title": "Moonlight Sonata"
+      }
+    },
+    {
+      "fixture": "no-evidence.json",
+      "case": "extraction",
+      "title": "ok",
+      "composer": "unresolved",
+      "got": {
+        "file": "scan001.pdf",
+        "title": "Scan 001",
+        "subtitle": null,
+        "composer": null
+      },
+      "want": {
+        "composer": null,
+        "subtitle": null,
+        "title": "*"
+      }
+    },
+    {
+      "fixture": "photocopy-intact.json",
+      "case": "filenames",
+      "title": "wrong",
+      "composer": "unresolved",
+      "got": {
+        "file": "Photocopy.pdf",
+        "title": "Photo",
+        "subtitle": null,
+        "composer": null
+      },
+      "want": {
+        "composer": null,
+        "subtitle": null,
+        "title": "Photocopy"
+      }
+    },
+    {
+      "fixture": "schindler-list.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Schindlers List - Main Theme Piano Version.pdf",
+        "title": "Schindler's List",
+        "subtitle": "Main Theme",
+        "composer": "John Williams"
+      },
+      "want": {
+        "composer": "John Williams",
+        "subtitle": "Main Theme",
+        "title": "Schindler's List"
+      }
+    },
+    {
+      "fixture": "split-line-credit.json",
+      "case": "credits",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Dawn.pdf",
+        "title": "Dawn",
+        "subtitle": null,
+        "composer": "Dario Marianelli"
+      },
+      "want": {
+        "composer": "Dario Marianelli",
+        "subtitle": null,
+        "title": "Dawn"
+      }
+    },
+    {
+      "fixture": "title-not-composer.json",
+      "case": "identity-selection",
+      "title": "ok",
+      "composer": "ok",
+      "got": {
+        "file": "Schindlers List Main Theme Piano Version.pdf",
+        "title": "Schindler's List",
+        "subtitle": null,
+        "composer": null
+      },
+      "want": {
+        "composer": "!Schindler's List",
+        "subtitle": null,
+        "title": "Schindler's List"
+      }
+    },
+    {
+      "fixture": "uppercase-composer.json",
+      "case": "credits",
+      "title": "wrong",
+      "composer": "wrong-attribution",
+      "got": {
+        "file": "Clair.pdf",
+        "title": "CLAUDE DEBUSSY",
+        "subtitle": null,
+        "composer": "Clair de Lune"
+      },
+      "want": {
+        "composer": "Claude Debussy",
+        "subtitle": null,
+        "title": "Clair de Lune"
+      }
+    }
+  ]
+}
