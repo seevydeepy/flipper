@@ -1439,9 +1439,12 @@ public static class ScoreFactInference
 
         private bool IsCreditLine(string line)
         {
-            return ClassifyCredit(line, out _) != CreditRole.None
-                || CreditLabel.IsMatch(line)
-                || _credits.Any(c => string.Equals(c.Name, line, StringComparison.OrdinalIgnoreCase));
+            if (ClassifyCredit(line, out _) != CreditRole.None || CreditLabel.IsMatch(line))
+            {
+                return true;
+            }
+
+            return _credits.Any(c => string.Equals(c.Name, line, StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool LooksLikeComposerCredit(string line)
@@ -1453,8 +1456,7 @@ public static class ScoreFactInference
         {
             return StaticAgrees(left, right);
         }
-
-        private static bool IsCreditLine(string line)
+    }
 }
 
 public readonly record struct ScoreMetadata(string? Title, string? Author, string? Subject);
