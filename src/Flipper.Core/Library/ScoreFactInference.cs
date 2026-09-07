@@ -718,8 +718,53 @@ public static class ScoreFactInference
             return false;
         }
 
+        // Music-font glyph noise (single symbols, figured-bass digits): a line
+        // with almost no letters is engraving, not text.
         var letters = line.Count(char.IsLetter);
-        return letters >= 3 && (double)letters / line.Length >= 0.35;
+        if (letters < 3 || (double)letters / line.Length < 0.35)
+        {
+            return false;
+        }
+
+        // Lines dominated by symbol/digit runs (e.g. a font-decoded word salad
+        // like "789: ;<=> 9: ?9@AB...") are mis-decoded glyphs, not headings.
+        // A dense run of digits+symbols (>= 8 in any 12-char window) marks
+        // engraving noise even when scattered letters pass the ratio check.
+        var symbols = line.Count(ch => !char.IsLetterOrDigit(ch) && !char.IsWhiteSpace(ch));
+        if (symbols > letters || HasDenseNoiseRun(line))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasDenseNoiseRun(string line)
+    {
+        if (line.Length < 12)
+        {
+            return false;
+        }
+
+        for (var i = 0; i + 12 <= line.Length; i++)
+        {
+            var noise = 0;
+            for (var j = i; j < i + 12; j++)
+            {
+                var ch = line[j];
+                if (char.IsDigit(ch) || (!char.IsLetterOrDigit(ch) && !char.IsWhiteSpace(ch)))
+                {
+                    noise++;
+                }
+            }
+
+            if (noise >= 8)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsBadTitle(string value)
