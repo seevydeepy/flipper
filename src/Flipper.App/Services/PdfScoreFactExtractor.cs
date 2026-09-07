@@ -6,73 +6,228 @@ using Windows.Media.Ocr;
 
 namespace Flipper.App.Services;
 
+/// <summary>OCR ran, or why it did not.</summary>
+public enum OcrOutcome
+{
+    NotNeeded,
+    Success,
+    UnavailableEngine,
+    UnsupportedLanguage,
+    NoReadableText,
+    Failed,
+    Cancelled
+}
+
+public sealed record ScoreExtractionResult(
+    ScoreFacts Facts,
+    ScoreExtractionOutcome Extraction,
+    OcrOutcome Ocr,
+    string? Detail = null);
+
 public sealed class PdfScoreFactExtractor
 {
     private const int OcrPixelWidth = 1600;
 
+    /// <summary>
+    /// Configurable budgets: early pages inspected, OCR pages rendered, and the
+    /// overall extraction timebox. Defaults cover a cover-page + 2 music pages.
+    /// </summary>
+    public int MaxEmbeddedPages { get; init; } = 3;
+    public int MaxOcrPages { get; init; } = 2;
+    public TimeSpan TimeBudget { get; init; } = TimeSpan.FromSeconds(30);
+
+    public static readonly IReadOnlyList<string> PreferredOcrLanguages =
+        ["en", "fr", "de", "it", "es"];
+
     public async Task<ScoreFacts> ExtractAsync(ScoreEntry entry, CancellationToken cancellationToken)
     {
+        return (await ExtractWithStatusAsync(entry, cancellationToken)).Facts;
+    }
+
+    public async Task<ScoreExtractionResult> ExtractWithStatusAsync(
+        ScoreEntry entry,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
-        var embedded = ReadEmbedded(entry.DisplayFullPath);
-        var lines = embedded.PageLines;
-        if (!ScoreFactInference.HasUsefulPageText(entry.DisplayName, lines))
+        using var budget = new CancellationTokenSource(TimeBudget);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+        var token = linked.Token;
+
+        var embedded = PdfEmbeddedTextReader.ReadRich(entry.DisplayFullPath, MaxEmbeddedPages);
+        if (embedded.Outcome == ScoreExtractionOutcome.Cancelled)
         {
-            var ocrLines = await ReadOcrLinesAsync(entry.DisplayFullPath, cancellationToken);
-            if (ocrLines.Count > 0)
+            token.ThrowIfCancellationRequested();
+        }
+
+        var ocrOutcome = OcrOutcome.NotNeeded;
+        IReadOnlyList<ScoreTextLine> lines = embedded.Lines;
+        string? detail = embedded.Detail;
+        if (NeedsOcr(entry.DisplayName, embedded))
+        {
+            var ocr = await ReadOcrLinesAsync(entry.DisplayFullPath, token);
+            ocrOutcome = ocr.Outcome;
+            detail = ocr.Detail ?? detail;
+            if (ocr.Lines.Count > 0)
             {
-                lines = ocrLines;
+                // Merge, don't replace: keep useful embedded text, add OCR
+                // observations, dedupe identical lines.
+                lines = MergeSources(embedded.Lines, ocr.Lines);
             }
         }
 
-        return ScoreFactInference.Infer(entry.DisplayName, embedded.Metadata, lines);
+        var facts = ScoreFactInference.InferRich(entry.DisplayName, embedded.Metadata, lines);
+        return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail);
     }
 
-    private static PdfEmbeddedText ReadEmbedded(string path)
+    private static bool NeedsOcr(string displayName, ScoreExtraction embedded)
     {
-        try
+        if (embedded.Outcome is ScoreExtractionOutcome.ExtractionFailure or ScoreExtractionOutcome.Cancelled)
         {
-            return PdfEmbeddedTextReader.Read(path);
+            return true;
         }
-        catch (Exception)
+
+        // Trigger on unresolved fields and poor evidence, not a letter count.
+        var probe = ScoreFactInference.InferRich(displayName, embedded.Metadata, embedded.Lines);
+        if (probe.Title is null || probe.Composer is null)
         {
-            return new PdfEmbeddedText(default, []);
+            return true;
         }
+
+        return !ScoreFactInference.HasUsefulPageText(displayName, embedded.PageLines);
     }
 
-    private static async Task<IReadOnlyList<string>> ReadOcrLinesAsync(
+    private static IReadOnlyList<ScoreTextLine> MergeSources(
+        IReadOnlyList<ScoreTextLine> embedded,
+        IReadOnlyList<ScoreTextLine> ocr)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var merged = new List<ScoreTextLine>(embedded.Count + ocr.Count);
+        foreach (var line in embedded.Concat(ocr))
+        {
+            var key = $"{line.PageNumber}:{(line.Text ?? string.Empty).Trim().ToLowerInvariant()}";
+            if (seen.Add(key))
+            {
+                merged.Add(line);
+            }
+        }
+
+        return merged
+            .OrderBy(line => line.PageNumber)
+            .ThenBy(line => line.Source)
+            .ThenBy(line => line.Y)
+            .ThenBy(line => line.X)
+            .ToArray();
+    }
+
+    private async Task<(IReadOnlyList<ScoreTextLine> Lines, OcrOutcome Outcome, string? Detail)> ReadOcrLinesAsync(
         string path,
         CancellationToken cancellationToken)
     {
+        OcrEngine? engine;
         try
         {
-            var engine = OcrEngine.TryCreateFromUserProfileLanguages();
-            if (engine is null)
-            {
-                return [];
-            }
-
-            var bytes = File.ReadAllBytes(path);
-            using var bitmap = RenderForOcr(bytes);
-            using var softwareBitmap = ToSoftwareBitmap(bitmap);
-            var result = await engine.RecognizeAsync(softwareBitmap).AsTask(cancellationToken);
-            return result.Lines
-                .Select(line => line.Text?.Trim() ?? string.Empty)
-                .Where(line => line.Length > 0)
-                .ToArray();
+            engine = PickEngine();
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return [];
+            return ([], OcrOutcome.Failed, ex.Message);
+        }
+
+        if (engine is null)
+        {
+            var wanted = string.Join(",", PreferredOcrLanguages);
+            var have = string.Join(",", OcrEngine.AvailableRecognizerLanguages.Select(l => l.LanguageTag));
+            return ([], OcrOutcome.UnavailableEngine, $"no OCR engine (wanted {wanted}; installed: {have})");
+        }
+
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            var pageCount = Math.Min(MaxOcrPages, Math.Max(1, PdfBitmapRenderer.GetPageCount(bytes)));
+            var lines = new List<ScoreTextLine>();
+            for (var page = 0; page < pageCount; page++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using var bitmap = RenderForOcr(bytes, page);
+                using var softwareBitmap = ToSoftwareBitmap(bitmap);
+                var result = await engine.RecognizeAsync(softwareBitmap).AsTask(cancellationToken);
+                var width = Math.Max(1, bitmap.Width);
+                var height = Math.Max(1, bitmap.Height);
+                foreach (var line in result.Lines)
+                {
+                    var text = line.Text?.Trim() ?? string.Empty;
+                    if (text.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    // Windows OCR words carry boxes; fall back to full width.
+                    var words = line.Words.ToArray();
+                    var left = words.Length > 0 ? words.Min(w => w.BoundingRect.Left) : 0;
+                    var top = words.Length > 0 ? words.Min(w => w.BoundingRect.Top) : 0;
+                    var right = words.Length > 0 ? words.Max(w => w.BoundingRect.Right) : width;
+                    var bottom = words.Length > 0 ? words.Max(w => w.BoundingRect.Bottom) : height;
+                    lines.Add(new ScoreTextLine(
+                        page + 1, text,
+                        left / width, top / height,
+                        Math.Max(0, (right - left) / width), Math.Max(0, (bottom - top) / height),
+                        null, null, false, ScoreTextSource.Ocr));
+                }
+            }
+
+            if (lines.Count == 0)
+            {
+                return ([], OcrOutcome.NoReadableText, "OCR found no text");
+            }
+
+            return (lines, OcrOutcome.Success, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return ([], OcrOutcome.Failed, ex.Message);
         }
     }
 
-    private static SKBitmap RenderForOcr(byte[] bytes)
+    private static OcrEngine? PickEngine()
     {
-        var bitmap = PdfBitmapRenderer.Render(bytes, 0, OcrPixelWidth, useTiling: true);
+        var engine = OcrEngine.TryCreateFromUserProfileLanguages();
+        if (engine is not null)
+        {
+            return engine;
+        }
+
+        // User profile may lack OCR support while a preferred language pack
+        // exists; try those before declaring the engine unavailable.
+        foreach (var tag in PreferredOcrLanguages)
+        {
+            try
+            {
+                engine = OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language(tag));
+                if (engine is not null)
+                {
+                    return engine;
+                }
+            }
+            catch (Exception)
+            {
+                // Try the next language.
+            }
+        }
+
+        return null;
+    }
+
+    private static SKBitmap RenderForOcr(byte[] bytes, int pageIndex)
+    {
+        var bitmap = PdfBitmapRenderer.Render(bytes, pageIndex, OcrPixelWidth, useTiling: true);
         var maxDimension = checked((int)OcrEngine.MaxImageDimension);
         var largest = Math.Max(bitmap.Width, bitmap.Height);
         if (largest <= maxDimension)
@@ -82,7 +237,7 @@ public sealed class PdfScoreFactExtractor
 
         var scaledWidth = Math.Max(64, bitmap.Width * maxDimension / largest);
         bitmap.Dispose();
-        return PdfBitmapRenderer.Render(bytes, 0, scaledWidth, useTiling: true);
+        return PdfBitmapRenderer.Render(bytes, pageIndex, scaledWidth, useTiling: true);
     }
 
     private static SoftwareBitmap ToSoftwareBitmap(SKBitmap source)

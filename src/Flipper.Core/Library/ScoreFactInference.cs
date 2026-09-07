@@ -230,6 +230,21 @@ public static class ScoreFactInference
     }
 
     /// <summary>
+    /// Layout-aware entry point: heading/credit blocks steer selection.
+    /// Multiline titles merge when continuation lines share size/bold; a
+    /// separate title block and composer block resolve independently.
+    /// </summary>
+    public static ScoreFacts InferRich(
+        string fileName,
+        ScoreMetadata metadata,
+        IReadOnlyList<ScoreTextLine> richLines)
+    {
+        var merged = MergeMultilineTitles(richLines);
+        var strings = merged.Select(line => line.Text).ToArray();
+        return InferWithEvidence(fileName, metadata, strings, relativeFolder: null).Facts;
+    }
+
+    /// <summary>
     /// Infer plus the evidence behind the decision: winning candidates, their
     /// corroboration, and the runner-up. A readable filename fallback is always
     /// available but reported as unverified, never as a confirmed title.
@@ -307,7 +322,71 @@ public static class ScoreFactInference
     }
 
     /// <summary>
-    /// Split-line credit handling: a trailing "Music by"-style label joins with
+    /// Merge wrapped title lines: adjacent lines on the same page with matching
+    /// size/bold that are both too short to stand alone join with a space.
+    /// Returns the merged sequence (original order otherwise preserved).
+    /// </summary>
+    public static IReadOnlyList<ScoreTextLine> MergeMultilineTitles(IReadOnlyList<ScoreTextLine> lines)
+    {
+        if (lines.Count < 2)
+        {
+            return lines;
+        }
+
+        var merged = new List<ScoreTextLine>();
+        ScoreTextLine? pending = null;
+        foreach (var line in lines)
+        {
+            if (pending is { } head
+                && head.PageNumber == line.PageNumber
+                && head.Source == line.Source
+                && SizesMatch(head.FontSize, line.FontSize)
+                && head.Bold == line.Bold
+                && head.Text.Length < 40
+                && line.Text.Length < 40
+                && VerticalGap(head, line) < 0.06
+                && IsBadTitle(head.Text + " " + line.Text) == false
+                && (IsBadTitle(head.Text) || LooksLikeName(head.Text) == false || LooksLikeName(line.Text) == false))
+            {
+                pending = head with
+                {
+                    Text = head.Text + " " + line.Text,
+                    Width = Math.Max(head.Width, line.Width),
+                    Height = head.Height + line.Height
+                };
+                continue;
+            }
+
+            if (pending is not null)
+            {
+                merged.Add(pending);
+            }
+
+            pending = line;
+        }
+
+        if (pending is not null)
+        {
+            merged.Add(pending);
+        }
+
+        return merged;
+    }
+
+    private static bool SizesMatch(double? left, double? right)
+    {
+        if (left is null || right is null)
+        {
+            return true;
+        }
+
+        return Math.Abs(left.Value - right.Value) <= Math.Max(1.0, left.Value * 0.15);
+    }
+
+    private static double VerticalGap(ScoreTextLine upper, ScoreTextLine lower)
+    {
+        return Math.Max(0, lower.Y - (upper.Y + upper.Height));
+    }
     /// the next useful line, and a leading "by <name>" byline attaches to the
     /// previous line's context. Returns the merged lines plus parsed credits.
     /// </summary>
