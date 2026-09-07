@@ -166,6 +166,9 @@ public static class ScoreFactInference
             return null;
         }
 
+        // Longest metadata-agreeing trailing run wins: "Beati mortui Felix
+        // Mendelssohn Bartholdy" yields the 3-word composer, not "mortui +…".
+        string? best = null;
         for (var take = Math.Min(4, words.Length - 1); take >= 1; take--)
         {
             var tail = string.Join(" ", words[^take..]);
@@ -176,11 +179,12 @@ public static class ScoreFactInference
 
             if (metadataComposer is not null && StaticAgrees(tail, metadataComposer))
             {
-                return (CleanComposer(tail)!, string.Join(" ", words[..^take]));
+                best = CleanComposer(tail)!;
+                break;
             }
         }
 
-        return null;
+        return best is null ? null : (best, string.Join(" ", words[..^(best.Split(' ').Length)]));
     }
 
     /// <summary>
@@ -203,11 +207,7 @@ public static class ScoreFactInference
         }
 
         var name = string.Join(" ", words[..^1]).Trim().TrimEnd('.');
-        var nameWords = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var ok = nameWords.Length is >= 1 and <= 6
-            && nameWords.Any(w => w.Length > 0 && char.IsUpper(w[0]))
-            && nameWords.All(w => !TitleGlue.Contains(w));
-        if (!ok || CleanComposer(name) is null)
+        if (CleanComposer(name) is null)
         {
             return null;
         }
@@ -336,7 +336,7 @@ public static class ScoreFactInference
 
     private static readonly HashSet<string> TitleGlue = new(StringComparer.OrdinalIgnoreCase)
     {
-        "on", "of", "the", "and", "from", "to", "in", "at", "for", "by", "with", "is", "a", "an"
+        "on", "of", "the", "and", "from", "to", "in", "at", "for", "by", "with", "is", "a", "an", "op"
     };
 
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
@@ -852,7 +852,7 @@ public static class ScoreFactInference
 
     private static string CleanText(string? value)
     {
-        var text = value ?? string.Empty;
+        var text = (value ?? string.Empty).Normalize(System.Text.NormalizationForm.FormC);
         text = new string(text.Select(ch => char.IsControl(ch) ? ' ' : ch).ToArray());
         text = text.Replace('•', ' ').Replace('©', ' ');
         text = text.Replace('（', '(').Replace('）', ')');

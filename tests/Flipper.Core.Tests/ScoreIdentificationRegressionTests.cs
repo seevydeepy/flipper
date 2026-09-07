@@ -129,7 +129,9 @@ public sealed class ScoreIdentificationRegressionTests
     [Fact]
     public void InlineComposerTempo_SplitsNameFromDirection()
     {
-        var facts = Infer("Grande.pdf", default, ["Grande Sonate.", "F. Sor", "Allegro.", "Op. 22"]);
+        // "F. Sor Allegro." is one engraved credit row: the name proposes the
+        // composer while the tempo tail never does.
+        var facts = Infer("Grande.pdf", default, ["Grande Sonate.", "F. Sor Allegro.", "Op. 22"]);
 
         Assert.Equal("F. Sor", facts.Composer);
     }
