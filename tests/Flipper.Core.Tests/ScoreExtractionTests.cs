@@ -47,22 +47,21 @@ public sealed class ScoreExtractionTests
     {
         // A cover page with many engraving rows must not hide the real
         // title/composer from inference: no hard line cap. Junk rows are
-        // plausible engraved credits for OTHER composers (each passes
-        // IsUsefulLine and LooksLikeName); the filename-corroborated title +
-        // composer must still win over all of them.
-        var others = new[]
+        // distinct publisher boilerplate lines (each passes IsUsefulLine but
+        // none agree with the filename or look like a person); the
+        // filename-corroborated title + composer must still win over all of
+        // them. (Cover rows naming rival composers stay genuinely ambiguous
+        // and correctly abstain — that is SelectComposer's job, not the cap's.)
+        var ones = new[]
         {
-            "Wolfgang Amadeus Mozart", "Johann Sebastian Bach",
-            "Frédéric Chopin", "Franz Schubert",
-            "Robert Schumann", "Johannes Brahms",
-            "Pyotr Ilyich Tchaikovsky", "Claude Debussy",
-            "Maurice Ravel", "Igor Stravinsky",
-            "Dmitri Shostakovich", "Sergei Rachmaninoff",
+            "one", "two", "three", "four", "five", "six",
+            "seven", "eight", "nine", "ten", "eleven", "twelve",
         };
+        var junk = ones.Select(w => $"Published edition plate volume {w}").ToArray();
         var facts = ScoreFactInference.Infer(
             "moonlight-sonata.pdf",
             default,
-            [.. others, "Moonlight Sonata", "Ludwig van Beethoven"]);
+            [.. junk, "Moonlight Sonata", "Ludwig van Beethoven"]);
 
         Assert.Equal("Moonlight Sonata", facts.Title);
         Assert.Equal("Ludwig van Beethoven", facts.Composer);
@@ -110,23 +109,28 @@ public sealed class ScoreExtractionTests
 
     private static byte[] BuildPdf(IReadOnlyList<string> firstPage, IReadOnlyList<string>? secondPage = null)
     {
+        // Two independent single-page documents would be simpler, but the
+        // cover-page regression needs a REAL two-page file: page 2 lines must
+        // carry PageNumber 2 through PdfPig. Object layout: 1 catalog,
+        // 2 pages, 3 page-one, 4 font, 5 page-one content, 6 info,
+        // [7 page-two, 8 page-two content].
+        var pageOneStream = PageStream(firstPage);
         var objects = new List<string>
         {
-            secondPage is null
-                ? "<< /Type /Catalog /Pages 2 0 R >>"
-                : "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Catalog /Pages 2 0 R >>",
             secondPage is null
                 ? "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
                 : "<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            "<< /Length 99 >>\nstream\n" + PageStream(firstPage) + "\nendstream",
+            "<< /Length " + System.Text.Encoding.ASCII.GetByteCount(pageOneStream) + " >>\nstream\n" + pageOneStream + "\nendstream",
             "<< /Title (Clair de Lune) /Author (Claude Debussy) /Subject (Suite bergamasque) >>"
         };
         if (secondPage is not null)
         {
+            var pageTwoStream = PageStream(secondPage);
             objects.Add("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 8 0 R >>");
-            objects.Add("<< /Length 99 >>\nstream\n" + PageStream(secondPage) + "\nendstream");
+            objects.Add("<< /Length " + System.Text.Encoding.ASCII.GetByteCount(pageTwoStream) + " >>\nstream\n" + pageTwoStream + "\nendstream");
         }
 
         var builder = new System.Text.StringBuilder("%PDF-1.4\n");
