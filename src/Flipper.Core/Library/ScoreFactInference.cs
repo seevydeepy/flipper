@@ -310,6 +310,8 @@ public static class ScoreFactInference
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static bool IsMovementHeader(string value) => MovementHeader.IsMatch(value.Trim());
+
+    private static readonly Regex CreditLabel = new(
         @"^(?:music|composed|arranged|transcribed)\s+by$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
