@@ -694,7 +694,18 @@ public static class ScoreCatalog
             && incoming.ExtractorVersion > provenance.ExtractorVersion;
         var retryDue = provenance.Status == ExtractionStatus.FailedTransient
             && (!provenance.NextRetryUtc.HasValue || provenance.NextRetryUtc.Value <= DateTime.UtcNow);
-        if (!sourceChanged && !extractorUpgraded && !retryDue)
+        // Unresolved-only improvement: same PDF, same extractor, no failure —
+        // but the new extraction fills a still-blank field. NeedsReanalysis
+        // schedules this and PreviewReanalysis proposes it; the merge must
+        // persist it, or missing fields can never be reconsidered without a
+        // source change. Manual/Legacy fields are still never touched
+        // (CopyField), and blank incoming never clears (CopyField).
+        var unresolvedFill =
+            (string.IsNullOrWhiteSpace(stored.Facts.Title)
+                && !string.IsNullOrWhiteSpace(candidate.Facts.Title))
+            || (string.IsNullOrWhiteSpace(stored.Facts.Composer)
+                && !string.IsNullOrWhiteSpace(candidate.Facts.Composer));
+        if (!sourceChanged && !extractorUpgraded && !retryDue && !unresolvedFill)
         {
             return false;
         }

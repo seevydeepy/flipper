@@ -153,13 +153,16 @@ def extract(pdf: Path, rel: Path, dll: Path) -> dict[str, str]:
             "subtitle": (decided.get("subtitle") or "")[:160],
             "composer": (decided.get("composer") or "")[:80],
         }
-        if not facts["composer"]:
-            facts["composer"] = folder
+        # Core abstained: leave the composer unknown. The folder name is
+        # supporting evidence only (Core's SelectComposer never decides from
+        # the folder alone), so writing it here would invent an attribution
+        # Core deliberately refused. Consumers may surface the folder as a
+        # hint, but never as the composer.
         return facts
 
-    # Fallback (no dotnet): forward the filename; composer unknown unless the
-    # folder corroborates. Never invent attribution here.
-    return {"title": file_title[:160], "subtitle": "", "composer": folder[:80]}
+    # Fallback (no dotnet): forward the filename; composer stays unknown.
+    # Never invent attribution here either.
+    return {"title": file_title[:160], "subtitle": "", "composer": ""}
 
 
 def write_catalog(path: Path, catalog: dict[str, dict[str, str]]) -> None:

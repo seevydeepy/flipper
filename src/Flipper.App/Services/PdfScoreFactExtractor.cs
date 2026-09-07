@@ -22,7 +22,8 @@ public sealed record ScoreExtractionResult(
     ScoreFacts Facts,
     ScoreExtractionOutcome Extraction,
     OcrOutcome Ocr,
-    string? Detail = null);
+    string? Detail = null,
+    ExtractionStatus Status = ExtractionStatus.Partial);
 
 public sealed class PdfScoreFactExtractor
 {
@@ -76,7 +77,21 @@ public sealed class PdfScoreFactExtractor
         }
 
         var facts = ScoreFactInference.InferRich(entry.DisplayName, embedded.Metadata, lines);
-        return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail);
+
+        // Persist extraction/OCR failure distinctly from a clean Partial:
+        // FailedTransient carries backoff so the field can be reconsidered,
+        // and a failure is never stored as a successful identification.
+        var status = (embedded.Outcome, ocrOutcome) switch
+        {
+            (ScoreExtractionOutcome.ExtractionFailure, _) => ExtractionStatus.FailedTransient,
+            (ScoreExtractionOutcome.Cancelled, _) => ExtractionStatus.FailedTransient,
+            (_, OcrOutcome.Failed) => ExtractionStatus.FailedTransient,
+            (_, OcrOutcome.Cancelled) => ExtractionStatus.FailedTransient,
+            _ => facts.Composer is null || facts.Title is null
+                ? ExtractionStatus.Partial
+                : ExtractionStatus.Complete,
+        };
+        return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status);
     }
 
     private static bool NeedsOcr(string displayName, ScoreExtraction embedded)

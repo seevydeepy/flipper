@@ -150,7 +150,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     continue;
                 }
 
-                var facts = await _extractor.ExtractAsync(entry, token);
+                var result = await _extractor.ExtractWithStatusAsync(entry, token);
+                var facts = result.Facts;
                 if (!IsStable(entry))
                 {
                     DiscardForRetry(root, generation, entry);
@@ -171,10 +172,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                         entry.Length,
                         entry.LastWriteUtc,
                         facts,
-                        facts.Composer is null || facts.Title is null
-                            ? ExtractionStatus.Partial
-                            : ExtractionStatus.Complete,
-                        explanation: null);
+                        result.Status,
+                        explanation: result.Detail);
                     _pending[key] = new PendingFacts(entry, facts, provenance);
                     _overlay.Add(entry, facts);
                     flush = _pending.Count >= BatchSize;

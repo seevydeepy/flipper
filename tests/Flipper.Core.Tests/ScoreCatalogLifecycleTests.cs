@@ -209,6 +209,47 @@ public sealed class ScoreCatalogLifecycleTests
     }
 
     [Fact]
+    public void Merge_FillsUnresolvedFields_WithoutSourceChange()
+    {
+        // NeedsReanalysis schedules unresolved fields; the merge must persist
+        // the fill (preview and apply share the predicate). Same content,
+        // same extractor, no failure — only the missing composer arrives.
+        // The temp-file helper snapshots its own stamp, so reuse the first
+        // candidate's fingerprint for the second to model "same PDF, better
+        // extraction": same SourcePath/Length/LastWriteUtc, same version.
+        using var root = new TempDir();
+        var first = Generated("Old", null, 10, DateTime.UtcNow.AddMinutes(-10));
+        ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = first });
+        var entry = ScoreCatalog.LoadEntry(root.Path, "A.pdf");
+        Assert.Equal(ScoreFieldOrigin.Unresolved, entry!.OriginOf("composer"));
+
+        var result = ScoreCatalog.TryMergeMissing(
+            root.Path,
+            new Dictionary<string, CatalogMergeCandidate>
+            {
+                ["A.pdf"] = new CatalogMergeCandidate(
+                    new ScoreFacts { Title = "Old", Composer = "New C" },
+                    first.SourcePath,
+                    first.Length,
+                    first.LastWriteUtc,
+                    CatalogProvenance.ForGenerated(
+                        first.Provenance!.ExtractorVersion,
+                        first.Length,
+                        first.LastWriteUtc,
+                        new ScoreFacts { Title = "Old", Composer = "New C" },
+                        ExtractionStatus.Complete))
+            });
+
+        entry = ScoreCatalog.LoadEntry(root.Path, "A.pdf");
+        Assert.Equal("New C", entry!.Facts.Composer);
+        Assert.Equal(ScoreFieldOrigin.Generated, entry.OriginOf("composer"));
+        Assert.Equal("Old", entry.Facts.Title);
+        Assert.Equal(CatalogMergeStatus.Inserted, result.Status);
+    }
+
+    [Fact]
     public void Correct_PartialLegacyCorrection_ProtectsSiblingFields()
     {
         using var root = new TempDir();
