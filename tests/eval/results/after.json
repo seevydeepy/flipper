@@ -1,8 +1,8 @@
 {
   "fixtures": 16,
-  "title_accuracy": 0.875,
-  "composer_accuracy": 0.75,
-  "composer_wrong_attribution": 1,
+  "title_accuracy": 1.0,
+  "composer_accuracy": 0.812,
+  "composer_wrong_attribution": 0,
   "composer_unresolved": 3,
   "rows": [
     {
@@ -71,15 +71,15 @@
     {
       "fixture": "collection-opus.json",
       "case": "musical-identity",
-      "title": "wrong",
+      "title": "ok",
       "composer": "ok",
       "got": {
         "file": "12 - Etudes, Op. 10.pdf",
-        "title": "12 Etudes, Op. 10",
+        "title": "12 Études, Op. 10",
         "subtitle": null,
         "composer": "Frédéric Chopin",
-        "titleVerified": false,
-        "titleEvidence": "no page evidence",
+        "titleVerified": true,
+        "titleEvidence": "12 Études, Op. 10 (1: printed over fallback)",
         "composerEvidence": "person-like 'Frédéric Chopin' (uncorroborated)",
         "titleRunnerUp": null
       },
@@ -323,16 +323,16 @@
     {
       "fixture": "uppercase-composer.json",
       "case": "credits",
-      "title": "wrong",
-      "composer": "wrong-attribution",
+      "title": "ok",
+      "composer": "ok",
       "got": {
         "file": "Clair.pdf",
-        "title": "Clair",
+        "title": "Clair de Lune",
         "subtitle": null,
-        "composer": "Clair de Lune",
-        "titleVerified": false,
-        "titleEvidence": "no page evidence",
-        "composerEvidence": "person-like 'Clair de Lune' + corroboration",
+        "composer": "CLAUDE DEBUSSY",
+        "titleVerified": true,
+        "titleEvidence": "Clair de Lune (weak: shares 1 filename word; looks like a person credit)",
+        "composerEvidence": "person-like 'CLAUDE DEBUSSY' (uncorroborated)",
         "titleRunnerUp": null
       },
       "want": {
