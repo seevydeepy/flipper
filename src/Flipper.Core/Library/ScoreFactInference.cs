@@ -1068,9 +1068,13 @@ public static class ScoreFactInference
     private static bool IsQuotedSeriesHeader(string value)
     {
         var text = value.Trim();
+        if (text.Length < 2 || !text.Contains('"'))
+        {
+            return false;
+        }
+
         var stripped = text.Trim('"');
         return stripped.Length >= 2
-            && stripped.Length < text.Length
             && LooksLikeName(UnwrapWhole(stripped) ?? stripped);
     }
 
