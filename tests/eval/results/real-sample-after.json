@@ -1,0 +1,502 @@
+[
+ {
+  "file": "Corpus\\Faure\\Les Roses D.pdf",
+  "title": "Les roses d’Ispahan",
+  "subtitle": null,
+  "composer": "Leconte de Lisle",
+  "titleVerified": true,
+  "titleEvidence": "Les roses d’Ispahan (8: matches embedded title; shares 2 filename words)",
+  "composerEvidence": "ambiguous person credits ('Leconte de Lisle' + 1 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Chopin\\Mazurka - Op6 - No1.pdf",
+  "title": "Mazurka.",
+  "subtitle": null,
+  "composer": "Tempo I.",
+  "titleVerified": true,
+  "titleEvidence": "Mazurka. (3: shares 1 filename word; filename prefix)",
+  "composerEvidence": "composer + catalogue 'F. Chopin. Op.6, No.1.'",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Sor\\Grande.pdf",
+  "title": "Grande Sonate.",
+  "subtitle": null,
+  "composer": "F. Sor Allegro",
+  "titleVerified": true,
+  "titleEvidence": "Grande Sonate. (3: matches embedded title; shares 1 filename word; looks like a person credit)",
+  "composerEvidence": "person-like 'F. Sor' (uncorroborated)",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Diabelli\\Op149 - 14.pdf",
+  "title": "28 melodische Übungsstücke",
+  "subtitle": null,
+  "composer": "Polonaise",
+  "titleVerified": true,
+  "titleEvidence": "28 melodische Übungsstücke (1: matches embedded title; looks like a person credit)",
+  "composerEvidence": "composer + tempo 'Polonaise. Allegretto.'",
+  "titleRunnerUp": "Fine (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Giuliani\\GiulianiOp100No14.pdf",
+  "title": "No. 14. Caprice Op. 100 III",
+  "subtitle": null,
+  "composer": "Mauro Giuliani",
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "person-like 'Mauro Giuliani' + corroboration",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Teschner\\St.pdf",
+  "title": "St",
+  "subtitle": null,
+  "composer": "St. Theodulph",
+  "titleVerified": false,
+  "titleEvidence": "page lines unusable (best: St. Theodulph: printed over fallback; looks like a person credit)",
+  "composerEvidence": "person-like 'St. Theodulph' (uncorroborated)",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Gruber\\Stille - Nacht.pdf",
+  "title": "Stille Nacht",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Stille Nacht (2: shares 2 filename words; filename prefix; looks like a person credit)",
+  "composerEvidence": "ambiguous person credits ('Silent Night' + 7 rival(s))",
+  "titleRunnerUp": "9: ?9@AB:AC (1: printed over fallback)"
+ },
+ {
+  "file": "K's Collection\\Castle on A Cloud Sheet Music Les Miserables.pdf",
+  "title": "Castle on A Cloud Sheet Music Les Miserables",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Bach\\Spiritus Domini Bach.pdf",
+  "title": "Spiritus Domini",
+  "subtitle": null,
+  "composer": "Johann Sebastian Bach",
+  "titleVerified": true,
+  "titleEvidence": "Spiritus Domini (6: matches embedded title; shares 2 filename words; filename prefix; looks like a person credit)",
+  "composerEvidence": "person-like 'Johann Sebastian Bach' + corroboration",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Giuliani\\Giuliani (22).pdf",
+  "title": "Mauro Giuliani Andantino Op. 50 No. 21",
+  "subtitle": null,
+  "composer": "Opus 50 No. 21",
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "ambiguous person credits ('Opus 50 No. 21' + 1 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\C.P.E. Bach\\Cpe - Bach - Rondo.pdf",
+  "title": "Rondo in E♭ Major H.288",
+  "subtitle": null,
+  "composer": "Carl Philipp Emanuel Bach",
+  "titleVerified": true,
+  "titleEvidence": "Rondo in E♭ Major H.288 (6: matches embedded title; shares 1 filename word)",
+  "composerEvidence": "ambiguous person credits ('2 Harpsichord' + 1 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Mozart\\NotteEGiorno.pdf",
+  "title": "Notte e giorno",
+  "subtitle": null,
+  "composer": "Molto",
+  "titleVerified": true,
+  "titleEvidence": "Notte e giorno (6: matches embedded title; shares 1 filename word)",
+  "composerEvidence": "composer + tempo 'Molto allegro'",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "K's Collection\\Frdric Chopin Berceuse in D Flat Major Op.57.pdf",
+  "title": "BERCEUSE Op. 57",
+  "subtitle": null,
+  "composer": "Frédéric Chopin",
+  "titleVerified": true,
+  "titleEvidence": "BERCEUSE Op. 57 (2: shares 1 filename word)",
+  "composerEvidence": "person-like 'Frédéric Chopin' + corroboration",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Horetzky\\Horetzky5.pdf",
+  "title": "60 National Airs of Different Nations",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "60 National Airs of Different Nations (1: printed over fallback)",
+  "composerEvidence": "ambiguous person credits ('Nº. 5. French Air.' + 2 rival(s))",
+  "titleRunnerUp": "FelixHoretzky (1: printed over fallback)"
+ },
+ {
+  "file": "K's Collection\\Pie Jesu from Requiem Op 48.pdf",
+  "title": "Op. 48) (from Requiem, Pie Jesu Gabriel Faure",
+  "subtitle": null,
+  "composer": "All Ri",
+  "titleVerified": true,
+  "titleEvidence": "Pie Jesu (2: shares 2 filename words; filename prefix; looks like a person credit)",
+  "composerEvidence": "person-like '(from Requiem,' + corroboration",
+  "titleRunnerUp": "mf poco dim. (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Roberday\\Roberday - Fugue - 4.pdf",
+  "title": "FUGUE 4 ME Orgue - Organ",
+  "subtitle": null,
+  "composer": "FUGUE, REVERS ET 2 AUTRES SUJETS.",
+  "titleVerified": true,
+  "titleEvidence": "À QUATRE PARTIES (1: printed over fallback)",
+  "composerEvidence": "ambiguous person credits ('FUGUES, ET CAPRICES,' + 1 rival(s))",
+  "titleRunnerUp": "mises en partition pour l'orgue (1: printed over fallback)"
+ },
+ {
+  "file": "Christmas\\Winter Wonderland Christmas.pdf",
+  "title": "Winter Wonderland",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Winter Wonderland (2: shares 2 filename words; filename prefix; looks like a person credit)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Giuliani\\Giuliani (41).pdf",
+  "title": "Mauro Giuliani Op. 59 No. 8",
+  "subtitle": null,
+  "composer": "Mauro Giuliani",
+  "titleVerified": true,
+  "titleEvidence": "Grazioso. (1: printed over fallback)",
+  "composerEvidence": "person-like 'Mauro Giuliani' + corroboration",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Rimsky-KorsakovN\\Rimsky - Korsakov - Op11 - 4.pdf",
+  "title": "Etude",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Etude (1: printed over fallback)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": "Allegro. (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv - 1012 - 5 - 1.pdf",
+  "title": "Cello Suite VI",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Cello Suite VI (1: printed over fallback)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Bach\\Fugue - C - Major.pdf",
+  "title": "Fugue in C major",
+  "subtitle": null,
+  "composer": "J.S. Bach",
+  "titleVerified": true,
+  "titleEvidence": "Fugue in C major (9: matches embedded title; shares 2 filename words; filename prefix)",
+  "composerEvidence": "person-like 'J.S. Bach' + corroboration",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Bach\\Anna - Magdalena - 04 - Guitar - Tab.pdf",
+  "title": "Guitar Z",
+  "subtitle": null,
+  "composer": "Johann Sebastian Bach",
+  "titleVerified": true,
+  "titleEvidence": "Guitar Z (2: shares 1 filename word)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": "2 Guitar (2: shares 1 filename word)"
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv - 1087 - 12.pdf",
+  "title": "über die ersten acht Fundamentalnoten der Aria aus den Goldberg-Variationen",
+  "subtitle": null,
+  "composer": "14 Kanons",
+  "titleVerified": true,
+  "titleEvidence": "über die ersten acht Fundamentalnoten der Aria aus den Goldberg-Variationen (1: printed over fallback)",
+  "composerEvidence": "person-like '14 Kanons' (uncorroborated)",
+  "titleRunnerUp": "12. Canon duplex über besagte Fundamental-Noten a 5 voci (1: printed over fallback)"
+ },
+ {
+  "file": "Christmas\\Leonard Cohen - Hallelujah.pdf",
+  "title": "Hallelujah",
+  "subtitle": null,
+  "composer": "Horváth Márk",
+  "titleVerified": true,
+  "titleEvidence": "Hallelujah (6: matches embedded title; shares 1 filename word)",
+  "composerEvidence": "person-like 'Horváth Márk' (uncorroborated)",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Carulli\\Guitar - Skole - No - 13.pdf",
+  "title": "Guitar-Skole no. 13 : Andante grazioso",
+  "subtitle": null,
+  "composer": "Ferdinando Carulli",
+  "titleVerified": true,
+  "titleEvidence": "Guitar-Skole no. 13 : Andante grazioso (8: matches embedded title; shares 2 filename words)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv855a.pdf",
+  "title": "Bwv 855 a",
+  "subtitle": null,
+  "composer": "Praeludium X",
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "ambiguous person credits ('Praeludium X' + 1 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Schubert\\SchubertF - D983C.pdf",
+  "title": "für vier Männerstimmen",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "♫ Franz Schubert: Die Nacht (D.983C) ♫ (2: shares 1 filename word)",
+  "composerEvidence": "ambiguous person credits ('Vier Gesänge' + 4 rival(s))",
+  "titleRunnerUp": "für vier Männerstimmen (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Sances\\Dialogo a Due.pdf",
+  "title": "Dialogo a due. Pastor e Ninfa",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Dialogo a due. Pastor e Ninfa (4: shares 2 filename words)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Bach\\ContrapunctusII.pdf",
+  "title": "Contrapunctus II",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Contrapunctus II (weak: shares 1 filename word; filename prefix; looks like a person credit)",
+  "composerEvidence": "ambiguous person credits ('Die Kunst der Fuge' + 2 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Anonymous\\Spirit - of - God - Bellow - Falls.pdf",
+  "title": "The Spirit of God",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "The Spirit of God (5: shares 2 filename words; filename prefix)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "K's Collection\\The Lordx27s Prayer Piano Pdf Free.pdf",
+  "title": "The Lordx 27 s Prayer Piano Pdf Free",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Handel\\04.pdf",
+  "title": "Toccata",
+  "subtitle": null,
+  "composer": "Georg Friedrich Händel",
+  "titleVerified": true,
+  "titleEvidence": "Toccata (4: matches embedded title)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "K's Collection\\Total Eclipse of the Heart.pdf",
+  "title": "Ahh",
+  "subtitle": null,
+  "composer": "Ahh Ahh",
+  "titleVerified": true,
+  "titleEvidence": "Ahh (1: printed over fallback)",
+  "composerEvidence": "person-like 'Ahh Ahh' (uncorroborated)",
+  "titleRunnerUp": "Ahh (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv666.pdf",
+  "title": "Johann Sebastian Bach BWV 666",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Jesus Christus, unser Heiland, der von uns den Zorn Gottes wand (1: printed over fallback)",
+  "composerEvidence": "ambiguous person credits ('Johann Sebastian Bach' + 2 rival(s))",
+  "titleRunnerUp": "Choral (1: printed over fallback)"
+ },
+ {
+  "file": "K's Collection\\My Baby Just Cares for Me Walter Donaldson Nina Simone.pdf",
+  "title": "My Baby just cares for me Nina Simone",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "My Baby just cares for me Nina Simone (4: shares 5 filename words)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv792.pdf",
+  "title": "Johann Sebastian Bach BWV 792",
+  "subtitle": null,
+  "composer": "Sinfonia 6",
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "ambiguous person credits ('Sinfonia 6' + 1 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Doane\\To God Be the Glory.pdf",
+  "title": "To God Be the Glory",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "To God Be the Glory (5: shares 2 filename words; filename prefix)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Monteverdi\\Et.pdf",
+  "title": "A due Soprani o Tenori con due violini",
+  "subtitle": null,
+  "composer": "Et resurrexit",
+  "titleVerified": true,
+  "titleEvidence": "A due Soprani o Tenori con due violini (1: printed over fallback)",
+  "composerEvidence": "person-like 'Et resurrexit' (uncorroborated)",
+  "titleRunnerUp": "Et resur re xit resur re xit (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Burgmuller\\25Ef - 06.pdf",
+  "title": "Progrès",
+  "subtitle": null,
+  "composer": "Johann Friedrich Franz Burgmüller",
+  "titleVerified": true,
+  "titleEvidence": "Progrès (4: matches embedded title)",
+  "composerEvidence": "ambiguous person credits ('25 Etudes faciles' + 3 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Elvey\\Diademata.pdf",
+  "title": "Diademata",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Diademata (3: shares 1 filename word; filename prefix)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Mendelssohn-BartholdyF\\Op115 1.pdf",
+  "title": "Zwei geistliche Chöre",
+  "subtitle": null,
+  "composer": "I. Beati mortui",
+  "titleVerified": true,
+  "titleEvidence": "Zwei geistliche Chöre (1: matches embedded title; looks like a person credit)",
+  "composerEvidence": "ambiguous person credits ('Beati mortui' + 1 rival(s))",
+  "titleRunnerUp": "p cresc. (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv - 1003 1.pdf",
+  "title": "Bwv 1003 1",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": false,
+  "titleEvidence": "no page evidence",
+  "composerEvidence": "person-like '1. Grave' (uncorroborated)",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "K's Collection\\Imslp728832 Pmlp181739 Siciliano Bwv 1031 J. S. Bach.pdf",
+  "title": "Siciliano",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Siciliano (6: matches embedded title; shares 1 filename word)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "K's Collection\\11 Chorale Preludes Op.122 Johannes Brahms 10. Herzlich Tut Mich Verlangen Arr. Piano Solo.pdf",
+  "title": "Chorale 10. Herzlich Preludes, tut mich verlangen Op. 122",
+  "subtitle": null,
+  "composer": "Arrangement: Johannes Nuno R. Brahms Rodrigues",
+  "titleVerified": true,
+  "titleEvidence": "Chorale 10. Herzlich Preludes, tut mich verlangen Op. 122 (4: shares 6 filename words)",
+  "composerEvidence": "person-like 'Arrangement: Johannes Nuno R. Brahms Rodrigues' + corroboration",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Horetzky\\Horetzky19.pdf",
+  "title": "60 National Airs of Different Nations",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "60 National Airs of Different Nations (1: printed over fallback)",
+  "composerEvidence": "ambiguous person credits ('Nº. 19. Podolian Air.' + 1 rival(s))",
+  "titleRunnerUp": "FelixHoretzky (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Bach\\Bwv687.pdf",
+  "title": "Johann Sebastian Bach BWV 687",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Aus tiefer Noth schrei' ich zu dir. (1: printed over fallback)",
+  "composerEvidence": "person-like 'Johann Sebastian Bach' (uncorroborated)",
+  "titleRunnerUp": "Manualiter. (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Horetzky\\Horetzky59.pdf",
+  "title": "60 National Airs of Different Nations",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "60 National Airs of Different Nations (1: printed over fallback)",
+  "composerEvidence": "ambiguous person credits ('Nº. 59. Venetian Air. “La Biondina”.' + 1 rival(s))",
+  "titleRunnerUp": "FelixHoretzky (1: printed over fallback)"
+ },
+ {
+  "file": "Corpus\\Schumann\\SchumannOp15No04.pdf",
+  "title": "Kinderscenen",
+  "subtitle": null,
+  "composer": "Robert Alexander Schumann",
+  "titleVerified": true,
+  "titleEvidence": "Kinderscenen (4: matches embedded title)",
+  "composerEvidence": "ambiguous person credits ('Bittendes Kind' + 1 rival(s))",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Carulli\\Guitar - Skole - No - 17.pdf",
+  "title": "Guitar-Skole no. 17 : Tempo di Valse",
+  "subtitle": null,
+  "composer": "Ferdinando Carulli",
+  "titleVerified": true,
+  "titleEvidence": "Guitar-Skole no. 17 : Tempo di Valse (8: matches embedded title; shares 2 filename words)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": null
+ },
+ {
+  "file": "Corpus\\Franz\\Franz - Gute - Nacht.pdf",
+  "title": "Gute Nacht!",
+  "subtitle": null,
+  "composer": null,
+  "titleVerified": true,
+  "titleEvidence": "Gute Nacht! (1: shares 2 filename words; looks like a person credit)",
+  "composerEvidence": "no composer evidence",
+  "titleRunnerUp": "Andante. p (1: printed over fallback)"
+ }
+]

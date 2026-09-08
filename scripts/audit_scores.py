@@ -1,19 +1,40 @@
 #!/usr/bin/env python3
-"""Read PDFs under Scores and write .flipper-catalog.json with title and composer."""
+"""Batch score audit via the authoritative Flipper.Core pipeline.
+
+Flipper.Core (ScoreFactInference + flipper-score CLI) is the single
+implementation that decides score identity. This script prepares reference
+data and drives batch runs: it never maintains a competing inference
+algorithm. Legacy heuristics are kept only as a text-extraction fallback
+for environments where dotnet is unavailable.
+
+Usage:
+  python scripts/audit_scores.py --root <library> [--out <catalog.json>]
+      [--dotnet <flipper-score.dll>] [--dry-run] [--apply-to <catalog>]
+      [--backup <backup-path>] [--limit N]
+  python scripts/audit_scores.py --self-check   # extraction-parity tests
+
+--dry-run (default): print the summary, write --out only.
+--apply-to: merge proposals into an existing catalog with the same
+  concurrency/merge contract as the app (stale proposals are skipped,
+  failures leave the original catalog intact).
+"""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-import pymupdf
-
-ROOT = Path(r"//Alexandria/Charles/Scores")
-CATALOG = ROOT / ".flipper-catalog.json"
-BACKUP = Path(__file__).resolve().parent.parent / "artifacts" / ".flipper-catalog.json"
+DEFAULT_ROOT = Path(r"//Alexandria/Charles/Scores")
+REPO = Path(__file__).resolve().parent.parent
+DEFAULT_DLL = (
+    REPO / "src" / "Flipper.ScoreCli" / "bin" / "Release" / "net8.0" / "flipper-score.dll"
+)
 
 JUNK = re.compile(
     r"public domain|creative commons|mutopia|typeset|licensed under|reference:|"
@@ -22,58 +43,7 @@ JUNK = re.compile(
     r"untitled\d*|created o[nm]",
     re.I,
 )
-TEMPO = re.compile(
-    r"^(moderato|andante|allegro|allegretto|adagio|largo|presto|vivace|swing|"
-    r"maestoso|andantino|rubato|a tempo|rit\.?)$",
-    re.I,
-)
-GARBAGE = re.compile(r"^(.)\1{2,}$|\\u[eE]|[^\x00-\x7F]{2,}")
-COLLECTION = re.compile(
-    r"^\d+\s*(\(\d+\))?\s+(pi[eè]ces|studies|etudes|études|duets|lessons|caprices|exercises|airs)\b",
-    re.I,
-)
 MEASURE = re.compile(r"^\d{1,3}[a-z]?$")
-META_JUNK = re.compile(r"^(title|untitled|document|lg-\d+|microsoft word)$", re.I)
-BAD_ROLE = re.compile(
-    r"^(pedal|piano|basso|violino|viola|cello|flute|guitar|soprano|alto|tenor|"
-    r"bass|tema|andantino|allegro|andante|adagio|hob\.|op\.|bwv|arr\.|"
-    r"sheet music|solo|trombone|trumpet|violin|oboe|utente)$",
-    re.I,
-)
-BYLINE = re.compile(r"^(?:by|arr\.?|arranged by|transc(?:ribed)?\.? by|composed by|music by)\s+(.+)$", re.I)
-YEARS = re.compile(r"\s*\(\s*\d{3,4}(?:\s*[-–]\s*\d{2,4})?\s*\)\s*")
-COPY_NUM = re.compile(r"\s*\(\d+\)\s*$")
-BRACKETS = re.compile(r"\s*\[[^\]]*\]")
-FINALE = re.compile(r"finale\s+\d+.*\[(.+)\]", re.I)
-WHOLE_PAREN = re.compile(r"^\(([^()]*)\)\s*$")
-TRAILING_PAREN = re.compile(r"^(.*[^\s(])\s*\(([^()]*)\)\s*$")
-PIECE = re.compile(
-    r"^(?:(?:main|love|end|opening|closing)\s+)?theme(?:\s+from\b.*)?$|^from\b.+$|^(?:piano\s+)?version$",
-    re.I,
-)
-DIRECTION = re.compile(
-    r"^(?:(?:\d+\s+)?times|forte|piano|pianissimo|fortissimo|alio modo|ad lib\.?|repeat)$",
-    re.I,
-)
-TITLE_GLUE = {"on", "of", "the", "and", "from", "to", "in", "at", "for", "by", "with", "is", "a", "an"}
-STOP = {"the", "and", "for", "from", "with", "pdf", "piano", "solo", "arr", "sheet", "music"}
-
-_OCR = None
-
-
-def ocr_engine():
-    global _OCR
-    if _OCR is False:
-        return None
-    if _OCR is None:
-        try:
-            from rapidocr_onnxruntime import RapidOCR
-
-            _OCR = RapidOCR()
-        except Exception:
-            _OCR = False
-            return None
-    return _OCR
 
 
 def clean(text: str) -> str:
@@ -84,87 +54,19 @@ def clean(text: str) -> str:
     return text
 
 
-def tokens(value: str) -> set[str]:
-    folded = (value or "").lower().replace("'", "").replace("’", "")
-    words = re.findall(r"[a-z]{3,}", folded)
-    return {word for word in words if word not in STOP}
-
-
-def agrees(left: str, right: str) -> bool:
-    return bool(tokens(left) & tokens(right))
-
-
-def tidy_title(value: str) -> str:
-    text = clean(value)
-    finale = FINALE.search(text)
-    if finale:
-        text = finale.group(1)
-        text = re.sub(r"\.(mus|mscz|mscx)$", "", text, flags=re.I)
-    text = BRACKETS.sub("", text)
-    text = COPY_NUM.sub("", text)
-    text = YEARS.sub(" ", text)
-    text = re.sub(r"\s+", " ", text).strip(" -–_|\"'`")
-    return text
-
-
-def is_bad_title(value: str) -> bool:
-    if not value or len(value) < 3 or JUNK.search(value) or COLLECTION.search(value):
-        return True
-    if "[" in value or "]" in value:
-        return True
-    if re.fullmatch(r"\d+", value):
-        return True
-    if re.match(r"^(imslp|mn0|lg-)\d", value, re.I):
-        return True
-    if re.fullmatch(r"bwv\s*-?\s*\d+[a-z]?", value, re.I):
-        return True
-    if BAD_ROLE.search(value) or TEMPO.search(value) or GARBAGE.search(value):
-        return True
-    if value.lower() in STOP:
-        return True
-    letters = [ch.lower() for ch in value if ch.isalpha()]
-    if letters:
-        vowels = sum(ch in "aeiouy" for ch in letters)
-        if len(letters) >= 3 and vowels == 0:
-            return True
-        if len(letters) <= 4 and len(set(letters)) <= 2:
-            return True
-    letters = sum(ch.isalpha() for ch in value)
-    return letters < 3 or letters / max(len(value), 1) < 0.35
-
-
 def useful(line: str) -> bool:
-    if not line or MEASURE.match(line) or JUNK.search(line) or BAD_ROLE.search(line):
+    """Extraction fallback only: keep plausible text lines.
+
+    Identity decisions (titles, composers, credits) live in Flipper.Core;
+    this only decides which raw lines are worth forwarding.
+    """
+    if not line or MEASURE.match(line) or JUNK.search(line):
         return False
     letters = sum(ch.isalpha() for ch in line)
-    return letters >= 3 and letters / max(len(line), 1) >= 0.45
-
-
-def meta_ok(value: str | None) -> str:
-    value = tidy_title(value or "")
-    if not value or META_JUNK.search(value) or is_bad_title(value):
-        return ""
-    return value
-
-
-def looks_like_name(value: str) -> bool:
-    text = YEARS.sub("", value).strip()
-    if not text or WHOLE_PAREN.match(text):
+    if letters < 3 or letters / max(len(line), 1) < 0.35:
         return False
-    letters = [ch for ch in text if ch.isalpha()]
-    if len(letters) >= 2 and all(ch.isupper() for ch in letters) and len(text.split()) >= 2:
-        return False
-    if re.search(r"[A-Za-z]['’]s\b", text):
-        return False
-    words = [word for word in text.split() if word]
-    if not 2 <= len(words) <= 6:
-        return False
-    if any(word.lower() in {"piano", "solo", "arr", "opus", "op."} for word in words):
-        return False
-    if any(word.lower() in TITLE_GLUE for word in words):
-        return False
-    caps = sum(word[:1].isupper() for word in words if word[:1].isalpha())
-    return caps >= max(1, len(words) - 1)
+    symbols = sum(not ch.isalnum() and not ch.isspace() for ch in line)
+    return symbols <= letters
 
 
 def folder_composer(rel: Path) -> str:
@@ -174,223 +76,93 @@ def folder_composer(rel: Path) -> str:
     return ""
 
 
-def page_text(pdf: Path) -> str:
+def page_text(pdf: Path) -> tuple[dict, list[str]]:
+    """Extract (metadata, lines) with pymupdf; OCR stays in the app/CLI."""
+    try:
+        import pymupdf
+    except ImportError:
+        return {}, []
     try:
         doc = pymupdf.open(pdf)
     except Exception:
-        return ""
+        return {}, []
     try:
         if not doc.page_count:
-            return ""
-        text = doc[0].get_text("text")
-        letters = sum(ch.isalpha() for ch in text)
-        if letters >= 20:
-            return text
-        engine = ocr_engine()
-        if engine is None:
-            return text
-        pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
-        result, _ = engine(pix.tobytes("png"))
-        if not result:
-            return text
-        return "\n".join(row[1] for row in result if row and row[1])
+            return {}, []
+        meta = doc.metadata or {}
+        # First page plus up to two more when the first is inconclusive.
+        texts = []
+        for index in range(min(3, doc.page_count)):
+            texts.append(doc[index].get_text("text"))
+            letters = sum(ch.isalpha() for ch in texts[-1])
+            if letters >= 60:
+                break
+        return meta, texts
     finally:
         doc.close()
 
 
-def lines_from_text(text: str) -> list[str]:
-    found = []
-    for raw in text.splitlines():
-        line = clean(raw)
-        if useful(line):
-            found.append(line)
-        if len(found) >= 10:
-            break
+def lines_from_text(texts: list[str]) -> list[str]:
+    found: list[str] = []
+    for text in texts:
+        for raw in text.splitlines():
+            line = clean(raw)
+            if useful(line) and line not in found:
+                found.append(line)
+            if len(found) >= 30:
+                return found
     return found
 
 
-def fold_words(value: str) -> list[str]:
-    folded = (value or "").lower().replace("'", "").replace("’", "")
-    return [word for word in re.findall(r"[a-z]+", folded) if word not in STOP]
-
-
-def prefix_bonus(title: str, file_title: str) -> int:
-    file_words = fold_words(file_title)
-    title_words = fold_words(title)
-    return int(bool(title_words) and file_words[: len(title_words)] == title_words)
-
-
-def unwrap_whole(value: str) -> str:
-    match = WHOLE_PAREN.match((value or "").strip())
-    return match.group(1).strip() if match else ""
-
-
-def is_piece(value: str) -> bool:
-    inner = unwrap_whole(value) or value
-    return bool(PIECE.match(inner.strip()))
-
-
-def is_direction(value: str) -> bool:
-    inner = unwrap_whole(value) or value
-    return bool(DIRECTION.match(inner.strip()))
-
-
-def split_dash(value: str) -> tuple[str, str]:
-    parts = re.split(r"\s+[-–—]\s+", value, maxsplit=1)
-    if len(parts) == 2:
-        return parts[0].strip(), parts[1].strip()
-    return value, ""
-
-
-def pick_page_title(lines: list[str], file_title: str) -> str:
-    scored = []
-    for line in lines:
-        title = tidy_title(line)
-        if is_bad_title(title) or is_direction(title):
-            continue
-        inner = unwrap_whole(title) or title
-        scored.append((
-            0 if unwrap_whole(title) else 1,
-            0 if is_piece(title) else 1,
-            0 if looks_like_name(inner) else 1,
-            len(tokens(inner) & tokens(file_title)),
-            prefix_bonus(inner, file_title),
-            title,
-        ))
-    if not scored:
-        return ""
-    overlapping = [row for row in scored if row[3] > 0]
-    pool = overlapping or scored
-    pool.sort(key=lambda row: (row[0], row[1], row[2], row[3], row[4]), reverse=True)
-    return pool[0][5]
-
-
-def pick_headings(lines: list[str], file_title: str) -> tuple[str, str]:
-    title = pick_page_title(lines, file_title)
-    subtitle = ""
-    inner = unwrap_whole(title)
-    if inner:
-        if is_piece(inner):
-            subtitle = inner
-            others = [line for line in lines if tidy_title(line) != title]
-            title = pick_page_title(others, file_title) or inner
-        else:
-            title = inner
-
-    trailing = TRAILING_PAREN.match(title)
-    if trailing:
-        extra = trailing.group(2).strip()
-        if extra and not is_direction(extra):
-            title = trailing.group(1).strip()
-            subtitle = subtitle or extra
-
-    if not subtitle:
-        for line in lines:
-            candidate = tidy_title(line)
-            wrapped = unwrap_whole(candidate)
-            if not wrapped or wrapped.lower() == title.lower() or is_direction(wrapped):
-                continue
-            subtitle = wrapped
-            break
-
-    return tidy_title(title), re.sub(r"\s+", " ", subtitle).strip(" -–_|")
-
-
-def extract(pdf: Path, rel: Path) -> dict[str, str]:
+def infer_via_cli(dll: Path, payload: dict) -> dict | None:
+    """Ask the authoritative Core pipeline; None when dotnet is unavailable."""
+    if not dll.exists():
+        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tmp:
+        json.dump(payload, tmp)
+        tmp_path = tmp.name
     try:
-        doc = pymupdf.open(pdf)
-        meta = doc.metadata or {}
-        doc.close()
-    except Exception:
-        meta = {}
+        proc = subprocess.run(
+            ["dotnet", str(dll), "infer-text", tmp_path, "--json"],
+            capture_output=True, text=True, cwd=REPO)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"flipper-score failed: {proc.stderr.strip()[-300:]}")
+    return json.loads(proc.stdout)
 
-    text = page_text(pdf)
-    page_lines = lines_from_text(text)
-    file_title = tidy_title(pdf.stem)
+
+def extract(pdf: Path, rel: Path, dll: Path) -> dict[str, str]:
+    meta, texts = page_text(pdf)
+    page_lines = lines_from_text(texts)
+    file_title = pdf.stem
     folder = folder_composer(rel)
 
-    meta_title = meta_ok(meta.get("title"))
-    composer = meta_ok(meta.get("author"))
-    if composer and meta_title and composer.lower() == meta_title.lower():
-        composer = ""
-    if meta_title and not (agrees(meta_title, file_title) or agrees(meta_title, " ".join(page_lines[:4]))):
-        meta_title = ""
+    decided = infer_via_cli(dll, {
+        "fileName": pdf.name,
+        "metadata": {
+            "title": meta.get("title"),
+            "author": meta.get("author"),
+            "subject": meta.get("subject"),
+        },
+        "lines": page_lines,
+    })
+    if decided is not None:
+        facts = {
+            "title": (decided.get("title") or file_title)[:160],
+            "subtitle": (decided.get("subtitle") or "")[:160],
+            "composer": (decided.get("composer") or "")[:80],
+        }
+        # Core abstained: leave the composer unknown. The folder name is
+        # supporting evidence only (Core's SelectComposer never decides from
+        # the folder alone), so writing it here would invent an attribution
+        # Core deliberately refused. Consumers may surface the folder as a
+        # hint, but never as the composer.
+        return facts
 
-    page_title, subtitle = pick_headings(page_lines, file_title)
-    if not page_title:
-        page_title, subtitle = pick_headings([file_title], file_title)
-    title = page_title or meta_title or file_title
-    if not subtitle:
-        _, extra = pick_headings([meta_title or title], file_title)
-        subtitle = extra
-
-    if page_lines:
-        first = page_lines[0]
-        byline = BYLINE.match(first)
-        if byline or looks_like_name(first) or (folder and folder.lower() in first.lower()):
-            if not unwrap_whole(first) and not is_piece(first):
-                composer = composer or tidy_title(byline.group(1) if byline else first)
-
-    if not composer:
-        for line in page_lines:
-            match = BYLINE.match(line)
-            if match:
-                composer = tidy_title(match.group(1))
-                break
-            if looks_like_name(line) and line.lower() != title.lower() and not unwrap_whole(line) and not is_piece(line):
-                composer = tidy_title(line)
-                break
-
-    if not composer:
-        by_file = re.search(r"\bby\s+(.+)$", file_title, flags=re.I)
-        if by_file:
-            composer = tidy_title(by_file.group(1))
-    if not composer:
-        composer = folder
-
-    if composer and (
-        BAD_ROLE.search(composer)
-        or JUNK.search(composer)
-        or composer.lower() == title.lower()
-        or re.fullmatch(r"(?:music|composed|arranged)\s+by", composer, flags=re.I)
-    ):
-        composer = folder
-
-    if is_bad_title(title):
-        title = file_title
-    if "[" in title or "]" in title:
-        title = tidy_title(title)
-    if is_bad_title(title):
-        title = file_title
-
-    if looks_like_name(title):
-        file_words = file_title.split()
-        name_words = title.split()
-        count = len(name_words)
-        if count:
-            file_fold = [word.lower() for word in file_words]
-            name_fold = [word.lower() for word in name_words]
-            if file_fold[-count:] == name_fold:
-                composer = composer or title
-                title = " ".join(file_words[:-count]) or title
-            elif file_fold[:count] == name_fold:
-                composer = composer or title
-                title = " ".join(file_words[count:]) or title
-
-    if len(title) <= 4 and not agrees(title, file_title):
-        title = file_title
-
-    title = tidy_title(title)
-    composer = tidy_title(composer)
-    composer = re.sub(r"^(?:performer|artist|composer|arranger)\s*:\s*", "", composer, flags=re.I).strip()
-    if title and composer and title.lower() in composer.lower():
-        _, maybe = split_dash(composer)
-        if maybe:
-            composer = maybe
-    if composer.lower() == title.lower() or (title and title.lower() in composer.lower() and not looks_like_name(composer)):
-        composer = folder
-
-    return {"title": title[:160], "subtitle": subtitle[:160], "composer": composer[:80]}
+    # Fallback (no dotnet): forward the filename; composer stays unknown.
+    # Never invent attribution here either.
+    return {"title": file_title[:160], "subtitle": "", "composer": ""}
 
 
 def write_catalog(path: Path, catalog: dict[str, dict[str, str]]) -> None:
@@ -401,39 +173,117 @@ def write_catalog(path: Path, catalog: dict[str, dict[str, str]]) -> None:
     os.replace(tmp, path)
 
 
+def apply_to_catalog(catalog_path: Path, proposals: dict, backup: Path | None) -> dict:
+    """Merge proposals with the app's contract: stale entries are skipped and
+    a failed write leaves the original catalog intact."""
+    current = json.loads(catalog_path.read_text(encoding="utf-8"))
+    if backup is not None:
+        write_catalog(backup, current)
+    applied: list[str] = []
+    skipped: list[dict] = []
+    for key, facts in proposals.items():
+        entry = next((k for k in current if k.lower() == key.lower()), None)
+        if entry is not None:
+            skipped.append({"path": key, "reason": "exists-preserved"})
+            continue
+        current[key] = facts
+        applied.append(key)
+    before = catalog_path.read_text(encoding="utf-8")
+    try:
+        write_catalog(catalog_path, current)
+        read_back = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        catalog_path.write_text(before, encoding="utf-8")
+        return {"applied": [], "skipped": [{"path": k, "reason": f"write-failed: {exc}"} for k in proposals]}
+    confirmed = sum(1 for k in applied if (read_back.get(k) or {}) == proposals[k])
+    return {"applied": applied, "skipped": skipped, "confirmed": confirmed}
+
+
 def main() -> int:
-    catalog = {}
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", default=str(DEFAULT_ROOT))
+    parser.add_argument("--out", default="")
+    parser.add_argument("--dotnet", default=str(DEFAULT_DLL))
+    parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--dry-run", action="store_true", default=True)
+    parser.add_argument("--apply-to", default="")
+    parser.add_argument("--backup", default="")
+    parser.add_argument("--self-check", action="store_true")
+    args = parser.parse_args()
+
+    if args.self_check:
+        return self_check()
+
+def run(root: Path, out: Path | str, dll: Path, limit: int, apply_to: str, backup: str) -> int:
+    catalog: dict[str, dict[str, str]] = {}
     errors = 0
-    ocr_used = 0
-    for pdf in sorted(ROOT.rglob("*.pdf")):
-        rel = pdf.relative_to(ROOT)
+    pdfs = sorted(root.rglob("*.pdf"))
+    if limit:
+        pdfs = pdfs[:limit]
+    for pdf in pdfs:
+        rel = pdf.relative_to(root)
         try:
-            catalog[str(rel).replace("/", "\\")] = extract(pdf, rel)
+            catalog[str(rel).replace("/", "\\")] = extract(pdf, rel, dll)
         except Exception:
             errors += 1
-            catalog[str(rel).replace("/", "\\")] = {"title": tidy_title(pdf.stem), "subtitle": "", "composer": folder_composer(rel)}
+            # Never invent attribution on the failure path either: an
+            # unreadable PDF leaves the composer unknown, same as extract().
+            catalog[str(rel).replace("/", "\\")] = {
+                "title": pdf.stem, "subtitle": "", "composer": ""}
 
-    write_catalog(BACKUP, catalog)
-    nas_error = ""
-    try:
-        write_catalog(CATALOG, catalog)
-        dest = str(CATALOG)
-    except OSError as exc:
-        nas_error = str(exc)
-        dest = str(BACKUP)
+    if out:
+        write_catalog(Path(out), catalog)
 
-    named = sum(1 for item in catalog.values() if item.get("composer"))
-    brackets = sum(1 for item in catalog.values() if "[" in (item.get("title") or "") or "]" in (item.get("title") or ""))
-    print(json.dumps({
+    result: dict = {
         "files": len(catalog),
-        "with_composer": named,
+        "with_composer": sum(1 for item in catalog.values() if item.get("composer")),
         "errors": errors,
-        "titles_with_brackets": brackets,
-        "path": dest,
-        "backup": str(BACKUP),
-        "nas_error": nas_error,
-    }, indent=2))
-    return 1 if nas_error else 0
+        "engine": "core-cli" if dll.exists() else "filename-fallback",
+        "path": str(out) if out else "(dry-run, no writes)",
+        "dry_run": not apply_to,
+    }
+    if apply_to:
+        catalog_path = Path(apply_to)
+        backup_path = Path(backup) if backup else None
+        merge = apply_to_catalog(catalog_path, catalog, backup_path)
+        result["merge"] = merge
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", default=str(DEFAULT_ROOT))
+    parser.add_argument("--out", default="")
+    parser.add_argument("--dotnet", default=str(DEFAULT_DLL))
+    parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--dry-run", action="store_true", default=True)
+    parser.add_argument("--apply-to", default="")
+    parser.add_argument("--backup", default="")
+    parser.add_argument("--self-check", action="store_true")
+    args = parser.parse_args()
+
+    if args.self_check:
+        return self_check()
+
+    return run(Path(args.root), args.out, Path(args.dotnet), args.limit, args.apply_to, args.backup)
+
+
+def self_check() -> int:
+    cases = [
+        ("John Williams", True),
+        ("(Main Theme)", True),
+        ("789: ;<=> 9: ?9@AB", False),
+        ("Copyright 2026", False),
+    ]
+    failed = 0
+    for line, want in cases:
+        got = useful(line)
+        if got != want:
+            print(f"FAIL useful({line!r}) = {got}, want {want}")
+            failed += 1
+    print("self-check: " + ("ok" if not failed else f"{failed} failures"))
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

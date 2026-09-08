@@ -1,0 +1,45 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: pip install pymupdf rapidocr_onnxruntime
+        shell: pwsh
+
+      - name: .NET tests
+        run: dotnet test Flipper.sln -c Release -p:Platform=x64
+        shell: pwsh
+
+      - name: Python tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+        shell: pwsh
+
+      - name: Score eval (synthetic, no tuning signal)
+        run: |
+          dotnet build src/Flipper.ScoreCli/Flipper.ScoreCli.csproj -c Release --nologo -v q
+          python tests/eval/run_eval.py --cli src/Flipper.ScoreCli/bin/Release/net8.0/flipper-score.dll
+        shell: pwsh

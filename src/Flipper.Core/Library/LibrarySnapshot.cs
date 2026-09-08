@@ -3,8 +3,10 @@ namespace Flipper.Core.Library;
 public sealed record LibrarySnapshot(
     string RootDisplayPath,
     IReadOnlyList<ScoreEntry> Scores,
-    bool RootReachable)
+    bool RootReachable,
+    IReadOnlyList<ScanSkipped>? Skipped = null)
 {
+    public IReadOnlyList<ScanSkipped> SkippedPaths => Skipped ?? Array.Empty<ScanSkipped>();
     public LibrarySnapshot Without(string canonicalPath)
     {
         var next = Scores

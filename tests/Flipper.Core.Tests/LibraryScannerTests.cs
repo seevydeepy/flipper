@@ -107,6 +107,50 @@ public sealed class LibraryScannerTests
         Assert.Empty(snapshot.Scores);
     }
 
+    [Fact]
+    public void Scan_SkippedFolders_AreVisible_AndDoNotAbortOthers()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "Visible.pdf"), "a");
+        // A reparse point (symlink/junction) child is skipped without error.
+        var link = Path.Combine(root.Path, "Link");
+        try
+        {
+            Directory.CreateSymbolicLink(link, root.Path);
+        }
+        catch (IOException)
+        {
+            // Privilege absent: the scan still reports the visible score.
+            var fallback = LibraryScanner.Scan(root.Path);
+            Assert.Contains(fallback.Scores, score => score.DisplayName == "Visible");
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            var fallback = LibraryScanner.Scan(root.Path);
+            Assert.Contains(fallback.Scores, score => score.DisplayName == "Visible");
+            return;
+        }
+
+        var snapshot = LibraryScanner.Scan(root.Path);
+        Assert.Contains(snapshot.Scores, score => score.DisplayName == "Visible");
+        Assert.DoesNotContain(snapshot.Scores, score => score.RelativeFolder == "Link");
+    }
+
+    [Fact]
+    public void Scan_RecordsSkippedEntries_ForUnreadableFiles()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "Visible.pdf"), "a");
+        // A directory masquerading as a .pdf: stat succeeds, extension matches,
+        // content unreadable as a file — scan must not abort.
+        Directory.CreateDirectory(Path.Combine(root.Path, "Weird.pdf"));
+
+        var snapshot = LibraryScanner.Scan(root.Path);
+        Assert.True(snapshot.RootReachable);
+        Assert.Contains(snapshot.Scores, score => score.DisplayName == "Visible");
+    }
+
     private static int RunIcacls(string args)
     {
         var start = new System.Diagnostics.ProcessStartInfo

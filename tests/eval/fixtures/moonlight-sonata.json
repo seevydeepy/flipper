@@ -1,0 +1,1 @@
+{"case": "identity-selection", "expected": {"composer": "Ludwig van Beethoven", "subtitle": null, "title": "Moonlight Sonata"}, "fileName": "Moonlight Sonata.pdf", "lines": ["Moonlight Sonata", "Ludwig van Beethoven", "Allegro con brio"], "metadata": {}, "notes": "Tempo line must not displace corroborated title; title must not become composer."}

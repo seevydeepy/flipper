@@ -71,14 +71,14 @@ public sealed class AutomaticScoreCatalog : IDisposable
             _retryPaused = false;
             foreach (var score in snapshot.Scores)
             {
-                if (score.HasCatalogEntry)
+                if (ScoreTrash.IsHiddenFolder(score.RelativeFolder))
                 {
-                    _seen.Remove(WorkId(score));
                     continue;
                 }
 
-                if (ScoreTrash.IsHiddenFolder(score.RelativeFolder))
+                if (score.HasCatalogEntry && !NeedsReanalysis(root, score))
                 {
+                    _seen.Remove(WorkId(score));
                     continue;
                 }
 
@@ -150,7 +150,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     continue;
                 }
 
-                var facts = await _extractor.ExtractAsync(entry, token);
+                var result = await _extractor.ExtractWithStatusAsync(entry, token);
+                var facts = result.Facts;
                 if (!IsStable(entry))
                 {
                     DiscardForRetry(root, generation, entry);
@@ -166,7 +167,14 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     }
 
                     var key = CatalogKey(entry);
-                    _pending[key] = new PendingFacts(entry, facts);
+                    var provenance = CatalogProvenance.ForGenerated(
+                        ScoreFacts.CurrentExtractorVersion,
+                        entry.Length,
+                        entry.LastWriteUtc,
+                        facts,
+                        result.Status,
+                        explanation: result.Detail);
+                    _pending[key] = new PendingFacts(entry, facts, provenance);
                     _overlay.Add(entry, facts);
                     flush = _pending.Count >= BatchSize;
                 }
@@ -235,7 +243,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 pair.Value.Facts,
                 pair.Value.Entry.DisplayFullPath,
                 pair.Value.Entry.Length,
-                pair.Value.Entry.LastWriteUtc),
+                pair.Value.Entry.LastWriteUtc,
+                pair.Value.Provenance),
             StringComparer.OrdinalIgnoreCase);
         var result = await Task.Run(
             () => ScoreCatalog.TryMergeMissing(root, generated, token),
@@ -323,6 +332,20 @@ public sealed class AutomaticScoreCatalog : IDisposable
         return ScoreCatalog.Key(entry.RelativeFolder, Path.GetFileName(entry.DisplayFullPath));
     }
 
+    /// <summary>
+    /// An existing catalog entry is worth reanalysing when its source changed
+    /// since extraction, the extractor moved on, or a transient failure's
+    /// backoff expired. Manual-only and legacy entries are never scheduled.
+    /// Provenance lives beside the catalog entry, so the live root is read.
+    /// </summary>
+    internal static bool NeedsReanalysis(
+        string root,
+        ScoreEntry score,
+        DateTime? nowUtc = null)
+    {
+        return ScoreCatalog.NeedsReanalysis(root, score, nowUtc);
+    }
+
     private static string WorkId(ScoreEntry entry)
     {
         return $"{CatalogKey(entry)}|{entry.Length}|{entry.LastWriteUtc.Ticks}";
@@ -347,5 +370,5 @@ public sealed class AutomaticScoreCatalog : IDisposable
         }
     }
 
-    private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts);
+    private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts, CatalogProvenance Provenance);
 }

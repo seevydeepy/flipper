@@ -1,0 +1,1 @@
+{"case": "filenames", "expected": {"composer": null, "subtitle": null, "title": "Photocopy"}, "fileName": "Photocopy.pdf", "lines": [], "metadata": {}, "notes": "Copy-suffix stripping must not eat a real word: Photocopy stays intact."}
