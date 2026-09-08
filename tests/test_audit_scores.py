@@ -42,6 +42,30 @@ class AuditScoresTests(unittest.TestCase):
         self.assertEqual("Air", facts["title"])
         self.assertEqual("", facts["composer"])
 
+    def test_main_failure_path_never_invents_composer(self):
+        # A PDF whose text extraction throws must surface as an unreadable
+        # file with an unknown composer — never the folder name.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Corpus" / "Bach").mkdir(parents=True)
+            bad = root / "Corpus" / "Bach" / "Broken.pdf"
+            bad.write_bytes(b"not a pdf at all")
+            out = root / "catalog.json"
+            real_page_text = AUDIT.page_text
+
+            def boom(_pdf: Path):
+                raise RuntimeError("unreadable")
+
+            AUDIT.page_text = boom  # type: ignore[assignment]
+            try:
+                rc = AUDIT.run(root, out, Path("nonexistent.dll"), 0, "", "")
+            finally:
+                AUDIT.page_text = real_page_text  # type: ignore[assignment]
+            self.assertEqual(0, rc)
+            data = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual("", data["Corpus\\Bach\\Broken.pdf"]["composer"])
+            self.assertEqual("Broken", data["Corpus\\Bach\\Broken.pdf"]["title"])
+
     def test_apply_to_catalog_preserves_existing_and_confirms(self):
         with tempfile.TemporaryDirectory() as folder:
             catalog_path = Path(folder) / ".flipper-catalog.json"

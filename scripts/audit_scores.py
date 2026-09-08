@@ -214,40 +214,59 @@ def main() -> int:
     if args.self_check:
         return self_check()
 
-    root = Path(args.root)
-    dll = Path(args.dotnet)
+def run(root: Path, out: Path | str, dll: Path, limit: int, apply_to: str, backup: str) -> int:
     catalog: dict[str, dict[str, str]] = {}
     errors = 0
     pdfs = sorted(root.rglob("*.pdf"))
-    if args.limit:
-        pdfs = pdfs[: args.limit]
+    if limit:
+        pdfs = pdfs[:limit]
     for pdf in pdfs:
         rel = pdf.relative_to(root)
         try:
             catalog[str(rel).replace("/", "\\")] = extract(pdf, rel, dll)
         except Exception:
             errors += 1
+            # Never invent attribution on the failure path either: an
+            # unreadable PDF leaves the composer unknown, same as extract().
             catalog[str(rel).replace("/", "\\")] = {
-                "title": pdf.stem, "subtitle": "", "composer": folder_composer(rel)}
+                "title": pdf.stem, "subtitle": "", "composer": ""}
 
-    if args.out:
-        write_catalog(Path(args.out), catalog)
+    if out:
+        write_catalog(Path(out), catalog)
 
     result: dict = {
         "files": len(catalog),
         "with_composer": sum(1 for item in catalog.values() if item.get("composer")),
         "errors": errors,
         "engine": "core-cli" if dll.exists() else "filename-fallback",
-        "path": args.out or "(dry-run, no writes)",
-        "dry_run": not args.apply_to,
+        "path": str(out) if out else "(dry-run, no writes)",
+        "dry_run": not apply_to,
     }
-    if args.apply_to:
-        catalog_path = Path(args.apply_to)
-        backup = Path(args.backup) if args.backup else None
-        merge = apply_to_catalog(catalog_path, catalog, backup)
+    if apply_to:
+        catalog_path = Path(apply_to)
+        backup_path = Path(backup) if backup else None
+        merge = apply_to_catalog(catalog_path, catalog, backup_path)
         result["merge"] = merge
     print(json.dumps(result, indent=2))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", default=str(DEFAULT_ROOT))
+    parser.add_argument("--out", default="")
+    parser.add_argument("--dotnet", default=str(DEFAULT_DLL))
+    parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--dry-run", action="store_true", default=True)
+    parser.add_argument("--apply-to", default="")
+    parser.add_argument("--backup", default="")
+    parser.add_argument("--self-check", action="store_true")
+    args = parser.parse_args()
+
+    if args.self_check:
+        return self_check()
+
+    return run(Path(args.root), args.out, Path(args.dotnet), args.limit, args.apply_to, args.backup)
 
 
 def self_check() -> int:
