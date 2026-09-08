@@ -567,7 +567,7 @@ public static class ScoreCatalog
             };
             FieldDiff(stored, "title", pair.Value.Facts.Title, out var titleTo, out var titleKeep);
             FieldDiff(stored, "composer", pair.Value.Facts.Composer, out var composerTo, out var composerKeep);
-            FieldDiff(stored, "subtitle", pair.Value.Facts.Subtitle, out var subtitleTo, out _);
+            FieldDiff(stored, "subtitle", pair.Value.Facts.Subtitle, out var subtitleTo, out var subtitleKeep);
             if (titleTo is not null || composerTo is not null || subtitleTo is not null)
             {
                 changes.Add(new ReanalysisChange(
@@ -582,7 +582,7 @@ public static class ScoreCatalog
                     }));
             }
 
-            if (titleKeep || composerKeep)
+            if (titleKeep || composerKeep || subtitleKeep)
             {
                 preserved.Add(key);
             }
