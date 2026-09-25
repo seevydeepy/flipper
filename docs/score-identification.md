@@ -1,7 +1,8 @@
 # Score identification and catalogue reliability
 
-Flipper identifies score titles and composers locally from each PDF's embedded
-text and metadata, with Windows OCR as a fallback. Correct attribution beats
+Flipper identifies score titles and composers from each PDF's embedded text and
+metadata, with Windows OCR as a fallback. Optional Jev selection sends the
+extracted text and PDF metadata to TypeSafe when the user saves a key. Correct attribution beats
 completeness: an unknown composer is better than a confidently wrong one.
 
 ## Automatic extraction
@@ -24,6 +25,27 @@ titles. Unverified filenames remain display fallbacks and are not saved as
 identified titles. Composer names need a role label or corroboration; separate
 title and composer columns are kept separate. App and CLI use the same rich
 inference decision, including its evidence.
+
+## Optional Jev selection
+
+The Settings menu accepts a user-supplied TypeSafe API key. It stays in the
+Windows Credential Locker for that user, outside `settings.json` and the shared
+score catalogue. Removing it restores local-only identification. No key is
+bundled with Carousel. The API sees extracted text, PDF metadata and the filename;
+it does not receive the PDF or its images.
+
+With a key saved, the local extractor still finds and cleans candidate page
+titles and composer names. Jev 1.13 selects from these candidates, with a
+`none` choice for each field. A title needs at least 0.98 selected-option
+probability; a composer needs at least 0.90. Otherwise the title remains an
+unverified filename display fallback and the composer remains unknown. A
+service error or timeout keeps the local inference result. These thresholds
+are conservative initial values, not measured calibration for this library.
+
+New or changed scores use Jev automatically while a key is saved. Settings also
+has **Reanalyse existing scores** for a deliberate background pass over existing
+generated entries. It can replace or clear generated fields but never changes
+manual corrections or legacy fields. The CLI remains local-only.
 
 ## How to inspect a decision
 
@@ -95,7 +117,7 @@ Each catalog entry keeps its facts plus an optional `provenance` object:
     "subtitle": null,
     "composer": "Ludwig van Beethoven",
     "provenance": {
-      "extractorVersion": 3,
+      "extractorVersion": 4,
       "sourceLength": 41230,
       "sourceLastWriteUtc": "2026-09-01T10:00:00Z",
       "status": "complete",

@@ -14,7 +14,7 @@ public static class ScoreFactInference
     /// Extractor version for <see cref="ScoreFacts.CurrentExtractorVersion"/>.
     /// Version 3 requires corroboration or a clear layout heading for identification.
     /// </summary>
-    public const int InferenceVersion = 3;
+    public const int InferenceVersion = 4;
 
     private static readonly Regex NumberSuffix = new(
         @"\s*\(\d+\)\s*$",
@@ -449,6 +449,62 @@ public static class ScoreFactInference
         var merged = MergeMultilineTitles(richLines);
         var strings = merged.Select(line => line.Text).ToArray();
         return InferCore(fileName, metadata, strings, null, merged);
+    }
+
+    public sealed record ScoreCandidate(string Text, string Evidence);
+
+    public sealed record CandidateSet(
+        IReadOnlyList<ScoreCandidate> Titles,
+        IReadOnlyList<ScoreCandidate> Composers,
+        IReadOnlyList<ScoreTextLine> Lines);
+
+    /// <summary>Recall-oriented proposals for a closed-set selector. None is always a valid answer.</summary>
+    public static CandidateSet ProposeRichCandidates(
+        string fileName, ScoreMetadata metadata, IReadOnlyList<ScoreTextLine> richLines)
+    {
+        // ponytail: inspect the first 80 merged lines; raise this only if labelled scores show missed titles.
+        var lines = MergeMultilineTitles(richLines).Take(80).ToArray();
+        var text = lines.Select(line => CleanText(line.Text)).ToArray();
+        var credits = ExtractCredits(text);
+        var titles = new List<ScoreCandidate>();
+        var composers = new List<ScoreCandidate>();
+
+        static void Add(List<ScoreCandidate> target, string? value, string evidence, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value)
+                || value.Length > maxLength
+                || target.Any(candidate => string.Equals(candidate.Text, value, StringComparison.OrdinalIgnoreCase)))
+                return;
+            target.Add(new ScoreCandidate(value, evidence));
+        }
+
+        foreach (var credit in credits.Where(credit => credit.Role == CreditRole.Composer))
+            Add(composers, CleanComposer(credit.Name), "printed composer credit", 80);
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var value = text[i];
+            if (!IsUsefulLine(value)) continue;
+            var role = ClassifyCredit(value, out _);
+            var evidence = $"page {lines[i].PageNumber}, {lines[i].Source.ToString().ToLowerInvariant()} text"
+                + (lines[i].Y < 0.35 ? ", near top" : "");
+            if (!IsBadTitle(value) && !IsDirection(value) && !IsPiece(value)
+                && !IsCatalogueFragment(value) && role == CreditRole.None
+                && !credits.Any(credit => string.Equals(credit.Name, value, StringComparison.OrdinalIgnoreCase)))
+                Add(titles, CleanTitle(UnwrapWhole(value) ?? value), evidence, 160);
+
+            if (role != CreditRole.None || IsMovementHeader(value)
+                || IsQuotedSeriesHeader(value) || HasSeparatorMark(value)) continue;
+            var split = SplitComposerCatalogue(value)?.Name
+                ?? SplitFusedCredit(value, CleanComposer(metadata.Author))?.Name
+                ?? SplitComposerTempo(value)?.Name;
+            if (split is not null || LooksLikeName(value))
+                Add(composers, CleanComposer(split ?? value), evidence, 80);
+        }
+
+        // A filename byline is explicit evidence, but metadata Author alone may be an uploader.
+        Add(composers, CleanComposer(ParseFilenameSegments(fileName).Composer), "filename composer byline", 80);
+        return new CandidateSet(titles.Take(254).ToArray(), composers.Take(254).ToArray(), lines);
     }
 
     /// <summary>
@@ -1205,7 +1261,9 @@ public static class ScoreFactInference
         bool TitleVerified,
         string TitleEvidence,
         string ComposerEvidence,
-        string? TitleRunnerUp);
+        string? TitleRunnerUp,
+        double? TitleProbability = null,
+        double? ComposerProbability = null);
 
     internal sealed class EvidenceSelector
     {

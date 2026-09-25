@@ -751,15 +751,15 @@ public static class ScoreCatalog
                 && !string.IsNullOrWhiteSpace(candidate.Facts.Title))
             || (string.IsNullOrWhiteSpace(stored.Facts.Composer)
                 && !string.IsNullOrWhiteSpace(candidate.Facts.Composer));
-        if (!sourceChanged && !extractorUpgraded && !retryDue && !unresolvedFill)
+        if (!candidate.ForceRefresh && !sourceChanged && !extractorUpgraded && !retryDue && !unresolvedFill)
         {
             return false;
         }
 
         var before = catalog[actualKey]?.ToJsonString();
-        CopyField(stored, provenance, "title", candidate.Facts.Title, incoming);
-        CopyField(stored, provenance, "composer", candidate.Facts.Composer, incoming);
-        CopyField(stored, provenance, "subtitle", candidate.Facts.Subtitle, incoming);
+        CopyField(stored, provenance, "title", candidate.Facts.Title, incoming, candidate.ForceRefresh);
+        CopyField(stored, provenance, "composer", candidate.Facts.Composer, incoming, candidate.ForceRefresh);
+        CopyField(stored, provenance, "subtitle", candidate.Facts.Subtitle, incoming, candidate.ForceRefresh);
         provenance.ExtractorVersion = Math.Max(
             provenance.ExtractorVersion, incoming?.ExtractorVersion ?? provenance.ExtractorVersion);
         if (candidate.SourcePath is not null)
@@ -801,7 +801,8 @@ public static class ScoreCatalog
         CatalogProvenance provenance,
         string field,
         string? incoming,
-        CatalogProvenance? incomingProvenance)
+        CatalogProvenance? incomingProvenance,
+        bool forceRefresh)
     {
         if (provenance.Fields.TryGetValue(field, out var current)
             && (current.Origin == ScoreFieldOrigin.Manual || current.Origin == ScoreFieldOrigin.Legacy))
@@ -809,7 +810,7 @@ public static class ScoreCatalog
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(incoming))
+        if (string.IsNullOrWhiteSpace(incoming) && !forceRefresh)
         {
             return;
         }
@@ -823,7 +824,8 @@ public static class ScoreCatalog
         }
 
         var target = provenance.Field(field);
-        target.Origin = ScoreFieldOrigin.Generated;
+        target.Origin = string.IsNullOrWhiteSpace(incoming)
+            ? ScoreFieldOrigin.Unresolved : ScoreFieldOrigin.Generated;
         if (incomingProvenance?.Fields.TryGetValue(field, out var source) == true)
         {
             target.Confidence = source.Confidence;
@@ -855,7 +857,8 @@ public sealed record CatalogMergeCandidate(
     string? SourcePath = null,
     long Length = 0,
     DateTime LastWriteUtc = default,
-    CatalogProvenance? Provenance = null);
+    CatalogProvenance? Provenance = null,
+    bool ForceRefresh = false);
 
 public readonly record struct CatalogMergeResult(
     CatalogMergeStatus Status,

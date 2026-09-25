@@ -11,6 +11,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
     private readonly SessionScoreFactsOverlay _overlay = new();
     private readonly Queue<ScoreEntry> _queue = new();
     private readonly HashSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _forced = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PendingFacts> _pending = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource _cts = new();
     private Task? _worker;
@@ -46,6 +47,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
             _generation++;
             _queue.Clear();
             _seen.Clear();
+            _forced.Clear();
             _pending.Clear();
             _retryPaused = false;
             _overlay.SetRoot(root);
@@ -114,6 +116,29 @@ public sealed class AutomaticScoreCatalog : IDisposable
 
             StartWorkerLocked();
         }
+    }
+
+    public int QueueJevReanalysis(string root, LibrarySnapshot snapshot)
+    {
+        SetRoot(root);
+        if (!snapshot.RootReachable || snapshot.CatalogEntries is null) return 0;
+        var count = 0;
+        lock (_gate)
+        {
+            if (_disposed || !string.Equals(_root, root, StringComparison.OrdinalIgnoreCase)) return 0;
+            foreach (var score in snapshot.Scores)
+            {
+                if (ScoreTrash.IsHiddenFolder(score.RelativeFolder)) continue;
+                var stored = snapshot.CatalogEntries.GetValueOrDefault(CatalogKey(score));
+                if (stored is null || stored.IsLegacy || new[] { "title", "composer", "subtitle" }.All(
+                    field => stored.OriginOf(field) is ScoreFieldOrigin.Manual or ScoreFieldOrigin.Legacy)) continue;
+                var id = WorkId(score);
+                if (_forced.Add(id)) count++;
+                if (_seen.Add(id)) _queue.Enqueue(score);
+            }
+            StartWorkerLocked();
+        }
+        return count;
     }
 
     private void StartWorkerLocked()
@@ -197,7 +222,9 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     }
                     return;
                 }
-                if (!ScoreCatalog.NeedsReanalysis(stored, entry, includeExtractorUpgrade: false))
+                bool forced;
+                lock (_gate) forced = _forced.Contains(WorkId(entry));
+                if (!forced && !ScoreCatalog.NeedsReanalysis(stored, entry, includeExtractorUpgrade: false))
                 {
                     lock (_gate)
                     {
@@ -220,6 +247,11 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     throw;
                 }
                 var facts = result.Facts;
+                if (forced && !result.JevEvaluated)
+                {
+                    DiscardForRetry(root, generation, entry);
+                    continue;
+                }
                 if (!IsStable(entry))
                 {
                     DiscardForRetry(root, generation, entry);
@@ -246,8 +278,10 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     {
                         provenance.Field("title").Explanation = decision.TitleEvidence;
                         provenance.Field("composer").Explanation = decision.ComposerEvidence;
+                        provenance.Field("title").Confidence = decision.TitleProbability;
+                        provenance.Field("composer").Confidence = decision.ComposerProbability;
                     }
-                    _pending[key] = new PendingFacts(entry, facts, provenance);
+                    _pending[key] = new PendingFacts(entry, facts, provenance, forced);
                     _overlay.Add(entry, facts);
                     flush = _pending.Count >= BatchSize || lastFlush.Elapsed >= TimeSpan.FromSeconds(2);
                 }
@@ -307,7 +341,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 pair.Value.Entry.DisplayFullPath,
                 pair.Value.Entry.Length,
                 pair.Value.Entry.LastWriteUtc,
-                pair.Value.Provenance),
+                pair.Value.Provenance,
+                pair.Value.ForceRefresh),
             StringComparer.OrdinalIgnoreCase);
         var result = await Task.Run(
             () => ScoreCatalog.TryMergeMissing(root, generated, token),
@@ -339,6 +374,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
             {
                 _pending.Remove(pair.Key);
                 _seen.Remove(WorkId(pair.Value.Entry));
+                _forced.Remove(WorkId(pair.Value.Entry));
                 if (rejected.Contains(pair.Key))
                 {
                     _overlay.Remove(pair.Value.Entry);
@@ -360,6 +396,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
             }
 
             _seen.Remove(WorkId(entry));
+            _forced.Remove(WorkId(entry));
             _pending.Remove(CatalogKey(entry));
             _overlay.Remove(entry);
         }
@@ -416,10 +453,12 @@ public sealed class AutomaticScoreCatalog : IDisposable
             if (_worker is null || _worker.IsCompleted) _cts.Dispose();
             _queue.Clear();
             _seen.Clear();
+            _forced.Clear();
             _pending.Clear();
             _overlay.SetRoot(null);
         }
     }
 
-    private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts, CatalogProvenance Provenance);
+    private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts, CatalogProvenance Provenance,
+        bool ForceRefresh);
 }

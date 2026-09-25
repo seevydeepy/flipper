@@ -24,11 +24,14 @@ public sealed record ScoreExtractionResult(
     OcrOutcome Ocr,
     string? Detail = null,
     ExtractionStatus Status = ExtractionStatus.Partial,
-    ScoreFactInference.InferenceDecision? Decision = null);
+    ScoreFactInference.InferenceDecision? Decision = null,
+    bool JevEvaluated = false);
 
 public sealed class PdfScoreFactExtractor
 {
     private const int OcrPixelWidth = 1600;
+    private static readonly HttpClient JevHttp = new() { Timeout = TimeSpan.FromSeconds(8) };
+    private static readonly JevScoreSelector Jev = new(JevHttp);
 
     /// <summary>
     /// Configurable budgets: early pages inspected, OCR pages rendered, and the
@@ -57,6 +60,8 @@ public sealed class PdfScoreFactExtractor
 
         var embedded = new ScoreExtraction(default, [], ScoreExtractionOutcome.NoReadableText);
         var decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, default, []);
+        IReadOnlyList<ScoreTextLine> allLines = [];
+        var jevEvaluated = false;
         var ocrOutcome = OcrOutcome.NotNeeded;
         try
         {
@@ -69,6 +74,7 @@ public sealed class PdfScoreFactExtractor
                     embedded.Lines.Concat(next.Lines).ToArray(), next.Outcome, next.Detail);
                 token.ThrowIfCancellationRequested();
                 decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, embedded.Metadata, embedded.Lines);
+                allLines = embedded.Lines;
                 if (decision.TitleVerified || next.Outcome == ScoreExtractionOutcome.ExtractionFailure) break;
             }
 
@@ -80,18 +86,58 @@ public sealed class PdfScoreFactExtractor
                 detail = ocr.Detail ?? detail;
                 if (ocr.Lines.Count > 0)
                 {
-                    decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, embedded.Metadata,
-                        MergeSources(embedded.Lines, ocr.Lines));
+                    allLines = MergeSources(embedded.Lines, ocr.Lines);
+                    decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, embedded.Metadata, allLines);
                 }
             }
 
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                var apiKey = JevApiKeyStore.Load();
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                {
+                    var candidates = ScoreFactInference.ProposeRichCandidates(
+                        entry.DisplayName, embedded.Metadata, allLines);
+                    var selected = await Jev.SelectAsync(apiKey, entry.DisplayName,
+                        embedded.Metadata, candidates, token);
+                    jevEvaluated = candidates.Titles.Count > 0 || candidates.Composers.Count > 0;
+                    var title = selected.Title;
+                    var composer = selected.Composer;
+                    if (string.Equals(title, composer, StringComparison.OrdinalIgnoreCase)) composer = null;
+                    decision = decision with
+                    {
+                        Facts = new ScoreFacts
+                        {
+                            Title = title ?? ScoreFactInference.CleanFileName(entry.DisplayName),
+                            Composer = composer,
+                            Subtitle = title is not null && string.Equals(title, decision.Facts.Title,
+                                StringComparison.OrdinalIgnoreCase) ? decision.Facts.Subtitle : null
+                        },
+                        TitleVerified = title is not null,
+                        TitleEvidence = title is null ? "Jev abstained" : $"Jev {selected.Model} selected printed title",
+                        ComposerEvidence = composer is null ? "Jev abstained" : $"Jev {selected.Model} selected composer",
+                        TitleRunnerUp = null,
+                        TitleProbability = selected.TitleProbability,
+                        ComposerProbability = selected.ComposerProbability
+                    };
+                }
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                // A Jev timeout leaves the existing local decision intact.
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A failed optional service leaves the existing local decision intact.
+            }
             token.ThrowIfCancellationRequested();
             var facts = IdentifiedFacts(decision);
             var status = !decision.TitleVerified
                 && (embedded.Outcome == ScoreExtractionOutcome.ExtractionFailure || ocrOutcome == OcrOutcome.Failed)
                 ? ExtractionStatus.FailedTransient
                 : facts.Title is null || facts.Composer is null ? ExtractionStatus.Partial : ExtractionStatus.Complete;
-            return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision);
+            return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision, jevEvaluated);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {

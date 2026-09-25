@@ -42,6 +42,8 @@ public sealed partial class LibraryPage
         body.Children.Add(CreateSettingsRule());
         body.Children.Add(CreateUiScaleSection());
         body.Children.Add(CreateSettingsRule());
+        body.Children.Add(CreateJevSection());
+        body.Children.Add(CreateSettingsRule());
         body.Children.Add(await CreateVoiceSectionAsync());
         body.Children.Add(CreateSettingsRule());
         body.Children.Add(CreateUpdateSection());
@@ -122,6 +124,69 @@ public sealed partial class LibraryPage
         var section = new StackPanel { Spacing = 6 };
         section.Children.Add(CreateSettingsLabel("UI scale"));
         section.Children.Add(stops);
+        return section;
+    }
+
+    private FrameworkElement CreateJevSection()
+    {
+        var key = new PasswordBox { PlaceholderText = "Paste your TypeSafe API key" };
+        AutomationProperties.SetName(key, "Jev API key");
+        var status = CreateSettingsValue(string.Empty);
+        var save = new Button { Content = "Save key" };
+        var remove = new Button { Content = "Remove key" };
+        var reanalyse = new Button { Content = "Reanalyse existing scores" };
+        try
+        {
+            reanalyse.IsEnabled = JevApiKeyStore.Load() is not null;
+            status.Text = reanalyse.IsEnabled ? "Key saved on this Windows account" : "No key saved";
+        }
+        catch (Exception) { status.Text = "Windows credential storage is unavailable"; }
+        save.Click += (_, _) =>
+        {
+            try
+            {
+                JevApiKeyStore.Save(key.Password);
+                key.Password = string.Empty;
+                status.Text = "Key saved on this Windows account";
+                reanalyse.IsEnabled = true;
+            }
+            catch (ArgumentException) { status.Text = "Enter an API key first"; }
+            catch (Exception) { status.Text = "Could not save key"; }
+        };
+        remove.Click += (_, _) =>
+        {
+            try
+            {
+                JevApiKeyStore.Remove();
+                key.Password = string.Empty;
+                status.Text = "No key saved";
+                reanalyse.IsEnabled = false;
+            }
+            catch (Exception) { status.Text = "Could not remove key"; }
+        };
+        reanalyse.Click += (_, _) =>
+        {
+            var root = App.Current.Settings.LibraryPath;
+            if (string.IsNullOrWhiteSpace(root) || !_snapshot.RootReachable)
+            {
+                status.Text = "Open a library folder first";
+                return;
+            }
+            var queued = _automaticCatalog.QueueJevReanalysis(root, _snapshot);
+            status.Text = queued == 0 ? "No existing scores need reanalysis"
+                : $"Queued {queued} scores; catalogue cards will update in the background";
+        };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        buttons.Children.Add(save);
+        buttons.Children.Add(remove);
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(CreateSettingsLabel("Jev score identification"));
+        section.Children.Add(CreateSettingsValue(
+            "Optional. A saved key sends extracted score text and PDF metadata to TypeSafe for new or changed scores. Remove the key to use local identification only."));
+        section.Children.Add(key);
+        section.Children.Add(buttons);
+        section.Children.Add(reanalyse);
+        section.Children.Add(status);
         return section;
     }
 
