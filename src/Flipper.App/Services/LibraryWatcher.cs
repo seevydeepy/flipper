@@ -10,6 +10,7 @@ public sealed class LibraryWatcher : IDisposable
     private bool _disposed;
 
     public event Action? Changed;
+    public event Action? CatalogChanged;
 
     public void Start(string path)
     {
@@ -66,7 +67,21 @@ public sealed class LibraryWatcher : IDisposable
         }
     }
 
-    private void OnFsEvent(object sender, FileSystemEventArgs e) => ScheduleNotify();
+    private void OnFsEvent(object sender, FileSystemEventArgs e)
+    {
+        const string catalog = Flipper.Core.Library.ScoreCatalog.FileName;
+        if (string.Equals(e.Name, catalog, StringComparison.OrdinalIgnoreCase)
+            || e is RenamedEventArgs renamed && string.Equals(renamed.OldName, catalog, StringComparison.OrdinalIgnoreCase))
+        {
+            CatalogChanged?.Invoke();
+            return;
+        }
+
+        if (string.Equals(e.Name, ".flipper-catalog.lock", StringComparison.OrdinalIgnoreCase)
+            || (e.Name?.StartsWith(catalog + ".", StringComparison.OrdinalIgnoreCase) == true
+                && e.Name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))) return;
+        ScheduleNotify();
+    }
 
     private void ScheduleNotify()
     {

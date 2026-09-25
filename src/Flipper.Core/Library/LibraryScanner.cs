@@ -13,21 +13,21 @@ public static class LibraryScanner
         }
 
         var catalog = catalogCache is null
-            ? ScoreCatalog.Load(displayRoot)
-            : catalogCache.Load(displayRoot);
+            ? ScoreCatalog.LoadEntries(displayRoot)
+            : catalogCache.LoadEntries(displayRoot);
         ScoreTrash.Ensure(displayRoot);
         var trashIndex = ScoreTrash.LoadIndex(displayRoot);
         var scores = new List<ScoreEntry>();
         var skipped = new List<ScanSkipped>();
         ScanDirectory(displayRoot, displayRoot, scores, catalog, trashIndex, skipped, isRoot: true);
-        return new LibrarySnapshot(displayRoot, scores, true, [.. skipped]);
+        return new LibrarySnapshot(displayRoot, scores, true, [.. skipped], catalog);
     }
 
     private static void ScanDirectory(
         string root,
         string current,
         List<ScoreEntry> scores,
-        IReadOnlyDictionary<string, ScoreFacts> catalog,
+        IReadOnlyDictionary<string, ScoreCatalogEntry> catalog,
         IReadOnlyList<TrashRecord> trashIndex,
         List<ScanSkipped> skipped,
         bool isRoot)
@@ -122,7 +122,8 @@ public static class LibraryScanner
                     }
                 }
 
-                var hasCatalogEntry = catalog.TryGetValue(catalogKey, out var facts);
+                var hasCatalogEntry = catalog.TryGetValue(catalogKey, out var stored);
+                var facts = stored?.Facts;
                 scores.Add(new ScoreEntry(
                     Path.GetFileNameWithoutExtension(stable.Name),
                     relative,
@@ -133,7 +134,7 @@ public static class LibraryScanner
                     facts?.Title,
                     facts?.Composer,
                     facts?.Subtitle,
-                    hasCatalogEntry));
+                    hasCatalogEntry) { Provenance = stored?.Provenance });
             }
         }
         catch (UnauthorizedAccessException)

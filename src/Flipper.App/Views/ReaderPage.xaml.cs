@@ -12,6 +12,11 @@ namespace Flipper.App.Views;
 public sealed partial class ReaderPage : Page
 {
     private PdfPageSource? _pdf;
+    private string? _cachePath;
+    private int _loadEpoch;
+    private CancellationTokenSource? _drawCts;
+    private bool _drawBusy;
+    private bool _drawAgain;
     private DisplayRequest? _displayRequest;
     private readonly DispatcherTimer _heardTimer = new() { Interval = TimeSpan.FromSeconds(1.4) };
     private readonly DispatcherTimer _levelTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
@@ -60,15 +65,7 @@ public sealed partial class ReaderPage : Page
         TitleLabel.Text = args.Score.DisplayName;
         _cropToInk = App.Current.Settings.CropToInk;
         PaintCropChip();
-        try
-        {
-            _pdf = new PdfPageSource(args.CachePath);
-        }
-        catch (Exception)
-        {
-            _pdf = null;
-        }
-
+        _cachePath = args.CachePath;
         _lowestVisible = 0;
     }
 
@@ -79,6 +76,20 @@ public sealed partial class ReaderPage : Page
         _displayRequest = new DisplayRequest();
         _displayRequest.RequestActive();
         ShowChromeLabels();
+        var loadEpoch = ++_loadEpoch;
+        PdfPageSource? opened = null;
+        try
+        {
+            var path = _cachePath;
+            if (path is not null) opened = await Task.Run(() => new PdfPageSource(path));
+        }
+        catch (Exception) { }
+        if (!_ready || loadEpoch != _loadEpoch)
+        {
+            opened?.Dispose();
+            return;
+        }
+        _pdf = opened;
         Draw();
         if (!App.Current.Settings.VoiceTurningEnabled)
         {
@@ -111,6 +122,9 @@ public sealed partial class ReaderPage : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _ready = false;
+        _loadEpoch++;
+        _drawAgain = false;
+        _drawCts?.Cancel();
         _voiceOn = false;
         _voiceEpoch++;
         _voice.Stop();
@@ -372,7 +386,33 @@ public sealed partial class ReaderPage : Page
 
     private void Draw()
     {
-        if (_pdf is null)
+        _drawAgain = true;
+        _drawCts?.Cancel();
+        if (!_drawBusy) _ = DrawLoopAsync();
+    }
+
+    private async Task DrawLoopAsync()
+    {
+        _drawBusy = true;
+        try
+        {
+            while (_drawAgain && _ready)
+            {
+                _drawAgain = false;
+                using var source = new CancellationTokenSource();
+                _drawCts = source;
+                try { await DrawAsync(source.Token); }
+                catch (OperationCanceledException) { }
+                finally { _drawCts = null; }
+            }
+        }
+        finally { _drawBusy = false; }
+    }
+
+    private async Task DrawAsync(CancellationToken cancellationToken)
+    {
+        var pdf = _pdf;
+        if (pdf is null)
         {
             LeftImage.Source = null;
             RightImage.Source = null;
@@ -385,7 +425,7 @@ public sealed partial class ReaderPage : Page
         }
 
         var portrait = PageLayout.IsPortrait(ReaderRoot.ActualWidth, ReaderRoot.ActualHeight);
-        var pages = PageLayout.For(_pdf.PageCount, _lowestVisible, portrait);
+        var pages = PageLayout.For(pdf.PageCount, _lowestVisible, portrait);
         _lowestVisible = pages.FirstIndex;
         var scale = XamlRoot?.RasterizationScale ?? 1;
         var slotWidth = PagesGrid.ActualWidth > 0 ? PagesGrid.ActualWidth : ReaderRoot.ActualWidth;
@@ -396,23 +436,24 @@ public sealed partial class ReaderPage : Page
 
         var pixelWidth = (int)Math.Clamp(slotWidth * scale, 320, 2400);
 
-        LeftImage.Opacity = 0;
-        var left = _pdf.Render(pages.FirstIndex, pixelWidth, _cropToInk);
+        var crop = _cropToInk;
+        var left = await pdf.RenderAsync(pages.FirstIndex, pixelWidth, crop, cancellationToken);
+        var right = pages.SecondIndex is int rightIndex
+            ? await pdf.RenderAsync(rightIndex, pixelWidth, crop, cancellationToken)
+            : null;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_ready || !ReferenceEquals(pdf, _pdf)) return;
         LeftImage.Source = left;
-        LeftImage.Opacity = 1;
         LeftError.Visibility = left is null ? Visibility.Visible : Visibility.Collapsed;
         if (left is null)
         {
             ShowChromeLabels();
         }
 
-        if (pages.SecondIndex is int second)
+        if (pages.SecondIndex is not null)
         {
             RightColumn.Width = new GridLength(1, GridUnitType.Star);
-            RightImage.Opacity = 0;
-            var right = _pdf.Render(second, pixelWidth, _cropToInk);
             RightImage.Source = right;
-            RightImage.Opacity = 1;
             RightError.Visibility = right is null ? Visibility.Visible : Visibility.Collapsed;
         }
         else
@@ -425,14 +466,7 @@ public sealed partial class ReaderPage : Page
         var firstDisplay = pages.FirstIndex + 1;
         var lastDisplay = (pages.SecondIndex ?? pages.FirstIndex) + 1;
         PageLabel.Text = firstDisplay == lastDisplay
-            ? $"page {firstDisplay} of {_pdf.PageCount}"
-            : $"page {firstDisplay}-{lastDisplay} of {_pdf.PageCount}";
-
-        var next = pages.FirstIndex + pages.Step;
-        _ = _pdf.PrefetchAsync(next, pixelWidth, _cropToInk);
-        if (pages.Step == 2)
-        {
-            _ = _pdf.PrefetchAsync(next + 1, pixelWidth, _cropToInk);
-        }
+            ? $"page {firstDisplay} of {pdf.PageCount}"
+            : $"page {firstDisplay}-{lastDisplay} of {pdf.PageCount}";
     }
 }

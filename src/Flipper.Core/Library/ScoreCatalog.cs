@@ -19,19 +19,40 @@ public sealed class ScoreFacts
 
 public sealed class ScoreCatalogCache
 {
+    private readonly object _gate = new();
     private string? _path;
     private long _length;
     private DateTime _lastWriteUtc;
     private IReadOnlyDictionary<string, ScoreFacts> _map =
         new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyDictionary<string, ScoreCatalogEntry> _entries =
+        new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyDictionary<string, ScoreFacts> Load(string root)
+    {
+        lock (_gate)
+        {
+            Refresh(root);
+            return _map;
+        }
+    }
+
+    public IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntries(string root)
+    {
+        lock (_gate)
+        {
+            Refresh(root);
+            return _entries;
+        }
+    }
+
+    private void Refresh(string root)
     {
         var path = Path.Combine(root, ScoreCatalog.FileName);
         if (!File.Exists(path))
         {
             Clear();
-            return _map;
+            return;
         }
 
         var info = new FileInfo(path);
@@ -40,14 +61,14 @@ public sealed class ScoreCatalogCache
             && _length == info.Length
             && _lastWriteUtc == info.LastWriteTimeUtc)
         {
-            return _map;
+            return;
         }
 
-        _map = ScoreCatalog.Load(root);
+        _entries = ScoreCatalog.LoadEntries(root);
+        _map = _entries.ToDictionary(pair => pair.Key, pair => pair.Value.Facts, StringComparer.OrdinalIgnoreCase);
         _path = path;
         _length = info.Length;
         _lastWriteUtc = info.LastWriteTimeUtc;
-        return _map;
     }
 
     private void Clear()
@@ -56,17 +77,13 @@ public sealed class ScoreCatalogCache
         _length = 0;
         _lastWriteUtc = default;
         _map = new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+        _entries = new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
     }
 }
 
 public static class ScoreCatalog
 {
     public const string FileName = ".flipper-catalog.json";
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     private static readonly JsonSerializerOptions SaveOptions = new()
     {
@@ -77,32 +94,44 @@ public static class ScoreCatalog
 
     public static IReadOnlyDictionary<string, ScoreFacts> Load(string root)
     {
+        return LoadEntries(root).ToDictionary(pair => pair.Key, pair => pair.Value.Facts, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public static IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntries(string root)
+    {
         var path = Path.Combine(root, FileName);
         if (!File.Exists(path))
         {
-            return new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         }
 
         try
         {
             var json = File.ReadAllText(path);
-            var raw = JsonSerializer.Deserialize<Dictionary<string, ScoreFacts>>(json, JsonOptions)
-                ?? new Dictionary<string, ScoreFacts>();
-            var map = new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+            var map = new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+            if (JsonNode.Parse(json, new JsonNodeOptions { PropertyNameCaseInsensitive = true }) is not JsonObject raw)
+            {
+                return map;
+            }
+
             foreach (var pair in raw)
             {
-                map[pair.Key.Replace('/', '\\')] = pair.Value;
+                map[pair.Key.Replace('/', '\\')] = CatalogProvenanceJson.ParseEntry(pair.Value);
             }
 
             return map;
         }
         catch (JsonException)
         {
-            return new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         }
         catch (IOException)
         {
-            return new Dictionary<string, ScoreFacts>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -140,7 +169,7 @@ public static class ScoreCatalog
             JsonObject catalog;
             if (File.Exists(path))
             {
-                var parsed = JsonNode.Parse(File.ReadAllText(path));
+                var parsed = JsonNode.Parse(File.ReadAllText(path), new JsonNodeOptions { PropertyNameCaseInsensitive = true });
                 if (parsed is not JsonObject parsedObject)
                 {
                     return new CatalogMergeResult(CatalogMergeStatus.Failed, 0);
@@ -171,6 +200,17 @@ public static class ScoreCatalog
                         if (pair.Value.SourcePath is null && pair.Value.Provenance is null)
                         {
                             continue;
+                        }
+
+                        if (pair.Value.SourcePath is not null)
+                        {
+                            var sourceLock = TryLockSource(pair.Value);
+                            if (sourceLock is null)
+                            {
+                                rejected.Add(key);
+                                continue;
+                            }
+                            sourceLocks.Add(sourceLock);
                         }
 
                         if (ApplyRefresh(catalog, actualKey!, pair.Value))
@@ -273,7 +313,7 @@ public static class ScoreCatalog
                 return false;
             }
 
-            var parsed = JsonNode.Parse(File.ReadAllText(path));
+            var parsed = JsonNode.Parse(File.ReadAllText(path), new JsonNodeOptions { PropertyNameCaseInsensitive = true });
             if (parsed is not JsonObject catalog)
             {
                 return false;
@@ -323,8 +363,8 @@ public static class ScoreCatalog
 
     /// <summary>
     /// Whether a catalogued score should be reanalysed: the source changed
-    /// since extraction, the extractor moved on, an unresolved field or a
-    /// transient failure's backoff expired. Manual-only and legacy entries
+    /// since extraction, the extractor moved on, or a transient failure's
+    /// backoff expired. Successfully inspected unknown fields are stable. Manual-only and legacy entries
     /// are never scheduled here; legacy review goes through the dry-run
     /// proposal path instead.
     /// </summary>
@@ -334,14 +374,24 @@ public static class ScoreCatalog
         DateTime? nowUtc = null)
     {
         var key = Key(score.RelativeFolder, Path.GetFileName(score.DisplayFullPath)).Replace('/', '\\');
-        var entry = LoadEntry(root, key);
+        return NeedsReanalysis(LoadEntry(root, key), score, nowUtc);
+    }
+
+    /// <summary>Pure eligibility check over a cached entry; safe for a whole-library pass.</summary>
+    public static bool NeedsReanalysis(
+        ScoreCatalogEntry? entry,
+        ScoreEntry score,
+        DateTime? nowUtc = null,
+        bool includeExtractorUpgrade = true)
+    {
         nowUtc ??= DateTime.UtcNow;
         if (entry is null)
         {
             return true;
         }
 
-        if (entry.IsLegacy || entry.AllFieldsManual())
+        if (entry.IsLegacy || new[] { "title", "composer", "subtitle" }.All(
+            field => entry.OriginOf(field) is ScoreFieldOrigin.Manual or ScoreFieldOrigin.Legacy))
         {
             return false;
         }
@@ -352,19 +402,15 @@ public static class ScoreCatalog
             return true;
         }
 
-        if (provenance.ExtractorVersion < ScoreFacts.CurrentExtractorVersion)
+        if (includeExtractorUpgrade && provenance.ExtractorVersion < ScoreFacts.CurrentExtractorVersion)
         {
             return true;
         }
 
-        if (provenance.Status == ExtractionStatus.FailedTransient
-            && (!provenance.NextRetryUtc.HasValue || provenance.NextRetryUtc.Value <= nowUtc.Value))
-        {
-            return true;
-        }
-
-        return entry.OriginOf("title") == ScoreFieldOrigin.Unresolved
-            || entry.OriginOf("composer") == ScoreFieldOrigin.Unresolved;
+        // An unknown field after a successful inspection is a stable result.
+        return provenance.Status == ExtractionStatus.FailedTransient
+            && provenance.Attempts < CatalogProvenance.MaxAttempts
+            && (!provenance.NextRetryUtc.HasValue || provenance.NextRetryUtc.Value <= nowUtc.Value);
     }
 
     /// <summary>
@@ -381,7 +427,7 @@ public static class ScoreCatalog
 
         try
         {
-            var parsed = JsonNode.Parse(File.ReadAllText(path));
+            var parsed = JsonNode.Parse(File.ReadAllText(path), new JsonNodeOptions { PropertyNameCaseInsensitive = true });
             if (parsed is not JsonObject catalog)
             {
                 return null;
@@ -434,7 +480,7 @@ public static class ScoreCatalog
             JsonObject catalog;
             if (File.Exists(path))
             {
-                var parsed = JsonNode.Parse(File.ReadAllText(path));
+                var parsed = JsonNode.Parse(File.ReadAllText(path), new JsonNodeOptions { PropertyNameCaseInsensitive = true });
                 if (parsed is not JsonObject parsedObject)
                 {
                     return false;
@@ -481,8 +527,7 @@ public static class ScoreCatalog
                 ApplyCorrection(stored, provenance, "composer", composer, clearComposer);
                 ApplyCorrection(stored, provenance, "subtitle", subtitle, clearSubtitle);
             }
-            catalog[actualKey ?? key.Replace('/', '\\')] =
-                CatalogProvenanceJson.ToNode(stored.Facts, provenance);
+            StoreEntry(catalog, actualKey ?? key.Replace('/', '\\'), stored.Facts, provenance);
             SidecarReplace.Write(path, catalog.ToJsonString(SaveOptions));
             return true;
         }
@@ -543,10 +588,11 @@ public static class ScoreCatalog
     {
         var changes = new List<ReanalysisChange>();
         var preserved = new List<string>();
+        var entries = LoadEntries(root);
         foreach (var pair in generatedFacts)
         {
             var key = pair.Key.Replace('/', '\\');
-            var stored = LoadEntry(root, key);
+            var stored = entries.GetValueOrDefault(key);
             if (stored is null)
             {
                 changes.Add(new ReanalysisChange(key, "insert", null, pair.Value.Facts));
@@ -695,8 +741,8 @@ public static class ScoreCatalog
         var retryDue = provenance.Status == ExtractionStatus.FailedTransient
             && (!provenance.NextRetryUtc.HasValue || provenance.NextRetryUtc.Value <= DateTime.UtcNow);
         // Unresolved-only improvement: same PDF, same extractor, no failure —
-        // but the new extraction fills a still-blank field. NeedsReanalysis
-        // schedules this and PreviewReanalysis proposes it; the merge must
+        // but a deliberate extraction fills a still-blank field.
+        // PreviewReanalysis proposes it; the merge must
         // persist it, or missing fields can never be reconsidered without a
         // source change. Manual/Legacy fields are still never touched
         // (CopyField), and blank incoming never clears (CopyField).
@@ -723,10 +769,31 @@ public static class ScoreCatalog
         }
 
         provenance.Status = incoming?.Status ?? provenance.Status;
-        provenance.Attempts = incoming?.Attempts ?? (provenance.Attempts + 1);
-        provenance.NextRetryUtc = incoming?.NextRetryUtc;
-        catalog[actualKey] = CatalogProvenanceJson.ToNode(stored.Facts, provenance);
+        provenance.Attempts = sourceChanged || extractorUpgraded ? 1 : provenance.Attempts + 1;
+        provenance.NextRetryUtc = provenance.Status == ExtractionStatus.FailedTransient
+            ? CatalogProvenance.BackoffAfter(provenance.Attempts, DateTime.UtcNow) : null;
+        if (provenance.Status == ExtractionStatus.FailedTransient && provenance.Attempts >= CatalogProvenance.MaxAttempts)
+            provenance.Status = ExtractionStatus.FailedPermanent;
+        StoreEntry(catalog, actualKey, stored.Facts, provenance);
         return before != catalog[actualKey]?.ToJsonString();
+    }
+
+    private static void StoreEntry(JsonObject catalog, string key, ScoreFacts facts, CatalogProvenance provenance)
+    {
+        var update = CatalogProvenanceJson.ToNode(facts, provenance);
+        if (catalog[key] is JsonObject existing) MergeObject(existing, update);
+        else catalog[key] = update;
+    }
+
+    private static void MergeObject(JsonObject target, JsonObject update)
+    {
+        // Update owned fields while retaining annotations from other catalogue tools.
+        foreach (var pair in update)
+        {
+            if (pair.Value is JsonObject child && target[pair.Key] is JsonObject existing)
+                MergeObject(existing, child);
+            else target[pair.Key] = pair.Value?.DeepClone();
+        }
     }
 
     private static void CopyField(

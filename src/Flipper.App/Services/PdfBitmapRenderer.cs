@@ -32,10 +32,12 @@ internal static class PdfBitmapRenderer
         int pixelWidth,
         bool useTiling = false,
         RectangleF? bounds = null,
-        bool paperBackground = true)
+        bool paperBackground = true,
+        CancellationToken cancellationToken = default)
     {
         lock (Gate)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return Conversion.ToImage(bytes, pageIndex, options: new RenderOptions
             {
                 Width = Math.Max(64, pixelWidth),

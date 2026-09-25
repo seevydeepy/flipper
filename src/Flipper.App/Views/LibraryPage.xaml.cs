@@ -43,6 +43,11 @@ public sealed partial class LibraryPage : Page
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _searchTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
+    private readonly DispatcherTimer _catalogTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private bool _active;
+    private bool _catalogBusy;
+    private bool _catalogAgain;
+    private bool _editingScore;
     private bool _refreshQueued;
     private bool _scanBusy;
     private bool _scanAgain;
@@ -78,7 +83,13 @@ public sealed partial class LibraryPage : Page
 
         ScoreGrid.ItemsSource = _cards;
         _watcher.Changed += OnWatcherChanged;
-        _automaticCatalog.Changed += OnWatcherChanged;
+        _watcher.CatalogChanged += OnCatalogChanged;
+        _automaticCatalog.Changed += OnCatalogChanged;
+        _catalogTimer.Tick += async (_, _) =>
+        {
+            _catalogTimer.Stop();
+            await RefreshCatalogAsync();
+        };
         _refreshTimer.Tick += (_, _) =>
         {
             _refreshTimer.Stop();
@@ -100,6 +111,8 @@ public sealed partial class LibraryPage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        _active = false;
+        _automaticCatalog.Pause();
         PersistSearchIfChanged();
         _restoreScroll = FindScrollViewer(ScoreGrid)?.VerticalOffset;
         _scrollRestoreTries = 0;
@@ -108,6 +121,8 @@ public sealed partial class LibraryPage : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _active = true;
+        _automaticCatalog.Resume();
         if (_resumeGrid)
         {
             ResumeFromReader();
@@ -142,6 +157,7 @@ public sealed partial class LibraryPage : Page
         }
 
         RestoreGridScroll();
+        Reload(path);
     }
 
     private void ScoreColumn_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -234,6 +250,8 @@ public sealed partial class LibraryPage : Page
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _active = false;
+        _automaticCatalog.Pause();
         PersistSearchIfChanged();
         ExitAssignment();
         _scanEpoch++;
@@ -242,13 +260,15 @@ public sealed partial class LibraryPage : Page
         _watcher.Stop();
         _refreshTimer.Stop();
         _searchTimer.Stop();
+        _catalogTimer.Stop();
+        _refreshQueued = false;
     }
 
     private void OnWatcherChanged()
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (_refreshQueued)
+            if (!_active || _refreshQueued)
             {
                 return;
             }
@@ -256,6 +276,52 @@ public sealed partial class LibraryPage : Page
             _refreshQueued = true;
             _refreshTimer.Start();
         });
+    }
+
+    private void OnCatalogChanged()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_active) _catalogTimer.Start();
+        });
+    }
+
+    private async Task RefreshCatalogAsync()
+    {
+        if (!_active) return;
+        if (_catalogBusy)
+        {
+            _catalogAgain = true;
+            return;
+        }
+
+        _catalogBusy = true;
+        try
+        {
+            do
+            {
+                _catalogAgain = false;
+                var snapshot = _snapshot;
+                var epoch = _scanEpoch;
+                if (!snapshot.RootReachable) return;
+                var next = await Task.Run(() => _automaticCatalog.ApplyOverlay(
+                    snapshot.WithCatalog(_catalogCache.LoadEntries(snapshot.RootDisplayPath))));
+                if (!_active) return;
+                if (epoch != _scanEpoch || !ReferenceEquals(snapshot, _snapshot))
+                {
+                    _catalogAgain = true;
+                    continue;
+                }
+
+                _snapshot = next;
+                App.Current.LastSnapshot = next;
+                ApplyFilter();
+            }
+            while (_catalogAgain);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        finally { _catalogBusy = false; }
     }
 
     private async Task ChooseFolderAsync()
@@ -845,6 +911,7 @@ public sealed partial class LibraryPage : Page
     private void ScoreCard_Holding(object sender, HoldingRoutedEventArgs e)
     {
         if (e.HoldingState != HoldingState.Completed
+            || FromCardButton(e.OriginalSource)
             || sender is not FrameworkElement { Tag: ScoreCard card })
         {
             return;
@@ -855,8 +922,81 @@ public sealed partial class LibraryPage : Page
         OpenScore(card);
     }
 
+    private async void EditScore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_editingScore || sender is not FrameworkElement { Tag: ScoreCard card } || !_snapshot.RootReachable) return;
+        _editingScore = true;
+        SuppressNextItemClick();
+        try { await EditScoreAsync(card); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ErrorLabel.Text = "Could not read score details.";
+            ErrorLabel.Visibility = Visibility.Visible;
+        }
+        finally { _editingScore = false; }
+    }
+
+    private async Task EditScoreAsync(ScoreCard card)
+    {
+        var root = _snapshot.RootDisplayPath;
+        var entry = card.Entry;
+        var key = ScoreCatalog.Key(entry.RelativeFolder, Path.GetFileName(entry.DisplayFullPath));
+        var stored = await Task.Run(() => ScoreCatalog.LoadEntry(root, key));
+        if (!_active || root != _snapshot.RootDisplayPath) return;
+        var facts = stored?.Facts ?? new ScoreFacts();
+        var title = new TextBox { Header = "Title", Text = facts.Title ?? string.Empty,
+            PlaceholderText = ScoreFactInference.CleanFileName(entry.DisplayName), MaxLength = 160 };
+        var subtitle = new TextBox { Header = "Subtitle", Text = facts.Subtitle ?? string.Empty, MaxLength = 160 };
+        var composer = new TextBox { Header = "Composer", Text = facts.Composer ?? string.Empty, MaxLength = 80 };
+        var error = new TextBlock { Visibility = Visibility.Collapsed };
+        var content = new StackPanel { Spacing = 12, MinWidth = 280 };
+        content.Children.Add(title);
+        content.Children.Add(subtitle);
+        content.Children.Add(composer);
+        content.Children.Add(error);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Score details",
+            Content = content,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            RequestedTheme = ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += async (_, args) =>
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                string? Changed(string value, string? previous) =>
+                    value.Trim() == (previous ?? string.Empty).Trim() ? null : value.Trim();
+                var nextTitle = Changed(title.Text, facts.Title);
+                var nextSubtitle = Changed(subtitle.Text, facts.Subtitle);
+                var nextComposer = Changed(composer.Text, facts.Composer);
+                if (nextTitle is null && nextSubtitle is null && nextComposer is null) return;
+                var saved = await Task.Run(() => ScoreCatalog.TryCorrect(root, key,
+                    nextTitle, nextComposer, nextSubtitle,
+                    clearTitle: nextTitle == string.Empty,
+                    clearComposer: nextComposer == string.Empty,
+                    clearSubtitle: nextSubtitle == string.Empty));
+                if (!saved)
+                {
+                    args.Cancel = true;
+                    error.Text = "Could not save score details.";
+                    error.Visibility = Visibility.Visible;
+                    return;
+                }
+                await RefreshCatalogAsync();
+            }
+            finally { deferral.Complete(); }
+        };
+        await dialog.ShowAsync();
+    }
+
     private void ScoreCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
+        if (FromCardButton(e.OriginalSource)) return;
         if (e.PointerDeviceType != PointerDeviceType.Mouse)
         {
             e.Handled = true;
@@ -1493,7 +1633,7 @@ public sealed partial class LibraryPage : Page
 
     private void ScoreCard_Tapped(object sender, TappedRoutedEventArgs e)
     {
-        if (FromFavouriteButton(e.OriginalSource) || sender is not FrameworkElement { Tag: ScoreCard card })
+        if (FromCardButton(e.OriginalSource) || sender is not FrameworkElement { Tag: ScoreCard card })
         {
             return;
         }
@@ -1563,7 +1703,7 @@ public sealed partial class LibraryPage : Page
         App.Current.Window?.ShowReader(card.Entry, cachePath);
     }
 
-    private static bool FromFavouriteButton(object? source)
+    private static bool FromCardButton(object? source)
     {
         for (var current = source as DependencyObject;
              current is not null;
@@ -1646,7 +1786,7 @@ public sealed partial class LibraryPage : Page
 
     private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch)
     {
-        if (epoch != _scanEpoch)
+        if (!_active || epoch != _scanEpoch)
         {
             return;
         }
@@ -1667,10 +1807,7 @@ public sealed partial class LibraryPage : Page
             return next;
         }
 
-        var canonical = new LibrarySnapshot(
-            next.RootDisplayPath,
-            app.ApplyCanonical(next.Scores, next.RootDisplayPath),
-            true);
+        var canonical = next with { Scores = app.ApplyCanonical(next.Scores, next.RootDisplayPath) };
         return _automaticCatalog.ApplyOverlay(canonical);
     }
 
@@ -1719,9 +1856,10 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        var foldersChanged = !_snapshot.SameMembership(next, includeLabels: false);
         _snapshot = next;
         App.Current.LastSnapshot = next;
-        BindFolders();
+        if (foldersChanged || playlistsChanged) BindFolders();
         ApplyFilter();
     }
 
@@ -2175,6 +2313,7 @@ public sealed partial class LibraryPage : Page
 
         if (SameCardOrder(rows))
         {
+            for (var index = 0; index < rows.Count; index++) _cards[index].Update(rows[index]);
             RestoreGridScroll();
             return;
         }
@@ -2192,11 +2331,9 @@ public sealed partial class LibraryPage : Page
             if (previous.TryGetValue(score.CanonicalPath, out var card)
                 && card.Entry.Length == score.Length
                 && card.Entry.LastWriteUtc == score.LastWriteUtc
-                && card.Title == score.CardTitle
-                && card.Subtitle == score.CardSubtitle
-                && card.Composer == score.CardComposer
                 && card.ShowRestore == _showTrash)
             {
+                card.Update(score);
                 card.IsFavourite = favourite;
                 next.Add(card);
             }
@@ -2206,7 +2343,7 @@ public sealed partial class LibraryPage : Page
             }
         }
 
-        _cards.ReplaceAll(next);
+        if (!_cards.SequenceEqual(next)) _cards.ReplaceAll(next);
         RetainAssignment();
         RestoreGridScroll();
     }
@@ -2379,17 +2516,30 @@ public sealed class ScoreCard : INotifyPropertyChanged
     public ScoreCard(ScoreEntry entry, bool favourite, bool restore = false)
     {
         Entry = entry;
-        Title = entry.CardTitle;
-        Subtitle = entry.CardSubtitle;
-        Composer = entry.CardComposer;
+        var text = entry.CardText;
+        Title = text.Title;
+        Subtitle = text.Subtitle;
+        Composer = text.Composer;
         _favourite = favourite;
         ShowRestore = restore;
     }
 
-    public ScoreEntry Entry { get; }
-    public string Title { get; }
-    public string Subtitle { get; }
-    public string Composer { get; }
+    public ScoreEntry Entry { get; private set; }
+    public string Title { get; private set; }
+    public string Subtitle { get; private set; }
+    public string Composer { get; private set; }
+
+    public void Update(ScoreEntry entry)
+    {
+        Entry = entry;
+        var text = entry.CardText;
+        if (Title == text.Title && Subtitle == text.Subtitle && Composer == text.Composer) return;
+        Title = text.Title;
+        Subtitle = text.Subtitle;
+        Composer = text.Composer;
+        foreach (var name in new[] { nameof(Title), nameof(Subtitle), nameof(Composer), nameof(SubtitleVisibility), nameof(ComposerVisibility) })
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
     public bool ShowRestore { get; }
     public Visibility RestoreVisibility => ShowRestore ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FavouriteVisibility => ShowRestore ? Visibility.Collapsed : Visibility.Visible;

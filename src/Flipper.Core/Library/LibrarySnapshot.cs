@@ -4,7 +4,8 @@ public sealed record LibrarySnapshot(
     string RootDisplayPath,
     IReadOnlyList<ScoreEntry> Scores,
     bool RootReachable,
-    IReadOnlyList<ScanSkipped>? Skipped = null)
+    IReadOnlyList<ScanSkipped>? Skipped = null,
+    IReadOnlyDictionary<string, ScoreCatalogEntry>? CatalogEntries = null)
 {
     public IReadOnlyList<ScanSkipped> SkippedPaths => Skipped ?? Array.Empty<ScanSkipped>();
     public LibrarySnapshot Without(string canonicalPath)
@@ -22,7 +23,27 @@ public sealed record LibrarySnapshot(
         .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
-    public bool SameMembership(LibrarySnapshot other)
+    public LibrarySnapshot WithCatalog(IReadOnlyDictionary<string, ScoreCatalogEntry> catalog)
+    {
+        var scores = Scores.Select(score =>
+        {
+            // Trash entries use their original path; the filesystem scan owns that mapping.
+            if (ScoreTrash.IsHiddenFolder(score.RelativeFolder)) return score;
+            var key = ScoreCatalog.Key(score.RelativeFolder, Path.GetFileName(score.DisplayFullPath));
+            var found = catalog.TryGetValue(key, out var stored);
+            return score with
+            {
+                Title = stored?.Facts.Title,
+                Composer = stored?.Facts.Composer,
+                Subtitle = stored?.Facts.Subtitle,
+                HasCatalogEntry = found,
+                Provenance = stored?.Provenance
+            };
+        }).ToArray();
+        return this with { Scores = scores, CatalogEntries = catalog };
+    }
+
+    public bool SameMembership(LibrarySnapshot other, bool includeLabels = true)
     {
         if (RootReachable != other.RootReachable)
         {
@@ -52,9 +73,7 @@ public sealed record LibrarySnapshot(
                 || !right.TryGetValue(left.CanonicalPath, out var match)
                 || left.Length != match.Length
                 || left.LastWriteUtc != match.LastWriteUtc
-                || left.CardTitle != match.CardTitle
-                || left.CardSubtitle != match.CardSubtitle
-                || left.CardComposer != match.CardComposer)
+                || (includeLabels && left.CardText != match.CardText))
             {
                 return false;
             }

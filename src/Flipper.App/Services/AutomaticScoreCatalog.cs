@@ -7,6 +7,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
     private const int BatchSize = 8;
     private readonly object _gate = new();
     private readonly PdfScoreFactExtractor _extractor = new();
+    private readonly ScoreCatalogCache _catalogCache = new();
     private readonly SessionScoreFactsOverlay _overlay = new();
     private readonly Queue<ScoreEntry> _queue = new();
     private readonly HashSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
@@ -16,6 +17,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
     private string? _root;
     private int _generation;
     private bool _retryPaused;
+    private bool _paused = true;
     private bool _disposed;
 
     public event Action? Changed;
@@ -46,11 +48,30 @@ public sealed class AutomaticScoreCatalog : IDisposable
             _seen.Clear();
             _pending.Clear();
             _retryPaused = false;
-            _worker = null;
             _overlay.SetRoot(root);
         }
 
         dispose?.Dispose();
+    }
+
+    public void Pause()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _paused = true;
+            _cts.Cancel();
+        }
+    }
+
+    public void Resume()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _paused = false;
+            StartWorkerLocked();
+        }
     }
 
     public void Schedule(string root, LibrarySnapshot snapshot)
@@ -76,9 +97,11 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     continue;
                 }
 
-                if (score.HasCatalogEntry && !NeedsReanalysis(root, score))
+                var key = CatalogKey(score);
+                var stored = snapshot.CatalogEntries?.GetValueOrDefault(key);
+                if (score.HasCatalogEntry && (snapshot.CatalogEntries is null
+                    || !ScoreCatalog.NeedsReanalysis(stored, score, includeExtractorUpgrade: false)))
                 {
-                    _seen.Remove(WorkId(score));
                     continue;
                 }
 
@@ -96,12 +119,19 @@ public sealed class AutomaticScoreCatalog : IDisposable
     private void StartWorkerLocked()
     {
         if (_disposed
+            || _paused
             || _retryPaused
             || string.IsNullOrWhiteSpace(_root)
             || (_queue.Count == 0 && _pending.Count == 0)
             || (_worker is not null && !_worker.IsCompleted))
         {
             return;
+        }
+
+        if (_cts.IsCancellationRequested)
+        {
+            _cts.Dispose();
+            _cts = new CancellationTokenSource();
         }
 
         var root = _root;
@@ -116,6 +146,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
         CancellationTokenSource source)
     {
         var token = source.Token;
+        var lastFlush = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             if (!await FlushPendingAsync(root, generation, token))
@@ -150,7 +181,44 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     continue;
                 }
 
-                var result = await _extractor.ExtractWithStatusAsync(entry, token);
+                // A scan may predate our last flush or a manual correction.
+                // Check the cached on-disk state on this worker before doing PDF work.
+                ScoreCatalogEntry? stored;
+                try
+                {
+                    stored = _catalogCache.LoadEntries(root).GetValueOrDefault(CatalogKey(entry));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    DiscardForRetry(root, generation, entry);
+                    lock (_gate)
+                    {
+                        if (IsCurrent(root, generation)) _retryPaused = true;
+                    }
+                    return;
+                }
+                if (!ScoreCatalog.NeedsReanalysis(stored, entry, includeExtractorUpgrade: false))
+                {
+                    lock (_gate)
+                    {
+                        if (IsCurrent(root, generation)) _seen.Remove(WorkId(entry));
+                    }
+                    continue;
+                }
+
+                ScoreExtractionResult result;
+                try
+                {
+                    result = await _extractor.ExtractWithStatusAsync(entry, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    lock (_gate)
+                    {
+                        if (IsCurrent(root, generation)) _queue.Enqueue(entry);
+                    }
+                    throw;
+                }
                 var facts = result.Facts;
                 if (!IsStable(entry))
                 {
@@ -174,16 +242,24 @@ public sealed class AutomaticScoreCatalog : IDisposable
                         facts,
                         result.Status,
                         explanation: result.Detail);
+                    if (result.Decision is { } decision)
+                    {
+                        provenance.Field("title").Explanation = decision.TitleEvidence;
+                        provenance.Field("composer").Explanation = decision.ComposerEvidence;
+                    }
                     _pending[key] = new PendingFacts(entry, facts, provenance);
                     _overlay.Add(entry, facts);
-                    flush = _pending.Count >= BatchSize;
+                    flush = _pending.Count >= BatchSize || lastFlush.Elapsed >= TimeSpan.FromSeconds(2);
                 }
 
-                Changed?.Invoke();
-                if (flush && !await FlushPendingAsync(root, generation, token))
+                if (flush)
                 {
-                    return;
+                    if (!await FlushPendingAsync(root, generation, token)) return;
+                    lastFlush.Restart();
                 }
+
+                // Yield between scores; never queue several PDF/OCR jobs at once.
+                await Task.Delay(50, token);
             }
         }
         catch (OperationCanceledException)
@@ -193,15 +269,9 @@ public sealed class AutomaticScoreCatalog : IDisposable
         {
             lock (_gate)
             {
-                if (generation != _generation)
-                {
-                    source.Dispose();
-                }
-                else
-                {
-                    _worker = null;
-                    StartWorkerLocked();
-                }
+                if (source != _cts || _disposed) source.Dispose();
+                _worker = null;
+                StartWorkerLocked();
             }
         }
     }
@@ -219,23 +289,16 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 return true;
             }
 
-            var stale = _pending
-                .Where(pair => !IsStable(pair.Value.Entry))
-                .ToArray();
-            foreach (var pair in stale)
-            {
-                _pending.Remove(pair.Key);
-                _seen.Remove(WorkId(pair.Value.Entry));
-                _overlay.Remove(pair.Value.Entry);
-            }
-
-            if (_pending.Count == 0)
-            {
-                return true;
-            }
-
             batch = new Dictionary<string, PendingFacts>(_pending, StringComparer.OrdinalIgnoreCase);
         }
+
+        // File access must not hold the lock used by UI scheduling and pause.
+        foreach (var pair in batch.Where(pair => !IsStable(pair.Value.Entry)).ToArray())
+        {
+            batch.Remove(pair.Key);
+            DiscardForRetry(root, generation, pair.Value.Entry);
+        }
+        if (batch.Count == 0) return true;
 
         var generated = batch.ToDictionary(
             pair => pair.Key,
@@ -259,6 +322,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 }
             }
 
+            Changed?.Invoke(); // Publish the session overlay once for this batch.
             return false;
         }
 
@@ -274,9 +338,9 @@ public sealed class AutomaticScoreCatalog : IDisposable
             foreach (var pair in batch)
             {
                 _pending.Remove(pair.Key);
+                _seen.Remove(WorkId(pair.Value.Entry));
                 if (rejected.Contains(pair.Key))
                 {
-                    _seen.Remove(WorkId(pair.Value.Entry));
                     _overlay.Remove(pair.Value.Entry);
                 }
             }
@@ -332,20 +396,6 @@ public sealed class AutomaticScoreCatalog : IDisposable
         return ScoreCatalog.Key(entry.RelativeFolder, Path.GetFileName(entry.DisplayFullPath));
     }
 
-    /// <summary>
-    /// An existing catalog entry is worth reanalysing when its source changed
-    /// since extraction, the extractor moved on, or a transient failure's
-    /// backoff expired. Manual-only and legacy entries are never scheduled.
-    /// Provenance lives beside the catalog entry, so the live root is read.
-    /// </summary>
-    internal static bool NeedsReanalysis(
-        string root,
-        ScoreEntry score,
-        DateTime? nowUtc = null)
-    {
-        return ScoreCatalog.NeedsReanalysis(root, score, nowUtc);
-    }
-
     private static string WorkId(ScoreEntry entry)
     {
         return $"{CatalogKey(entry)}|{entry.Length}|{entry.LastWriteUtc.Ticks}";
@@ -363,6 +413,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
             _disposed = true;
             _generation++;
             _cts.Cancel();
+            if (_worker is null || _worker.IsCompleted) _cts.Dispose();
             _queue.Clear();
             _seen.Clear();
             _pending.Clear();

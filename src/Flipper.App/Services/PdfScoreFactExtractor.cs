@@ -23,7 +23,8 @@ public sealed record ScoreExtractionResult(
     ScoreExtractionOutcome Extraction,
     OcrOutcome Ocr,
     string? Detail = null,
-    ExtractionStatus Status = ExtractionStatus.Partial);
+    ExtractionStatus Status = ExtractionStatus.Partial,
+    ScoreFactInference.InferenceDecision? Decision = null);
 
 public sealed class PdfScoreFactExtractor
 {
@@ -54,62 +55,64 @@ public sealed class PdfScoreFactExtractor
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
         var token = linked.Token;
 
-        var embedded = PdfEmbeddedTextReader.ReadRich(entry.DisplayFullPath, MaxEmbeddedPages);
-        if (embedded.Outcome == ScoreExtractionOutcome.Cancelled)
-        {
-            token.ThrowIfCancellationRequested();
-        }
-
+        var embedded = new ScoreExtraction(default, [], ScoreExtractionOutcome.NoReadableText);
+        var decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, default, []);
         var ocrOutcome = OcrOutcome.NotNeeded;
-        IReadOnlyList<ScoreTextLine> lines = embedded.Lines;
-        string? detail = embedded.Detail;
-        if (NeedsOcr(entry.DisplayName, embedded))
+        try
         {
-            var ocr = await ReadOcrLinesAsync(entry.DisplayFullPath, token);
-            ocrOutcome = ocr.Outcome;
-            detail = ocr.Detail ?? detail;
-            if (ocr.Lines.Count > 0)
+            // Inspect one page at a time. An identified title is sufficient;
+            // an absent composer must not turn every score into an OCR job.
+            for (var page = 1; page <= MaxEmbeddedPages; page++)
             {
-                // Merge, don't replace: keep useful embedded text, add OCR
-                // observations, dedupe identical lines.
-                lines = MergeSources(embedded.Lines, ocr.Lines);
+                var next = PdfEmbeddedTextReader.ReadRich(entry.DisplayFullPath, 1, token, startPage: page);
+                embedded = new ScoreExtraction(next.Metadata,
+                    embedded.Lines.Concat(next.Lines).ToArray(), next.Outcome, next.Detail);
+                token.ThrowIfCancellationRequested();
+                decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, embedded.Metadata, embedded.Lines);
+                if (decision.TitleVerified || next.Outcome == ScoreExtractionOutcome.ExtractionFailure) break;
             }
+
+            string? detail = embedded.Detail;
+            if (!decision.TitleVerified && NeedsOcr(embedded))
+            {
+                var ocr = await ReadOcrLinesAsync(entry, embedded, token);
+                ocrOutcome = ocr.Outcome;
+                detail = ocr.Detail ?? detail;
+                if (ocr.Lines.Count > 0)
+                {
+                    decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, embedded.Metadata,
+                        MergeSources(embedded.Lines, ocr.Lines));
+                }
+            }
+
+            token.ThrowIfCancellationRequested();
+            var facts = IdentifiedFacts(decision);
+            var status = !decision.TitleVerified
+                && (embedded.Outcome == ScoreExtractionOutcome.ExtractionFailure || ocrOutcome == OcrOutcome.Failed)
+                ? ExtractionStatus.FailedTransient
+                : facts.Title is null || facts.Composer is null ? ExtractionStatus.Partial : ExtractionStatus.Complete;
+            return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision);
         }
-
-        var facts = ScoreFactInference.InferRich(entry.DisplayName, embedded.Metadata, lines);
-
-        // Persist extraction/OCR failure distinctly from a clean Partial:
-        // FailedTransient carries backoff so the field can be reconsidered,
-        // and a failure is never stored as a successful identification.
-        var status = (embedded.Outcome, ocrOutcome) switch
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {
-            (ScoreExtractionOutcome.ExtractionFailure, _) => ExtractionStatus.FailedTransient,
-            (ScoreExtractionOutcome.Cancelled, _) => ExtractionStatus.FailedTransient,
-            (_, OcrOutcome.Failed) => ExtractionStatus.FailedTransient,
-            (_, OcrOutcome.Cancelled) => ExtractionStatus.FailedTransient,
-            _ => facts.Composer is null || facts.Title is null
-                ? ExtractionStatus.Partial
-                : ExtractionStatus.Complete,
-        };
-        return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status);
+            return new ScoreExtractionResult(IdentifiedFacts(decision), ScoreExtractionOutcome.Cancelled,
+                OcrOutcome.Cancelled, "Extraction time budget exceeded", ExtractionStatus.FailedTransient, decision);
+        }
     }
 
-    private static bool NeedsOcr(string displayName, ScoreExtraction embedded)
+    private static ScoreFacts IdentifiedFacts(ScoreFactInference.InferenceDecision decision)
     {
-        if (embedded.Outcome is ScoreExtractionOutcome.ExtractionFailure or ScoreExtractionOutcome.Cancelled)
+        return new ScoreFacts
         {
-            return true;
-        }
-
-        // Trigger on unresolved fields and poor evidence, not a letter count.
-        var probe = ScoreFactInference.InferRich(displayName, embedded.Metadata, embedded.Lines);
-        if (probe.Title is null || probe.Composer is null)
-        {
-            return true;
-        }
-
-        return !ScoreFactInference.HasUsefulPageText(displayName, embedded.PageLines);
+            Title = decision.TitleVerified ? decision.Facts.Title : null,
+            Composer = decision.Facts.Composer,
+            Subtitle = decision.Facts.Subtitle
+        };
     }
+
+    private static bool NeedsOcr(ScoreExtraction embedded) =>
+        embedded.Outcome == ScoreExtractionOutcome.ExtractionFailure
+        || embedded.Lines.Sum(line => line.Text.Count(char.IsLetter)) < 20;
 
     private static IReadOnlyList<ScoreTextLine> MergeSources(
         IReadOnlyList<ScoreTextLine> embedded,
@@ -135,7 +138,8 @@ public sealed class PdfScoreFactExtractor
     }
 
     private async Task<(IReadOnlyList<ScoreTextLine> Lines, OcrOutcome Outcome, string? Detail)> ReadOcrLinesAsync(
-        string path,
+        ScoreEntry entry,
+        ScoreExtraction embedded,
         CancellationToken cancellationToken)
     {
         OcrEngine? engine;
@@ -161,13 +165,14 @@ public sealed class PdfScoreFactExtractor
 
         try
         {
-            var bytes = File.ReadAllBytes(path);
+            cancellationToken.ThrowIfCancellationRequested();
+            var bytes = File.ReadAllBytes(entry.DisplayFullPath);
             var pageCount = Math.Min(MaxOcrPages, Math.Max(1, PdfBitmapRenderer.GetPageCount(bytes)));
             var lines = new List<ScoreTextLine>();
             for (var page = 0; page < pageCount; page++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                using var bitmap = RenderForOcr(bytes, page);
+                using var bitmap = RenderForOcr(bytes, page, cancellationToken);
                 using var softwareBitmap = ToSoftwareBitmap(bitmap);
                 var result = await engine.RecognizeAsync(softwareBitmap).AsTask(cancellationToken);
                 var width = Math.Max(1, bitmap.Width);
@@ -192,6 +197,10 @@ public sealed class PdfScoreFactExtractor
                         Math.Max(0, (right - left) / width), Math.Max(0, (bottom - top) / height),
                         null, null, false, ScoreTextSource.Ocr));
                 }
+
+                var decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, embedded.Metadata,
+                    MergeSources(embedded.Lines, lines));
+                if (decision.TitleVerified) break;
             }
 
             if (lines.Count == 0)
@@ -240,9 +249,10 @@ public sealed class PdfScoreFactExtractor
         return null;
     }
 
-    private static SKBitmap RenderForOcr(byte[] bytes, int pageIndex)
+    private static SKBitmap RenderForOcr(byte[] bytes, int pageIndex, CancellationToken cancellationToken)
     {
-        var bitmap = PdfBitmapRenderer.Render(bytes, pageIndex, OcrPixelWidth, useTiling: true);
+        var bitmap = PdfBitmapRenderer.Render(bytes, pageIndex, OcrPixelWidth, useTiling: true,
+            cancellationToken: cancellationToken);
         var maxDimension = checked((int)OcrEngine.MaxImageDimension);
         var largest = Math.Max(bitmap.Width, bitmap.Height);
         if (largest <= maxDimension)
@@ -252,7 +262,8 @@ public sealed class PdfScoreFactExtractor
 
         var scaledWidth = Math.Max(64, bitmap.Width * maxDimension / largest);
         bitmap.Dispose();
-        return PdfBitmapRenderer.Render(bytes, pageIndex, scaledWidth, useTiling: true);
+        return PdfBitmapRenderer.Render(bytes, pageIndex, scaledWidth, useTiling: true,
+            cancellationToken: cancellationToken);
     }
 
     private static SoftwareBitmap ToSoftwareBitmap(SKBitmap source)

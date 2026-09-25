@@ -22,7 +22,8 @@ public sealed class PdfPageSource : IDisposable
         PageCount = PdfBitmapRenderer.GetPageCount(_bytes);
     }
 
-    public WriteableBitmap? Render(int pageIndex, int pixelWidth, bool cropToInk = false)
+    public async Task<WriteableBitmap?> RenderAsync(
+        int pageIndex, int pixelWidth, bool cropToInk, CancellationToken cancellationToken)
     {
         if (pageIndex < 0 || pageIndex >= PageCount)
         {
@@ -31,9 +32,20 @@ public sealed class PdfPageSource : IDisposable
 
         try
         {
-            var bounds = cropToInk ? InkBounds(pageIndex) : null;
-            using var bitmap = PdfBitmapRenderer.Render(_bytes, pageIndex, pixelWidth, useTiling: true, bounds);
+            using var bitmap = await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var bounds = cropToInk ? InkBounds(pageIndex) : null;
+                return PdfBitmapRenderer.Render(_bytes, pageIndex, pixelWidth, useTiling: true, bounds,
+                    cancellationToken: cancellationToken);
+            }, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed) return null;
             return ToWriteable(bitmap);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -68,26 +80,6 @@ public sealed class PdfPageSource : IDisposable
             WriteError(ex);
             return false;
         }
-    }
-
-    public Task PrefetchAsync(int pageIndex, int pixelWidth, bool cropToInk = false)
-    {
-        return Task.Run(() =>
-        {
-            if (_disposed || pageIndex < 0 || pageIndex >= PageCount)
-            {
-                return;
-            }
-
-            try
-            {
-                var bounds = cropToInk ? InkBounds(pageIndex) : null;
-                using var bitmap = PdfBitmapRenderer.Render(_bytes, pageIndex, pixelWidth, bounds: bounds);
-            }
-            catch (Exception)
-            {
-            }
-        });
     }
 
     private RectangleF? InkBounds(int pageIndex)

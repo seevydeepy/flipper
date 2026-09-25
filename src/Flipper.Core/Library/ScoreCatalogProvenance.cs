@@ -61,9 +61,9 @@ public sealed class CatalogProvenance
     }
 
     /// <summary>
-    /// Bounded backoff for transient failures and still-unresolved fields:
+    /// Bounded backoff for transient failures:
     /// 1m, 5m, 30m, 2h, 12h, then daily. After <see cref="MaxAttempts"/>
-    /// the entry parks until an extractor upgrade or a deliberate reanalysis.
+    /// the entry parks until the source changes or a deliberate reanalysis.
     /// </summary>
     public const int MaxAttempts = 10;
 
@@ -99,7 +99,8 @@ public sealed class CatalogProvenance
             ExtractorVersion = extractorVersion,
             SourceLength = sourceLength,
             SourceLastWriteUtc = sourceLastWriteUtc,
-            Status = status
+            Status = status,
+            NextRetryUtc = status == ExtractionStatus.FailedTransient ? BackoffAfter(1, DateTime.UtcNow) : null
         };
         provenance.Field("title").Origin =
             string.IsNullOrWhiteSpace(facts.Title) ? ScoreFieldOrigin.Unresolved : ScoreFieldOrigin.Generated;
@@ -223,18 +224,10 @@ internal static class CatalogProvenanceJson
                     ScoreFieldOrigin.Manual => "manual",
                     ScoreFieldOrigin.Legacy => "legacy",
                     _ => "unresolved"
-                }
+                },
+                ["confidence"] = JsonValue.Create(pair.Value.Confidence),
+                ["explanation"] = pair.Value.Explanation
             };
-            if (pair.Value.Confidence.HasValue)
-            {
-                field["confidence"] = JsonValue.Create(pair.Value.Confidence.Value);
-            }
-
-            if (!string.IsNullOrWhiteSpace(pair.Value.Explanation))
-            {
-                field["explanation"] = pair.Value.Explanation;
-            }
-
             fields[pair.Key.ToLowerInvariant()] = field;
         }
 
@@ -251,17 +244,23 @@ internal static class CatalogProvenanceJson
                 _ => "partial"
             },
             ["attempts"] = provenance.Attempts,
-            ["fields"] = fields
+            ["fields"] = fields,
+            ["nextRetryUtc"] = provenance.NextRetryUtc?.ToUniversalTime().ToString("o")
         };
-        if (provenance.NextRetryUtc.HasValue)
-        {
-            node["nextRetryUtc"] = provenance.NextRetryUtc.Value.ToUniversalTime().ToString("o");
-        }
-
         return node;
     }
 
     public static CatalogProvenance? ParseProvenance(JsonNode? node)
+    {
+        try { return ParseProvenanceCore(node); }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException or OverflowException)
+        {
+            // Malformed provenance is unknown history, never authority to overwrite facts.
+            return null;
+        }
+    }
+
+    private static CatalogProvenance? ParseProvenanceCore(JsonNode? node)
     {
         if (node is not JsonObject obj
             || !obj.TryGetPropertyValue("extractorVersion", out var versionNode)

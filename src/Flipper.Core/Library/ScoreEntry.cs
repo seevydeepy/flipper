@@ -12,7 +12,22 @@ public sealed record ScoreEntry(
     string? Subtitle = null,
     bool HasCatalogEntry = false)
 {
-    public ScoreCardText CardText => ScoreLabel.Card(Title, Subtitle, Composer, DisplayName);
+    public CatalogProvenance? Provenance { get; init; }
+
+    public ScoreCardText CardText
+    {
+        get
+        {
+            var text = ScoreLabel.Card(Title, Subtitle, Composer, DisplayName);
+            bool Manual(string field) => Provenance?.Fields.GetValueOrDefault(field)?.Origin == ScoreFieldOrigin.Manual;
+            return text with
+            {
+                Title = Manual("title") && !string.IsNullOrWhiteSpace(Title) ? Title.Trim() : text.Title,
+                Subtitle = Manual("subtitle") ? Subtitle?.Trim() ?? string.Empty : text.Subtitle,
+                Composer = Manual("composer") ? Composer?.Trim() ?? string.Empty : text.Composer
+            };
+        }
+    }
     public string CardTitle => CardText.Title;
     public string CardSubtitle => CardText.Subtitle;
     public string CardComposer => CardText.Composer;
