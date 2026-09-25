@@ -60,6 +60,24 @@ public sealed class LibrarySnapshotTests
         Assert.Equal(2, snapshot.Scores.Count);
     }
 
+    [Fact]
+    public void WithCatalog_UpdatesLabelsWithoutChangingMembership()
+    {
+        var score = Entry("a", 10);
+        var snapshot = new LibrarySnapshot(@"C:\lib", [score], true);
+        var entries = new Dictionary<string, ScoreCatalogEntry>
+        {
+            ["a.pdf"] = new() { Facts = new ScoreFacts { Title = "New title", Composer = "Composer" } }
+        };
+        var next = snapshot.WithCatalog(entries);
+        Assert.True(snapshot.SameMembership(next, includeLabels: false));
+        Assert.False(snapshot.SameMembership(next));
+        Assert.Equal("New title", Assert.Single(next.Scores).CardTitle);
+        Assert.True(next.Scores[0].HasCatalogEntry);
+        Assert.Same(entries, next.CatalogEntries);
+        Assert.False(score.HasCatalogEntry);
+    }
+
     private static ScoreEntry Entry(string name, long length)
     {
         return new ScoreEntry(name, string.Empty, $@"C:\lib\{name}.pdf", name, length, DateTime.UnixEpoch);

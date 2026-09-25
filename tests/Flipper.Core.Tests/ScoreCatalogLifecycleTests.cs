@@ -137,7 +137,7 @@ public sealed class ScoreCatalogLifecycleTests
     }
 
     [Fact]
-    public void NeedsReanalysis_CoversChangedUpgradedRetryAndUnresolved()
+    public void NeedsReanalysis_ChangedSourceQualifiesButStableUnknownComposerDoesNot()
     {
         using var root = new TempDir();
         var stamp = DateTime.UtcNow.AddMinutes(-30);
@@ -160,11 +160,11 @@ public sealed class ScoreCatalogLifecycleTests
         // Changed source qualifies.
         Assert.True(ScoreCatalog.NeedsReanalysis(root.Path, Entry(root.Path, string.Empty, "A.pdf", 11)));
 
-        // Unresolved composer qualifies even when the source is unchanged.
+        // A missing composer after a successful inspection is a stable result.
         ScoreCatalog.TryMergeMissing(
             root.Path,
             new Dictionary<string, CatalogMergeCandidate> { ["B.pdf"] = Generated("T", null, 10, stamp) });
-        Assert.True(ScoreCatalog.NeedsReanalysis(
+        Assert.False(ScoreCatalog.NeedsReanalysis(
             root.Path, Entry(root.Path, string.Empty, "B.pdf", 10) with { LastWriteUtc = stamp }));
     }
 
@@ -176,6 +176,63 @@ public sealed class ScoreCatalogLifecycleTests
         Assert.True(CatalogProvenance.BackoffAfter(5, now) <= now.AddHours(13));
         Assert.Null(CatalogProvenance.BackoffAfter(CatalogProvenance.MaxAttempts, now));
         Assert.Null(CatalogProvenance.BackoffAfter(CatalogProvenance.MaxAttempts + 5, now));
+    }
+
+    [Fact]
+    public void AutomaticEligibility_HonoursBackoffAndDoesNotReprocessForVersionOnly()
+    {
+        var now = new DateTime(2026, 9, 25, 12, 0, 0, DateTimeKind.Utc);
+        var score = Entry("C:/Scores", "", "Scan.pdf") with { LastWriteUtc = now };
+        var stored = new ScoreCatalogEntry
+        {
+            Provenance = CatalogProvenance.ForGenerated(ScoreFacts.CurrentExtractorVersion,
+                score.Length, now, new ScoreFacts(), ExtractionStatus.FailedTransient)
+        };
+        stored.Provenance.NextRetryUtc = now.AddMinutes(5);
+        Assert.False(ScoreCatalog.NeedsReanalysis(stored, score, now, includeExtractorUpgrade: false));
+        Assert.True(ScoreCatalog.NeedsReanalysis(stored, score, now.AddMinutes(5), includeExtractorUpgrade: false));
+        stored.Provenance.Attempts = CatalogProvenance.MaxAttempts;
+        stored.Provenance.NextRetryUtc = null;
+        Assert.False(ScoreCatalog.NeedsReanalysis(stored, score, now, includeExtractorUpgrade: false));
+        stored.Provenance.ExtractorVersion--;
+        Assert.False(ScoreCatalog.NeedsReanalysis(stored, score, now, includeExtractorUpgrade: false));
+        Assert.True(ScoreCatalog.NeedsReanalysis(stored, score, now));
+        Assert.True(ScoreCatalog.NeedsReanalysis(stored, score with { Length = 20 }, now, includeExtractorUpgrade: false));
+    }
+
+    [Fact]
+    public void FailureRefresh_IncrementsAttemptAndPersistsNextBackoff()
+    {
+        using var root = new TempDir();
+        var stamp = DateTime.UtcNow.AddHours(-1);
+        var first = Generated("Known title", null, 10, stamp);
+        first.Provenance!.Status = ExtractionStatus.FailedTransient;
+        first.Provenance.Attempts = 2;
+        first.Provenance.NextRetryUtc = DateTime.UtcNow.AddMinutes(-1);
+        ScoreCatalog.TryMergeMissing(root.Path, new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = first });
+        var next = first with { Provenance = CatalogProvenance.ForGenerated(
+            ScoreFacts.CurrentExtractorVersion, first.Length, first.LastWriteUtc, first.Facts, ExtractionStatus.FailedTransient) };
+        var before = DateTime.UtcNow;
+        Assert.Equal(CatalogMergeStatus.Inserted,
+            ScoreCatalog.TryMergeMissing(root.Path, new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = next }).Status);
+        var stored = ScoreCatalog.LoadEntry(root.Path, "A.pdf")!;
+        Assert.Equal(3, stored.Provenance!.Attempts);
+        Assert.InRange(stored.Provenance.NextRetryUtc!.Value, before.AddMinutes(30), DateTime.UtcNow.AddMinutes(30));
+        Assert.Equal("Known title", stored.Facts.Title);
+    }
+
+    [Fact]
+    public void ManualCorrection_PreservesUnknownAnnotationsAndRendersLiteralTitle()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"A.pdf":{"title":"Old","custom":{"colour":"blue"}}}""");
+        Assert.True(ScoreCatalog.TryCorrect(root.Path, "A.pdf", "Adagio", null, null, clearComposer: true));
+        var stored = ScoreCatalog.LoadEntry(root.Path, "A.pdf")!;
+        var score = Entry(root.Path, "", "A.pdf") with { Title = stored.Facts.Title, Provenance = stored.Provenance };
+        Assert.Equal("Adagio", score.CardTitle);
+        Assert.Empty(score.CardComposer);
+        Assert.Equal("blue", System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!["A.pdf"]!["custom"]!["colour"]!.GetValue<string>());
     }
 
     [Fact]

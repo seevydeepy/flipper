@@ -20,6 +20,31 @@ public sealed class ScoreCatalogTests
     }
 
     [Fact]
+    public void LegacyFacts_RemainCaseInsensitiveThroughLoadAndCorrection()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, ScoreCatalog.FileName),
+            """{"A.pdf":{"Title":"Air","Composer":"Bach"}}""");
+        Assert.Equal("Air", ScoreCatalog.Load(root.Path)["A.pdf"].Title);
+        Assert.True(ScoreCatalog.TryCorrect(root.Path, "A.pdf", null, "J. S. Bach", null));
+        var stored = ScoreCatalog.LoadEntry(root.Path, "A.pdf")!;
+        Assert.Equal("Air", stored.Facts.Title);
+        Assert.Equal("J. S. Bach", stored.Facts.Composer);
+        Assert.Equal(ScoreFieldOrigin.Legacy, stored.OriginOf("title"));
+    }
+
+    [Fact]
+    public void MalformedProvenance_PreservesFactsAsUnknownHistory()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, ScoreCatalog.FileName),
+            """{"A.pdf":{"title":"Keep me","provenance":{"extractorVersion":2,"attempts":1.5}}}""");
+        var entry = ScoreCatalog.LoadEntries(root.Path)["A.pdf"];
+        Assert.Equal("Keep me", entry.Facts.Title);
+        Assert.True(entry.IsLegacy);
+    }
+
+    [Fact]
     public void Cache_ReusesUnchangedFile_AndReloadsAfterWrite()
     {
         using var root = new TempDir();
@@ -36,6 +61,41 @@ public sealed class ScoreCatalogTests
         var third = cache.Load(root.Path);
         Assert.NotSame(first, third);
         Assert.Equal("Prelude", third["A.pdf"].Title);
+    }
+
+    [Fact]
+    public void CachedProvenance_EligibilityForFiveThousandScoresDoesNotReadTheCatalogueAgain()
+    {
+        using var root = new TempDir();
+        var stamp = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var catalog = new JsonObject();
+        var scores = new List<ScoreEntry>();
+        for (var i = 0; i < 5000; i++)
+        {
+            var name = $"Score-{i}.pdf";
+            catalog[name] = new JsonObject
+            {
+                ["title"] = "Title", ["composer"] = "Composer",
+                ["provenance"] = new JsonObject
+                {
+                    ["extractorVersion"] = ScoreFacts.CurrentExtractorVersion,
+                    ["sourceLength"] = 10,
+                    ["sourceLastWriteUtc"] = stamp.ToString("o"),
+                    ["status"] = "complete"
+                }
+            };
+            scores.Add(new ScoreEntry(name, "", Path.Combine(root.Path, name), name, 10, stamp, HasCatalogEntry: true));
+        }
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, catalog.ToJsonString());
+        var cache = new ScoreCatalogCache();
+        var entries = cache.LoadEntries(root.Path);
+        Assert.Equal(5000, entries.Count);
+        using var unavailable = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        Assert.Same(entries, cache.LoadEntries(root.Path));
+        foreach (var score in scores)
+            Assert.False(ScoreCatalog.NeedsReanalysis(entries[Path.GetFileName(score.DisplayFullPath)], score,
+                includeExtractorUpgrade: false));
     }
 
     [Fact]
