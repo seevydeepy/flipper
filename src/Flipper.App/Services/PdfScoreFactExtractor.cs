@@ -26,7 +26,8 @@ public sealed record ScoreExtractionResult(
     ExtractionStatus Status = ExtractionStatus.Partial,
     ScoreFactInference.InferenceDecision? Decision = null,
     bool JevTitleEvaluated = false,
-    bool JevComposerEvaluated = false)
+    bool JevComposerEvaluated = false,
+    string? JevError = null)
 {
     public bool JevEvaluated => JevTitleEvaluated || JevComposerEvaluated;
 }
@@ -67,6 +68,7 @@ public sealed class PdfScoreFactExtractor
         IReadOnlyList<ScoreTextLine> allLines = [];
         var jevTitleEvaluated = false;
         var jevComposerEvaluated = false;
+        string? jevError = "No API key saved. Add one in Settings.";
         var ocrOutcome = OcrOutcome.NotNeeded;
         try
         {
@@ -102,6 +104,7 @@ public sealed class PdfScoreFactExtractor
                 var apiKey = JevApiKeyStore.Load();
                 if (!string.IsNullOrWhiteSpace(apiKey))
                 {
+                    jevError = null;
                     var candidates = ScoreFactInference.ProposeRichCandidates(
                         entry.DisplayName, embedded.Metadata, allLines);
                     if (candidates.Titles.Count > 0 || candidates.Composers.Count > 0)
@@ -140,11 +143,21 @@ public sealed class PdfScoreFactExtractor
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                // A Jev timeout leaves the existing local decision intact.
+                jevError = "Jev timed out. Try again.";
+            }
+            catch (HttpRequestException ex)
+            {
+                jevError = ex.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden =>
+                        "TypeSafe rejected the API key. Check it in Settings.",
+                    System.Net.HttpStatusCode.TooManyRequests => "TypeSafe rate limit reached. Try again later.",
+                    _ => "Could not reach Jev. Check your connection and try again."
+                };
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // A failed optional service leaves the existing local decision intact.
+                jevError = "Could not read the saved key or Jev response. Check the key and try again.";
             }
             token.ThrowIfCancellationRequested();
             var facts = IdentifiedFacts(decision);
@@ -153,12 +166,13 @@ public sealed class PdfScoreFactExtractor
                 ? ExtractionStatus.FailedTransient
                 : facts.Title is null || facts.Composer is null ? ExtractionStatus.Partial : ExtractionStatus.Complete;
             return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision,
-                jevTitleEvaluated, jevComposerEvaluated);
+                jevTitleEvaluated, jevComposerEvaluated, jevError);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {
             return new ScoreExtractionResult(IdentifiedFacts(decision), ScoreExtractionOutcome.Cancelled,
-                OcrOutcome.Cancelled, "Extraction time budget exceeded", ExtractionStatus.FailedTransient, decision);
+                OcrOutcome.Cancelled, "Extraction time budget exceeded", ExtractionStatus.FailedTransient, decision,
+                JevError: "Score analysis timed out. Try again.");
         }
     }
 

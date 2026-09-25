@@ -948,11 +948,25 @@ public sealed partial class LibraryPage : Page
             PlaceholderText = ScoreFactInference.CleanFileName(entry.DisplayName), MaxLength = 160 };
         var subtitle = new TextBox { Header = "Subtitle", Text = facts.Subtitle ?? string.Empty, MaxLength = 160 };
         var composer = new TextBox { Header = "Composer", Text = facts.Composer ?? string.Empty, MaxLength = 80 };
-        var error = new TextBlock { Visibility = Visibility.Collapsed };
+        var error = CreateJevMessage();
+        error.Visibility = Visibility.Collapsed;
+        AutomationProperties.SetLiveSetting(error, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        var matchLabel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        matchLabel.Children.Add(new FontIcon
+        {
+            FontFamily = new FontFamily("Segoe UI Symbol"), Glyph = "\u2728", FontSize = 18
+        });
+        matchLabel.Children.Add(new TextBlock { Text = "AI", VerticalAlignment = VerticalAlignment.Center });
+        var match = new Button { Content = matchLabel, HorizontalAlignment = HorizontalAlignment.Right };
+        AutomationProperties.SetName(match, "Match this score with Jev AI");
+        ToolTipService.SetToolTip(match, "Send this score's extracted text and metadata to Jev. Review suggestions before saving.");
+        var matching = new ProgressBar { IsIndeterminate = true, Visibility = Visibility.Collapsed };
         var content = new StackPanel { Spacing = 12, MinWidth = 280 };
+        content.Children.Add(match);
         content.Children.Add(title);
         content.Children.Add(subtitle);
         content.Children.Add(composer);
+        content.Children.Add(matching);
         content.Children.Add(error);
         var dialog = new ContentDialog
         {
@@ -963,6 +977,64 @@ public sealed partial class LibraryPage : Page
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             RequestedTheme = ElementTheme.Light
+        };
+        using var matchCancellation = new CancellationTokenSource();
+        dialog.Closed += (_, _) => matchCancellation.Cancel();
+        match.Click += async (_, _) =>
+        {
+            match.IsEnabled = dialog.IsPrimaryButtonEnabled = false;
+            title.IsEnabled = subtitle.IsEnabled = composer.IsEnabled = false;
+            matching.Visibility = Visibility.Visible;
+            error.Visibility = Visibility.Visible;
+            error.Text = "Reading this score and asking Jev…";
+            try
+            {
+                if (JevApiKeyStore.Load() is null)
+                {
+                    error.Text = "Add a TypeSafe API key in Settings first.";
+                    return;
+                }
+                var result = await Task.Run(() => new PdfScoreFactExtractor()
+                    .ExtractWithStatusAsync(entry, matchCancellation.Token));
+                if (matchCancellation.IsCancellationRequested || !_active || root != _snapshot.RootDisplayPath) return;
+                var currentFile = new FileInfo(entry.DisplayFullPath);
+                if (!currentFile.Exists || currentFile.Length != entry.Length || currentFile.LastWriteTimeUtc != entry.LastWriteUtc)
+                {
+                    error.Text = "The PDF changed during analysis. Reopen Score details and try again.";
+                    return;
+                }
+                if (result.JevError is not null)
+                {
+                    error.Text = result.JevError;
+                    return;
+                }
+                var suggestions = new List<string>();
+                if (result.JevTitleEvaluated && result.Facts.Title is { } suggestedTitle)
+                {
+                    title.Text = suggestedTitle;
+                    suggestions.Add($"title ({result.Decision?.TitleProbability:P0})");
+                }
+                if (result.JevComposerEvaluated && result.Facts.Composer is { } suggestedComposer)
+                {
+                    composer.Text = suggestedComposer;
+                    suggestions.Add($"composer ({result.Decision?.ComposerProbability:P0})");
+                }
+                error.Text = suggestions.Count > 0
+                    ? $"Jev matched {string.Join(" and ", suggestions)}. Review the suggestions, then Save to apply them."
+                    : result.JevEvaluated ? "Jev found no confident match. Your details are unchanged."
+                    : "No readable title or composer candidates were found. Your details are unchanged.";
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception)
+            {
+                error.Text = "Could not match this score. Check the API key and connection, then try again.";
+            }
+            finally
+            {
+                match.IsEnabled = dialog.IsPrimaryButtonEnabled = true;
+                title.IsEnabled = subtitle.IsEnabled = composer.IsEnabled = true;
+                matching.Visibility = Visibility.Collapsed;
+            }
         };
         dialog.PrimaryButtonClick += async (_, args) =>
         {

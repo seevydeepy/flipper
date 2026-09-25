@@ -131,14 +131,41 @@ public sealed partial class LibraryPage
     {
         var key = new PasswordBox { PlaceholderText = "Paste your TypeSafe API key" };
         AutomationProperties.SetName(key, "Jev API key");
-        var status = CreateSettingsValue(string.Empty);
+        var status = CreateJevMessage();
+        var jobStatus = CreateJevMessage();
+        var progress = new ProgressBar { Visibility = Visibility.Collapsed, Minimum = 0 };
+        AutomationProperties.SetName(progress, "Jev catalogue progress");
+        AutomationProperties.SetLiveSetting(jobStatus, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         var save = new Button { Content = "Save key" };
         var remove = new Button { Content = "Remove key" };
-        var reanalyse = new Button { Content = "Reanalyse existing scores" };
+        var reanalyse = new Button { Content = "Reanalyse current catalogue" };
+        var hasKey = false;
+        void ShowProgress()
+        {
+            var job = _automaticCatalog.JevProgress;
+            reanalyse.IsEnabled = job is { IsRunning: true, WaitingForSave: true }
+                || hasKey && job?.IsRunning != true;
+            reanalyse.Content = job is { IsRunning: true, WaitingForSave: true }
+                ? "Retry catalogue save" : "Reanalyse current catalogue";
+            progress.Visibility = job is { Total: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+            jobStatus.Visibility = job is null ? Visibility.Collapsed : Visibility.Visible;
+            if (job is null) return;
+            progress.Maximum = Math.Max(1, job.Total);
+            progress.Value = job.Completed;
+            var heading = job.Total == 0 ? "No eligible scores to reanalyse."
+                : !job.IsRunning ? (job.Failed == 0 ? "Reanalysis finished." : "Reanalysis finished with errors.")
+                : job.WaitingForSave ? "Paused: could not save catalogue results. Retry the save."
+                : job.Paused ? "Paused while the reader is open."
+                : job.CurrentScore is null ? "Reanalysis queued…" : $"Analysing: {job.CurrentScore}";
+            jobStatus.Text = $"{heading}\n{job.Completed} of {job.Total} checked · {job.Matched} with matches · "
+                + $"{job.Unmatched} without a confident match · {job.Failed} failed"
+                + (job.Skipped > 0 ? $"\n{job.Skipped} skipped (manual, legacy or not yet catalogued)." : "")
+                + (job.LastIssue is not null ? $"\nLast error: {job.LastIssue}" : "");
+        }
         try
         {
-            reanalyse.IsEnabled = JevApiKeyStore.Load() is not null;
-            status.Text = reanalyse.IsEnabled ? "Key saved on this Windows account" : "No key saved";
+            hasKey = JevApiKeyStore.Load() is not null;
+            status.Text = hasKey ? "Key saved on this Windows account" : "No key saved";
         }
         catch (Exception) { status.Text = "Windows credential storage is unavailable"; }
         save.Click += (_, _) =>
@@ -148,7 +175,8 @@ public sealed partial class LibraryPage
                 JevApiKeyStore.Save(key.Password);
                 key.Password = string.Empty;
                 status.Text = "Key saved on this Windows account";
-                reanalyse.IsEnabled = true;
+                hasKey = true;
+                ShowProgress();
             }
             catch (ArgumentException) { status.Text = "Enter an API key first"; }
             catch (Exception) { status.Text = "Could not save key"; }
@@ -160,7 +188,8 @@ public sealed partial class LibraryPage
                 JevApiKeyStore.Remove();
                 key.Password = string.Empty;
                 status.Text = "No key saved";
-                reanalyse.IsEnabled = false;
+                hasKey = false;
+                ShowProgress();
             }
             catch (Exception) { status.Text = "Could not remove key"; }
         };
@@ -172,23 +201,68 @@ public sealed partial class LibraryPage
                 status.Text = "Open a library folder first";
                 return;
             }
-            var queued = _automaticCatalog.QueueJevReanalysis(root, _snapshot);
-            status.Text = queued == 0 ? "No existing scores need reanalysis"
-                : $"Queued {queued} scores; catalogue cards will update in the background";
+            _automaticCatalog.QueueJevReanalysis(root, _snapshot);
+            ShowProgress();
         };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+
+        var info = new Button
+        {
+            Content = "?", MinWidth = 32, MinHeight = 32, Padding = new Thickness(4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Flyout = new Flyout
+            {
+                Content = new TextBlock
+                {
+                    MaxWidth = 320, TextWrapping = TextWrapping.Wrap,
+                    Text = "Jev is optional. A saved TypeSafe API key enables matching for new or changed scores. "
+                        + "It sends the filename, extracted score text and PDF metadata to TypeSafe, but no PDF files or images. "
+                        + "API usage may incur charges. Remove the key to use local identification only.\n\n"
+                        + "Reanalyse checks existing generated entries. It can replace or clear generated details; "
+                        + "manual corrections and legacy entries are kept. Progress and results remain here when you close and reopen Settings during this app session."
+                }
+            }
+        };
+        AutomationProperties.SetName(info, "About Jev score identification");
+        ToolTipService.SetToolTip(info, "About Jev");
+        var heading = new Grid { ColumnSpacing = 8 };
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var label = CreateSettingsLabel("Jev score identification");
+        label.TextWrapping = TextWrapping.Wrap;
+        label.VerticalAlignment = VerticalAlignment.Center;
+        heading.Children.Add(label);
+        Grid.SetColumn(info, 1);
+        heading.Children.Add(info);
+        var buttons = new Grid { ColumnSpacing = 8 };
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        save.HorizontalAlignment = remove.HorizontalAlignment = HorizontalAlignment.Stretch;
         buttons.Children.Add(save);
+        Grid.SetColumn(remove, 1);
         buttons.Children.Add(remove);
-        var section = new StackPanel { Spacing = 6 };
-        section.Children.Add(CreateSettingsLabel("Jev score identification"));
-        section.Children.Add(CreateSettingsValue(
-            "Optional. A saved key sends extracted score text and PDF metadata to TypeSafe for new or changed scores. Remove the key to use local identification only."));
+        reanalyse.HorizontalAlignment = HorizontalAlignment.Stretch;
+        var section = new StackPanel { Spacing = 8 };
+        section.Children.Add(heading);
         section.Children.Add(key);
         section.Children.Add(buttons);
-        section.Children.Add(reanalyse);
         section.Children.Add(status);
+        section.Children.Add(reanalyse);
+        section.Children.Add(progress);
+        section.Children.Add(jobStatus);
+        // The service owns the job. Only its visible controls need a UI timer.
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        timer.Tick += (_, _) => ShowProgress();
+        section.Loaded += (_, _) => { ShowProgress(); timer.Start(); };
+        section.Unloaded += (_, _) => timer.Stop();
+        ShowProgress();
         return section;
     }
+
+    private static TextBlock CreateJevMessage() => new()
+    {
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = (Brush)Application.Current.Resources["MuteBrush"]
+    };
 
     private static async Task<FrameworkElement> CreateVoiceSectionAsync()
     {

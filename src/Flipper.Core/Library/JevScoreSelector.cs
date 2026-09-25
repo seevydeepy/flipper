@@ -90,11 +90,12 @@ public sealed class JevScoreSelector(HttpClient http)
         var probability = probabilities.GetProperty(choice).GetDouble();
         if (!double.IsFinite(probability) || probability is < 0 or > 1)
             throw new JsonException("Invalid Jev probability");
-        if (choice == None || probability < threshold) return (null, probability);
+        if (choice == None) return (null, probability);
         if (!choice.StartsWith(prefix, StringComparison.Ordinal)
             || !int.TryParse(choice.AsSpan(prefix.Length), out var index)
-            || index < 0 || index >= candidates.Count)
+            || index < 0 || index >= candidates.Count || choice != $"{prefix}{index}")
             throw new JsonException("Unknown Jev candidate");
+        if (probability < threshold) return (null, probability);
         return (candidates[index].Text, probability);
     }
 }

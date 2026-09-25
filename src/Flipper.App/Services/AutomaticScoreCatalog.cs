@@ -9,7 +9,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
     private readonly PdfScoreFactExtractor _extractor = new();
     private readonly ScoreCatalogCache _catalogCache = new();
     private readonly SessionScoreFactsOverlay _overlay = new();
-    private readonly Queue<ScoreEntry> _queue = new();
+    private readonly Queue<(ScoreEntry Entry, bool Forced)> _queue = new();
     private readonly HashSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _forced = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PendingFacts> _pending = new(StringComparer.OrdinalIgnoreCase);
@@ -20,6 +20,19 @@ public sealed class AutomaticScoreCatalog : IDisposable
     private bool _retryPaused;
     private bool _paused = true;
     private bool _disposed;
+    private JevReanalysisProgress? _jevProgress;
+
+    public JevReanalysisProgress? JevProgress
+    {
+        get
+        {
+            lock (_gate) return _jevProgress is null ? null : _jevProgress with
+            {
+                Paused = _paused,
+                WaitingForSave = _retryPaused
+            };
+        }
+    }
 
     public event Action? Changed;
 
@@ -50,6 +63,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
             _forced.Clear();
             _pending.Clear();
             _retryPaused = false;
+            _jevProgress = null;
             _overlay.SetRoot(root);
         }
 
@@ -110,7 +124,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 var id = WorkId(score);
                 if (_seen.Add(id))
                 {
-                    _queue.Enqueue(score);
+                    _queue.Enqueue((score, false));
                 }
             }
 
@@ -121,21 +135,36 @@ public sealed class AutomaticScoreCatalog : IDisposable
     public int QueueJevReanalysis(string root, LibrarySnapshot snapshot)
     {
         SetRoot(root);
-        if (!snapshot.RootReachable || snapshot.CatalogEntries is null) return 0;
+        if (!snapshot.RootReachable) return 0;
         var count = 0;
         lock (_gate)
         {
             if (_disposed || !string.Equals(_root, root, StringComparison.OrdinalIgnoreCase)) return 0;
+            if (_jevProgress?.IsRunning == true)
+            {
+                _retryPaused = false;
+                StartWorkerLocked();
+                return 0;
+            }
+            var skipped = 0;
             foreach (var score in snapshot.Scores)
             {
                 if (ScoreTrash.IsHiddenFolder(score.RelativeFolder)) continue;
-                var stored = snapshot.CatalogEntries.GetValueOrDefault(CatalogKey(score));
+                var stored = snapshot.CatalogEntries?.GetValueOrDefault(CatalogKey(score));
                 if (stored is null || stored.IsLegacy || new[] { "title", "composer", "subtitle" }.All(
-                    field => stored.OriginOf(field) is ScoreFieldOrigin.Manual or ScoreFieldOrigin.Legacy)) continue;
+                    field => stored.OriginOf(field) is ScoreFieldOrigin.Manual or ScoreFieldOrigin.Legacy))
+                {
+                    skipped++;
+                    continue;
+                }
                 var id = WorkId(score);
-                if (_forced.Add(id)) count++;
-                if (_seen.Add(id)) _queue.Enqueue(score);
+                if (!_forced.Add(id)) continue;
+                count++;
+                _seen.Add(id);
+                _queue.Enqueue((score, true));
             }
+            _jevProgress = new JevReanalysisProgress(count, skipped);
+            _retryPaused = false;
             StartWorkerLocked();
         }
         return count;
@@ -182,6 +211,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
             while (!token.IsCancellationRequested)
             {
                 ScoreEntry? entry;
+                var forced = false;
                 lock (_gate)
                 {
                     if (!IsCurrent(root, generation) || _queue.Count == 0)
@@ -190,7 +220,12 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     }
                     else
                     {
-                        entry = _queue.Dequeue();
+                        (entry, forced) = _queue.Dequeue();
+                        // A deliberate request owns its own extraction, even if automatic
+                        // work for this score was already queued or awaiting a save.
+                        if (!forced && _forced.Contains(WorkId(entry))) continue;
+                        if (forced && _jevProgress is not null)
+                            _jevProgress = _jevProgress with { CurrentScore = entry.DisplayName };
                     }
                 }
 
@@ -202,7 +237,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
 
                 if (!IsStable(entry))
                 {
-                    DiscardForRetry(root, generation, entry);
+                    DiscardForRetry(root, generation, entry, forced, "The PDF changed or is no longer available.");
                     continue;
                 }
 
@@ -215,15 +250,13 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    DiscardForRetry(root, generation, entry);
+                    DiscardForRetry(root, generation, entry, forced, "Could not read the catalogue.");
                     lock (_gate)
                     {
                         if (IsCurrent(root, generation)) _retryPaused = true;
                     }
                     return;
                 }
-                bool forced;
-                lock (_gate) forced = _forced.Contains(WorkId(entry));
                 if (!forced && !ScoreCatalog.NeedsReanalysis(stored, entry, includeExtractorUpgrade: false))
                 {
                     lock (_gate)
@@ -242,19 +275,25 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 {
                     lock (_gate)
                     {
-                        if (IsCurrent(root, generation)) _queue.Enqueue(entry);
+                        if (IsCurrent(root, generation)) _queue.Enqueue((entry, forced));
                     }
                     throw;
+                }
+                catch (Exception)
+                {
+                    DiscardForRetry(root, generation, entry, forced, "Could not analyse the PDF. Try again.");
+                    continue;
                 }
                 var facts = result.Facts;
                 if (forced && !result.JevEvaluated)
                 {
-                    DiscardForRetry(root, generation, entry);
+                    DiscardForRetry(root, generation, entry, forced, result.JevError
+                        ?? (result.Status == ExtractionStatus.FailedTransient ? "Could not extract score text." : null));
                     continue;
                 }
                 if (!IsStable(entry))
                 {
-                    DiscardForRetry(root, generation, entry);
+                    DiscardForRetry(root, generation, entry, forced, "The PDF changed during analysis. Try again.");
                     continue;
                 }
 
@@ -285,7 +324,9 @@ public sealed class AutomaticScoreCatalog : IDisposable
                             ? ScoreRefreshFields.Title | ScoreRefreshFields.Subtitle : ScoreRefreshFields.None)
                         | (result.JevComposerEvaluated ? ScoreRefreshFields.Composer : ScoreRefreshFields.None);
                     _pending[key] = new PendingFacts(entry, facts, provenance, forced,
-                        forced ? refreshFields : ScoreRefreshFields.All);
+                        forced ? refreshFields : ScoreRefreshFields.All,
+                        result.JevTitleEvaluated && facts.Title is not null
+                            || result.JevComposerEvaluated && facts.Composer is not null);
                     _overlay.Add(entry, facts);
                     flush = _pending.Count >= BatchSize || lastFlush.Elapsed >= TimeSpan.FromSeconds(2);
                 }
@@ -334,7 +375,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
         foreach (var pair in batch.Where(pair => !IsStable(pair.Value.Entry)).ToArray())
         {
             batch.Remove(pair.Key);
-            DiscardForRetry(root, generation, pair.Value.Entry);
+            DiscardForRetry(root, generation, pair.Value.Entry, pair.Value.ForceRefresh,
+                "The PDF changed before its result could be saved.");
         }
         if (batch.Count == 0) return true;
 
@@ -379,7 +421,9 @@ public sealed class AutomaticScoreCatalog : IDisposable
             {
                 _pending.Remove(pair.Key);
                 _seen.Remove(WorkId(pair.Value.Entry));
-                _forced.Remove(WorkId(pair.Value.Entry));
+                if (pair.Value.ForceRefresh)
+                    CompleteJevLocked(pair.Value.Entry, pair.Value.Matched,
+                        rejected.Contains(pair.Key) ? "The PDF changed before its result could be saved." : null);
                 if (rejected.Contains(pair.Key))
                 {
                     _overlay.Remove(pair.Value.Entry);
@@ -391,7 +435,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
         return true;
     }
 
-    private void DiscardForRetry(string root, int generation, ScoreEntry entry)
+    private void DiscardForRetry(string root, int generation, ScoreEntry entry, bool forced, string? error)
     {
         lock (_gate)
         {
@@ -401,10 +445,24 @@ public sealed class AutomaticScoreCatalog : IDisposable
             }
 
             _seen.Remove(WorkId(entry));
-            _forced.Remove(WorkId(entry));
+            if (forced) CompleteJevLocked(entry, false, error);
             _pending.Remove(CatalogKey(entry));
             _overlay.Remove(entry);
         }
+    }
+
+    private void CompleteJevLocked(ScoreEntry entry, bool matched, string? error)
+    {
+        if (!_forced.Remove(WorkId(entry)) || _jevProgress is null) return;
+        _jevProgress = _jevProgress with
+        {
+            Completed = _jevProgress.Completed + 1,
+            Matched = _jevProgress.Matched + (error is null && matched ? 1 : 0),
+            Unmatched = _jevProgress.Unmatched + (error is null && !matched ? 1 : 0),
+            Failed = _jevProgress.Failed + (error is null ? 0 : 1),
+            CurrentScore = null,
+            LastIssue = error is null ? _jevProgress.LastIssue : $"{entry.DisplayName}: {error}"
+        };
     }
 
     private bool IsCurrent(string root, int generation)
@@ -465,5 +523,12 @@ public sealed class AutomaticScoreCatalog : IDisposable
     }
 
     private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts, CatalogProvenance Provenance,
-        bool ForceRefresh, ScoreRefreshFields RefreshFields);
+        bool ForceRefresh, ScoreRefreshFields RefreshFields, bool Matched);
+}
+
+public sealed record JevReanalysisProgress(int Total, int Skipped, int Completed = 0,
+    int Matched = 0, int Unmatched = 0, int Failed = 0, string? CurrentScore = null,
+    string? LastIssue = null, bool Paused = false, bool WaitingForSave = false)
+{
+    public bool IsRunning => Completed < Total;
 }

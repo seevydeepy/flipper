@@ -45,9 +45,25 @@ These thresholds are conservative initial values, not measured calibration for
 this library.
 
 New or changed scores use Jev automatically while a key is saved. Settings also
-has **Reanalyse existing scores** for a deliberate background pass over existing
+has **Reanalyse current catalogue** for a deliberate background pass over existing
 generated entries. It can replace or clear generated fields but never changes
 manual corrections or legacy fields. The CLI remains local-only.
+
+The **?** button explains the data sent and the scope of reanalysis. Settings
+shows the current score, completed count, confident matches, no-match results,
+failures and skipped entries. A result counts as complete after its catalogue
+save succeeds. A failed save pauses the queue and offers **Retry catalogue save**.
+Closing Settings keeps this status in the catalogue service for the current app
+session; changing library folders resets it. Opening a score pauses background
+analysis, and returning to the library resumes it. API failures are reported
+without including credentials or raw server responses.
+
+The **AI** sparkle button in **Score details** asks Jev about that score alone,
+including scores with manual or legacy details. Confident suggestions fill the
+title and composer boxes. Unmatched fields and the subtitle stay unchanged.
+**Save** applies changed fields as manual corrections; **Cancel** discards them
+and cancels an outstanding match. No catalogue write occurs from the AI button
+itself. A changed or missing PDF invalidates the result.
 
 ## How to inspect a decision
 
