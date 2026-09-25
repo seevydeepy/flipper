@@ -117,6 +117,31 @@ public sealed class ScoreCatalogLifecycleTests
     }
 
     [Fact]
+    public void ForcedReanalysis_ClearsUnsupportedGeneratedTitle_ButPreservesManualComposer()
+    {
+        using var root = new TempDir();
+        var first = Generated("Wrong auto title", "Wrong auto composer", 10, DateTime.UtcNow);
+        ScoreCatalog.TryMergeMissing(root.Path,
+            new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = first });
+        Assert.True(ScoreCatalog.TryCorrect(root.Path, "A.pdf", null, "Curated composer", null));
+        var proposed = new ScoreFacts { Composer = "Different auto composer" };
+        var next = new CatalogMergeCandidate(proposed, first.SourcePath, first.Length,
+            first.LastWriteUtc,
+            CatalogProvenance.ForGenerated(ScoreFacts.CurrentExtractorVersion,
+                first.Length, first.LastWriteUtc, proposed, ExtractionStatus.Partial),
+            ForceRefresh: true);
+
+        ScoreCatalog.TryMergeMissing(root.Path,
+            new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = next });
+
+        var stored = ScoreCatalog.LoadEntry(root.Path, "A.pdf")!;
+        Assert.Null(stored.Facts.Title);
+        Assert.Equal(ScoreFieldOrigin.Unresolved, stored.OriginOf("title"));
+        Assert.Equal("Curated composer", stored.Facts.Composer);
+        Assert.Equal(ScoreFieldOrigin.Manual, stored.OriginOf("composer"));
+    }
+
+    [Fact]
     public void Merge_NeverOverwritesLegacyEntries()
     {
         using var root = new TempDir();
