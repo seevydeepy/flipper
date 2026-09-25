@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Flipper.Core.Library;
 
 namespace Flipper.Core.Tests;
@@ -60,6 +61,70 @@ public sealed class JevScoreSelectorTests
 
         Assert.Null(result.Title);
         Assert.Equal(0.97, result.TitleProbability);
+    }
+
+    [Theory]
+    [InlineData("t9", 0.2)]
+    [InlineData("c0", 0.99)]
+    [InlineData("t00", 0.2)]
+    [InlineData("t0", -0.1)]
+    [InlineData("t0", 1.1)]
+    public async Task InvalidChoice_FailsRatherThanClearingAnExistingIdentification(string choice, double probability)
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            model = "jev-1.13.0",
+            answers = new
+            {
+                title = new { type = "choice", choice, probabilities = new Dictionary<string, double> { [choice] = probability } }
+            }
+        });
+        using var http = new HttpClient(new ReplyHandler(json));
+        var selector = new JevScoreSelector(http);
+        var candidates = new ScoreFactInference.CandidateSet([new("Moonlight Sonata", "printed heading")], [], []);
+
+        await Assert.ThrowsAsync<JsonException>(() => selector.SelectAsync("test-key", "scan.pdf", default, candidates, default));
+    }
+
+    [Fact]
+    public async Task Request_SendsOnlyExtractedEvidenceAndAskedFields()
+    {
+        using var http = new HttpClient(new InspectRequestHandler());
+        var selector = new JevScoreSelector(http);
+        var candidates = new ScoreFactInference.CandidateSet([new("Moonlight Sonata", "printed heading")], [],
+            [Line("Moonlight Sonata")]);
+
+        var result = await selector.SelectAsync("test-key", "scan.pdf", new("PDF title", "PDF author", "PDF subject"), candidates, default);
+
+        Assert.Equal("Moonlight Sonata", result.Title);
+        Assert.Null(result.Composer);
+    }
+
+    private sealed class InspectRequestHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal("https://api.typesafe.ai/v1/systemone", request.RequestUri!.AbsoluteUri);
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("Bearer", request.Headers.Authorization!.Scheme);
+            Assert.Equal("test-key", request.Headers.Authorization.Parameter);
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Assert.DoesNotContain("test-key", body);
+            using var document = JsonDocument.Parse(body);
+            var state = document.RootElement.GetProperty("state");
+            Assert.Equal(new[] { "fileName", "metadata", "pageLines" }, state.EnumerateObject().Select(p => p.Name));
+            Assert.Equal("scan.pdf", state.GetProperty("fileName").GetString());
+            Assert.Equal("Moonlight Sonata", state.GetProperty("pageLines")[0].GetProperty("Text").GetString());
+            var questions = document.RootElement.GetProperty("questions");
+            Assert.Single(questions.EnumerateObject());
+            Assert.True(questions.GetProperty("title").GetProperty("criteria").TryGetProperty("none", out _));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    {"model":"jev-1.13.0","answers":{"title":{"type":"choice","choice":"t0","probabilities":{"t0":0.99,"none":0.01}}}}
+                    """, Encoding.UTF8, "application/json")
+            };
+        }
     }
 
     private static ScoreTextLine Line(string text) =>
