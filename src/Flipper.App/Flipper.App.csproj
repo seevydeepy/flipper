@@ -54,10 +54,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <Content Include="Assets\page-turn.wav">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
     <EmbeddedResource Include="Assets\AppIcon.ico" />
     <Content Include="Voice\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

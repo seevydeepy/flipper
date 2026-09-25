@@ -367,7 +367,6 @@ public sealed partial class ReaderPage : Page
         }
 
         _lowestVisible = next;
-        App.Current.Window?.PlayPageTurnCue();
         Draw();
     }
 
