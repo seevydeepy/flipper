@@ -142,6 +142,30 @@ public sealed class ScoreCatalogLifecycleTests
     }
 
     [Fact]
+    public void ForcedComposerReanalysis_LeavesUnaskedTitleUntouched()
+    {
+        using var root = new TempDir();
+        var first = Generated("Known title", "Old composer", 10, DateTime.UtcNow);
+        ScoreCatalog.TryMergeMissing(root.Path,
+            new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = first });
+        var proposed = new ScoreFacts { Composer = "New composer" };
+        var next = new CatalogMergeCandidate(proposed, first.SourcePath, first.Length,
+            first.LastWriteUtc,
+            CatalogProvenance.ForGenerated(ScoreFacts.CurrentExtractorVersion,
+                first.Length, first.LastWriteUtc, proposed, ExtractionStatus.Partial),
+            ForceRefresh: true, RefreshFields: ScoreRefreshFields.Composer);
+
+        ScoreCatalog.TryMergeMissing(root.Path,
+            new Dictionary<string, CatalogMergeCandidate> { ["A.pdf"] = next });
+
+        var stored = ScoreCatalog.LoadEntry(root.Path, "A.pdf")!;
+        Assert.Equal("Known title", stored.Facts.Title);
+        Assert.Equal("New composer", stored.Facts.Composer);
+        Assert.Equal(ScoreFieldOrigin.Generated, stored.OriginOf("title"));
+        Assert.Equal(ExtractionStatus.Complete, stored.Provenance!.Status);
+    }
+
+    [Fact]
     public void Merge_NeverOverwritesLegacyEntries()
     {
         using var root = new TempDir();
