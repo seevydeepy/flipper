@@ -64,11 +64,14 @@ public static class PdfEmbeddedTextReader
         return ReadRich(path, maxPages: 1).AsLegacy();
     }
 
-    public static ScoreExtraction ReadRich(string path, int maxPages = 3)
+    public static ScoreExtraction ReadRich(string path, int maxPages = 3,
+        CancellationToken cancellationToken = default, int startPage = 1)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var document = PdfDocument.Open(path);
+            cancellationToken.ThrowIfCancellationRequested();
             var metadata = new ScoreMetadata(
                 document.Information.Title,
                 document.Information.Author,
@@ -79,11 +82,14 @@ public static class PdfEmbeddedTextReader
             }
 
             var lines = new List<ScoreTextLine>();
-            var pages = Math.Min(Math.Max(1, maxPages), document.NumberOfPages);
-            for (var pageNumber = 1; pageNumber <= pages; pageNumber++)
+            var firstPage = Math.Max(1, startPage);
+            var pages = Math.Min((long)firstPage + Math.Max(1, maxPages) - 1, document.NumberOfPages);
+            for (var pageNumber = firstPage; pageNumber <= pages; pageNumber++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var page = document.GetPage(pageNumber);
-                lines.AddRange(ReadPageLines(page, ScoreTextSource.Embedded));
+                cancellationToken.ThrowIfCancellationRequested();
+                lines.AddRange(ReadPageLines(page, ScoreTextSource.Embedded, cancellationToken));
             }
 
             if (lines.Count == 0)
@@ -99,14 +105,21 @@ public static class PdfEmbeddedTextReader
         }
     }
 
-    internal static IReadOnlyList<ScoreTextLine> ReadPageLines(Page page, ScoreTextSource source)
+    internal static IReadOnlyList<ScoreTextLine> ReadPageLines(Page page, ScoreTextSource source,
+        CancellationToken cancellationToken = default)
     {
         // Word boxes for geometry group words into baseline bands; the text of
         // each band comes from joining its words. PdfPig's word splitter can
         // fuse two engraved rows into one band (Mazurka: credit + dedication
         // share y=736); split bands on large horizontal gaps so each printed
         // row stays its own line.
-        var words = page.GetWords().Where(w => !string.IsNullOrWhiteSpace(w.Text)).ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+        var words = page.GetWords().Where(w =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return !string.IsNullOrWhiteSpace(w.Text);
+        }).ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
         if (words.Length == 0)
         {
             var fallback = ContentOrderTextExtractor.GetText(page)
@@ -115,40 +128,45 @@ public static class PdfEmbeddedTextReader
                 .Select(line => new ScoreTextLine(
                     page.Number, line, 0, 0, 0, 0, null, null, false, source))
                 .ToArray();
+            cancellationToken.ThrowIfCancellationRequested();
             return fallback;
         }
 
         var width = Math.Max(1, page.Width);
         var height = Math.Max(1, page.Height);
         var groups = new List<List<Word>> { new() { words[0] } };
+        var bandSum = words[0].BoundingBox.Centroid.Y;
+        var fontSum = words[0].Letters.Sum(l => l.FontSize);
+        var letterCount = words[0].Letters.Count;
+        var rightmost = words[0].BoundingBox.Right;
         foreach (var word in words.Skip(1))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = groups[^1];
-            var band = current.Select(w => w.BoundingBox.Centroid.Y).Average();
-            var tolerance = Math.Max(2, current.SelectMany(w => w.Letters).Select(l => l.FontSize).DefaultIfEmpty(12).Average() * 0.4);
-            if (Math.Abs(word.BoundingBox.Centroid.Y - band) > tolerance)
-            {
-                groups.Add(new List<Word> { word });
-                continue;
-            }
-
-            // Same band but a big horizontal gap after engraving columns:
-            // treat as a new visual row rather than one long line.
-            var rightmost = current.Max(w => w.BoundingBox.Right);
-            var gap = word.BoundingBox.Left - rightmost;
+            var band = bandSum / current.Count;
+            var tolerance = Math.Max(2, (letterCount == 0 ? 12 : fontSum / letterCount) * 0.4);
             var size = word.Letters.Select(l => l.FontSize).DefaultIfEmpty(12).Average();
-            if (gap > size * 3 && current.Count >= 2)
+            var gap = word.BoundingBox.Left - rightmost;
+            if (Math.Abs(word.BoundingBox.Centroid.Y - band) > tolerance
+                || (gap > size * 3 && current.Count >= 2))
             {
-                groups.Add(new List<Word> { word });
-                continue;
+                groups.Add(current = new List<Word>());
+                bandSum = fontSum = 0;
+                letterCount = 0;
+                rightmost = double.MinValue;
             }
 
+            bandSum += word.BoundingBox.Centroid.Y;
+            fontSum += word.Letters.Sum(l => l.FontSize);
+            letterCount += word.Letters.Count;
+            rightmost = Math.Max(rightmost, word.BoundingBox.Right);
             current.Add(word);
         }
 
         return groups
             .Select(group =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var ordered = group.OrderBy(w => w.BoundingBox.Left).ToArray();
                 var text = string.Join(" ", ordered.Select(w => w.Text)).Trim();
                 var left = ordered.Min(w => w.BoundingBox.Left);
@@ -158,7 +176,7 @@ public static class PdfEmbeddedTextReader
                 var top = ordered.Max(w => w.BoundingBox.Top);
                 var sizes = ordered.SelectMany(w => w.Letters).Select(l => l.FontSize).ToArray();
                 var fonts = ordered.SelectMany(w => w.Letters).Select(l => l.FontName).ToArray();
-                var bold = fonts.Any(f => f.Contains("bold", StringComparison.OrdinalIgnoreCase));
+                var bold = fonts.Any(f => f?.Contains("bold", StringComparison.OrdinalIgnoreCase) == true);
                 return new ScoreTextLine(
                     page.Number,
                     text,

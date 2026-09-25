@@ -31,14 +31,8 @@ try
 
             var fileName = Path.GetFileName(path);
             var embedded = PdfEmbeddedTextReader.ReadRich(path);
-            var decision = ScoreFactInference.InferWithEvidence(
-                fileName, embedded.Metadata, embedded.PageLines);
-            // Rich path merges wrapped headings; prefer it when layout exists.
-            if (embedded.Lines.Count > 0)
-            {
-                var rich = ScoreFactInference.InferRich(fileName, embedded.Metadata, embedded.Lines);
-                decision = decision with { Facts = rich };
-            }
+            var decision = ScoreFactInference.InferRichWithEvidence(
+                fileName, embedded.Metadata, embedded.Lines);
 
             Print(fileName, decision, jsonOut, explain);
             return 0;
@@ -106,9 +100,10 @@ try
 
                 var embedded = PdfEmbeddedTextReader.ReadRich(pdf);
                 var info = new FileInfo(pdf);
-                var facts = embedded.Lines.Count > 0
-                    ? ScoreFactInference.InferRich(Path.GetFileName(pdf), embedded.Metadata, embedded.Lines)
-                    : ScoreFactInference.Infer(Path.GetFileName(pdf), embedded.Metadata, embedded.PageLines);
+                var decision = ScoreFactInference.InferRichWithEvidence(
+                    Path.GetFileName(pdf), embedded.Metadata, embedded.Lines);
+                var facts = decision.TitleVerified ? decision.Facts : new ScoreFacts
+                { Composer = decision.Facts.Composer, Subtitle = decision.Facts.Subtitle };
                 var status = embedded.Outcome switch
                 {
                     ScoreExtractionOutcome.Success => facts.Composer is null || facts.Title is null

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Flipper.Core.Library;
@@ -11,11 +12,9 @@ public static class ScoreFactInference
 
     /// <summary>
     /// Extractor version for <see cref="ScoreFacts.CurrentExtractorVersion"/>.
-    /// This inference implementation is version 2: evidence-scored selection
-    /// (credits parsed with roles, structured filename segments) replaced the
-    /// name-capitalisation heuristic ranking.
+    /// Version 3 requires corroboration or a clear layout heading for identification.
     /// </summary>
-    public const int InferenceVersion = 2;
+    public const int InferenceVersion = 3;
 
     private static readonly Regex NumberSuffix = new(
         @"\s*\(\d+\)\s*$",
@@ -441,9 +440,15 @@ public static class ScoreFactInference
         ScoreMetadata metadata,
         IReadOnlyList<ScoreTextLine> richLines)
     {
+        return InferRichWithEvidence(fileName, metadata, richLines).Facts;
+    }
+
+    public static InferenceDecision InferRichWithEvidence(
+        string fileName, ScoreMetadata metadata, IReadOnlyList<ScoreTextLine> richLines)
+    {
         var merged = MergeMultilineTitles(richLines);
         var strings = merged.Select(line => line.Text).ToArray();
-        return InferWithEvidence(fileName, metadata, strings, relativeFolder: null).Facts;
+        return InferCore(fileName, metadata, strings, null, merged);
     }
 
     /// <summary>
@@ -456,6 +461,13 @@ public static class ScoreFactInference
         ScoreMetadata metadata,
         IReadOnlyList<string> pageLines,
         string? relativeFolder = null)
+    {
+        return InferCore(fileName, metadata, pageLines, relativeFolder, []);
+    }
+
+    private static InferenceDecision InferCore(
+        string fileName, ScoreMetadata metadata, IReadOnlyList<string> pageLines,
+        string? relativeFolder, IReadOnlyList<ScoreTextLine> layout)
     {
         var fileTitle = CleanFileName(fileName);
         var segments = ParseFilenameSegments(fileName);
@@ -472,31 +484,16 @@ public static class ScoreFactInference
         var metadataSubtitle = CleanSubtitle(metadata.Subject);
         var folderHint = FolderComposerHint(relativeFolder);
 
-        var selector = new EvidenceSelector(fileTitle, segments, lines, credits, folderHint);
+        var selector = new EvidenceSelector(fileTitle, segments, lines, credits, folderHint, layout);
         var titleDecision = selector.SelectTitle(metadataTitle);
         var composerDecision = selector.SelectComposer(
-            titleDecision.Value ?? metadataTitle ?? fileTitle,
+            titleDecision.Value ?? fileTitle,
             metadataComposer,
             credits);
 
-        var title = titleDecision.Value ?? metadataTitle ?? fileTitle;
-        var titleVerified = titleDecision.Value is not null || metadataTitle is not null;
-        string? composer;
-        if (metadataComposer is not null && composerDecision.Corroborated)
-        {
-            // An explicit printed composer credit corroborates generic PDF Author
-            // metadata; the printed credit wins and the metadata is supporting
-            // evidence rather than the decision.
-            composer = composerDecision.Value ?? metadataComposer;
-        }
-        else if (composerDecision.Value is not null)
-        {
-            composer = composerDecision.Value;
-        }
-        else
-        {
-            composer = metadataComposer;
-        }
+        var title = titleDecision.Value ?? segments.Title ?? fileTitle;
+        var titleVerified = titleDecision.Value is not null;
+        var composer = composerDecision.Value;
 
         var subtitle = PickSubtitle(lines, title, credits) ?? metadataSubtitle;
 
@@ -527,7 +524,7 @@ public static class ScoreFactInference
 
     /// <summary>
     /// Merge wrapped title lines: adjacent lines on the same page with matching
-    /// size/bold that are both too short to stand alone join with a space.
+    /// alignment, size and a plausible continuation join with a space.
     /// Returns the merged sequence (original order otherwise preserved).
     /// </summary>
     public static IReadOnlyList<ScoreTextLine> MergeMultilineTitles(IReadOnlyList<ScoreTextLine> lines)
@@ -544,7 +541,20 @@ public static class ScoreFactInference
             if (pending is { } head
                 && head.PageNumber == line.PageNumber
                 && head.Source == line.Source
-                && SizesMatch(head.FontSize, line.FontSize)
+                && (SizesMatch(head.FontSize, line.FontSize)
+                    || (head.Source == ScoreTextSource.Ocr && head.FontSize is null && line.FontSize is null))
+                && head.Height > 0 && line.Height > 0
+                && Math.Abs(head.Height - line.Height) <= Math.Max(head.Height, line.Height) * 0.25
+                && (Math.Abs(head.X - line.X) <= 0.025
+                    || Math.Abs(head.X + head.Width / 2 - line.X - line.Width / 2) <= 0.025)
+                && line.Y >= head.Y + head.Height * 0.8
+                && ClassifyCredit(head.Text, out _) == CreditRole.None
+                && ClassifyCredit(line.Text, out _) == CreditRole.None
+                && !CreditLabel.IsMatch(head.Text) && !CreditLabel.IsMatch(line.Text)
+                && (Regex.IsMatch(head.Text, @"(?:\bNo\.?|\bof|\bthe|\bin|\bfor|\bde|\bdes|\band)$", RegexOptions.IgnoreCase)
+                    || Regex.IsMatch(line.Text, @"^(?:\d|in\b|of\b|from\b|for\b|and\b)", RegexOptions.IgnoreCase))
+                && (head.FontName is null || line.FontName is null
+                    || string.Equals(head.FontName, line.FontName, StringComparison.OrdinalIgnoreCase))
                 && head.Bold == line.Bold
                 && head.Text.Length < 40
                 && line.Text.Length < 40
@@ -555,8 +565,9 @@ public static class ScoreFactInference
                 pending = head with
                 {
                     Text = head.Text + " " + line.Text,
-                    Width = Math.Max(head.Width, line.Width),
-                    Height = head.Height + line.Height
+                    X = Math.Min(head.X, line.X),
+                    Width = Math.Max(head.X + head.Width, line.X + line.Width) - Math.Min(head.X, line.X),
+                    Height = line.Y + line.Height - head.Y
                 };
                 continue;
             }
@@ -581,7 +592,7 @@ public static class ScoreFactInference
     {
         if (left is null || right is null)
         {
-            return true;
+            return false;
         }
 
         return Math.Abs(left.Value - right.Value) <= Math.Max(1.0, left.Value * 0.15);
@@ -1142,7 +1153,8 @@ public static class ScoreFactInference
 
     private static HashSet<string> Tokens(string value)
     {
-        var folded = value.ToLowerInvariant().Replace("'", string.Empty).Replace("’", string.Empty);
+        var folded = new string(value.Normalize(NormalizationForm.FormD)
+            .Where(ch => CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark).ToArray()).ToLowerInvariant().Replace("'", string.Empty).Replace("’", string.Empty);
         // Unicode-aware word scan: letters of any script, length 3+.
         return Regex.Matches(folded, @"\p{L}{3,}")
             .Select(match => match.Value)
@@ -1203,14 +1215,17 @@ public static class ScoreFactInference
         private readonly IReadOnlyList<ParsedCredit> _credits;
         private readonly string? _folderHint;
         private readonly HashSet<string> _fileTokens;
+        private readonly IReadOnlyList<ScoreTextLine> _layout;
 
         internal EvidenceSelector(
             string fileTitle,
             FilenameSegments segments,
             IReadOnlyList<string> lines,
             IReadOnlyList<ParsedCredit> credits,
-            string? folderHint)
+            string? folderHint,
+            IReadOnlyList<ScoreTextLine> layout)
         {
+            _layout = layout;
             _fileTitle = fileTitle;
             _segments = segments;
             _lines = lines;
@@ -1224,7 +1239,7 @@ public static class ScoreFactInference
             var scored = new List<(string Line, int Score, string Why)>();
             foreach (var line in _lines)
             {
-                if (IsBadTitle(line) || IsDirection(line) || IsCreditLine(line))
+                if (IsBadTitle(line) || IsDirection(line) || IsPiece(line) || IsCreditLine(line))
                 {
                     continue;
                 }
@@ -1232,6 +1247,7 @@ public static class ScoreFactInference
                 var inner = UnwrapWhole(line) ?? line;
                 var tokens = Tokens(inner);
                 var overlap = tokens.Count(token => _fileTokens.Contains(token));
+                var heading = IsLayoutHeading(line);
                 var score = 0;
                 var reasons = new List<string>();
                 if (metadataTitle is not null
@@ -1263,7 +1279,7 @@ public static class ScoreFactInference
                     && ComposerClaims(inner, _lines)
                     && overlap == 0
                     && !PrefixMatches(inner, _fileTitle)
-                    && otherTitleShaped)
+                    && otherTitleShaped && !heading)
                 {
                     continue;
                 }
@@ -1292,15 +1308,10 @@ public static class ScoreFactInference
                     reasons.Add("filename segment");
                 }
 
-                // Printed evidence outranks the no-evidence filename fallback:
-                // a page line at neutral score still beats falling back to the
-                // bare filename. Strong negative signals keep their veto below.
-                // Skipped when the filename itself is unreadable (Untitled):
-                // with no filename evidence there is nothing to outrank.
-                if (score == 0 && !_fileTitle.Equals("Untitled", StringComparison.OrdinalIgnoreCase))
+                if (heading)
                 {
-                    score += 1;
-                    reasons.Add("printed over fallback");
+                    score += 5;
+                    reasons.Add("prominent page heading");
                 }
 
                 if (UnwrapWhole(line) is not null)
@@ -1317,7 +1328,7 @@ public static class ScoreFactInference
                     reasons.Add("name-like (weak, ignored)");
                 }
 
-                if (LooksLikeComposerCredit(inner))
+                if (LooksLikeComposerCredit(inner) && !heading && score == 0)
                 {
                     score -= 3;
                     reasons.Add("looks like a person credit");
@@ -1328,28 +1339,26 @@ public static class ScoreFactInference
 
             if (scored.Count == 0)
             {
-                // Structured filename segment is usable when nothing better exists.
-                if (_segments.Title is not null)
-                {
-                    return (_segments.Title, "filename segment (uncorroborated)", null);
-                }
-
                 return (null, "no page evidence", null);
             }
 
-            // Printed evidence outranks the no-evidence filename fallback (handled
-            // by the neutral-score nudge above); strong negative signals keep
-            // their veto here.
+            // Require positive support, and abstain when another work is similarly supported.
             scored.Sort((a, b) => b.Score.CompareTo(a.Score));
             var winner = scored[0];
             var runnerUp = scored.Count > 1 && scored[1].Score >= winner.Score - 1
                 ? $"{scored[1].Line} ({scored[1].Score}: {scored[1].Why})"
                 : null;
-            if (winner.Score <= -2)
+            if (winner.Score < 2)
             {
-                // Only piece-descriptor / credit-like lines: abstain from the page
-                // and let metadata/filename decide.
+                // No sufficiently supported page title: keep the display fallback.
                 return (null, $"page lines unusable (best: {winner.Line}: {winner.Why})", null);
+            }
+
+            if (runnerUp is not null && !string.Equals(
+                UnwrapWhole(winner.Line) ?? winner.Line,
+                UnwrapWhole(scored[1].Line) ?? scored[1].Line, StringComparison.OrdinalIgnoreCase))
+            {
+                return (null, "conflicting title evidence", runnerUp);
             }
 
             var evidence = winner.Score > 0
@@ -1467,24 +1476,7 @@ public static class ScoreFactInference
                     return (cleaned, $"person-like '{line}' + corroboration", Corroborated: true);
                 }
 
-                // Close runner-up: a second distinct person-like line means the
-                // attribution is genuinely ambiguous — abstain. Quoted series
-                // headers are collection names, not rival people.
-                var rivals = _lines.Count(other =>
-                    !string.Equals(other, line, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(other, title, StringComparison.OrdinalIgnoreCase)
-                    && UnwrapWhole(other) is null
-                    && !IsPiece(other)
-                    && !IsCreditLine(other)
-                    && !IsQuotedSeriesHeader(other)
-                    && LooksLikeName(other)
-                    && CleanComposer(other) is not null);
-                if (rivals > 0)
-                {
-                    return (null, $"ambiguous person credits ('{line}' + {rivals} rival(s))", Corroborated: false);
-                }
-
-                return (cleaned, $"person-like '{line}' (uncorroborated)", Corroborated: false);
+                // Keep searching: a later name may have corroboration.
             }
 
             // Explicit filename byline, usable only when nothing better exists.
@@ -1497,6 +1489,18 @@ public static class ScoreFactInference
             // keep it out of the composer slot unless a credit agrees with it
             // (handled above). Abstain instead.
             return (null, "no composer evidence", Corroborated: false);
+        }
+
+        private bool IsLayoutHeading(string text)
+        {
+            return _layout.Any(line => CleanText(line.Text) == text
+                && line.Y is >= 0 and < 0.35 && line.Width >= 0.1 && line.Height > 0
+                && _layout.Any(other => other.PageNumber == line.PageNumber
+                    && other.Source == line.Source && other.Y > line.Y + line.Height
+                    && other.Height > 0
+                    && ((line.FontSize is > 0 && other.FontSize is > 0
+                            && line.FontSize >= other.FontSize * 1.3)
+                        || line.Height >= other.Height * 1.4)));
         }
 
         private bool IsCreditLine(string line)
