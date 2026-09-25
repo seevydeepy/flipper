@@ -61,7 +61,7 @@ public sealed class ScoreExtractionTests
         var facts = ScoreFactInference.Infer(
             "moonlight-sonata.pdf",
             default,
-            [.. junk, "Moonlight Sonata", "Ludwig van Beethoven"]);
+            [.. junk, "Moonlight Sonata", "Composed by Ludwig van Beethoven"]);
 
         Assert.Equal("Moonlight Sonata", facts.Title);
         Assert.Equal("Ludwig van Beethoven", facts.Composer);
@@ -105,6 +105,44 @@ public sealed class ScoreExtractionTests
         var merged = ScoreFactInference.MergeMultilineTitles(lines);
 
         Assert.Equal(2, merged.Count);
+    }
+
+
+    [Fact]
+    public void MergeMultilineTitles_DoesNotJoinOcrColumnsOrCreditRoles()
+    {
+        ScoreTextLine[] columns = [
+            new(1, "Dawn of a new day", .12, .10, .4, .02, null, null, false, ScoreTextSource.Ocr),
+            new(1, "John Williams", .65, .11, .2, .02, null, null, false, ScoreTextSource.Ocr)];
+        Assert.Equal(columns, ScoreFactInference.MergeMultilineTitles(columns));
+        ScoreTextLine[] credit = [
+            columns[0] with { Text = "Song of", X = .2 },
+            columns[1] with { Text = "Music by John Williams", X = .2, Y = .14 }];
+        Assert.Equal(credit, ScoreFactInference.MergeMultilineTitles(credit));
+    }
+
+    [Fact]
+    public void ReadRich_SelectsActualPageAndReturnsEmptyBeyondEnd()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, "pages.pdf");
+        File.WriteAllBytes(path, BuildPdf(["Cover"], ["Dawn"]));
+        var selected = PdfEmbeddedTextReader.ReadRich(path, maxPages: 1, startPage: 2);
+        Assert.Single(selected.Lines);
+        Assert.Equal(2, selected.Lines[0].PageNumber);
+        Assert.Equal("Dawn", selected.Lines[0].Text);
+        var beyond = PdfEmbeddedTextReader.ReadRich(path, startPage: 3);
+        Assert.Empty(beyond.Lines);
+        Assert.Equal(ScoreExtractionOutcome.NoReadableText, beyond.Outcome);
+    }
+
+    [Fact]
+    public void ReadRich_PropagatesCancellationBeforeOpeningFile()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() =>
+            PdfEmbeddedTextReader.ReadRich("does-not-exist.pdf", cancellationToken: cancellation.Token));
     }
 
     private static byte[] BuildPdf(IReadOnlyList<string> firstPage, IReadOnlyList<string>? secondPage = null)

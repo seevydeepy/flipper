@@ -15,7 +15,7 @@ public sealed class ScoreIdentificationRegressionTests
         var facts = Infer(
             "Moonlight Sonata.pdf",
             default,
-            ["Moonlight Sonata", "Ludwig van Beethoven", "Allegro con brio"]);
+            ["Moonlight Sonata", "Composed by Ludwig van Beethoven", "Allegro con brio"]);
 
         Assert.Equal("Moonlight Sonata", facts.Title);
         Assert.Equal("Ludwig van Beethoven", facts.Composer);
@@ -70,7 +70,7 @@ public sealed class ScoreIdentificationRegressionTests
     [Fact]
     public void UppercaseComposer_IsAccepted()
     {
-        var facts = Infer("Clair.pdf", default, ["Clair de Lune", "CLAUDE DEBUSSY"]);
+        var facts = Infer("Clair.pdf", default, ["Clair de Lune", "Music by CLAUDE DEBUSSY"]);
 
         Assert.Equal("Claude Debussy", facts.Composer, ignoreCase: true);
         Assert.Equal("Clair de Lune", facts.Title);
@@ -88,7 +88,7 @@ public sealed class ScoreIdentificationRegressionTests
         var facts = Infer(
             "12 - Etudes, Op. 10.pdf",
             default,
-            ["12 Études, Op. 10", "Frédéric Chopin"]);
+            ["12 Études, Op. 10", "Composed by Frédéric Chopin"]);
 
         Assert.Equal("12 Études, Op. 10", facts.Title);
         Assert.Equal("Frédéric Chopin", facts.Composer);
@@ -142,7 +142,7 @@ public sealed class ScoreIdentificationRegressionTests
         var facts = Infer(
             "Bwv - 1003 1.pdf",
             default,
-            ["Sonata II BWV 1003", "\"Sechs Sonaten für Violine\"", "Johann Sebastian Bach"]);
+            ["Sonata II BWV 1003", "\"Sechs Sonaten für Violine\"", "Composed by Johann Sebastian Bach"]);
 
         Assert.Equal("Sonata II BWV 1003", facts.Title);
         Assert.Equal("Johann Sebastian Bach", facts.Composer);
@@ -177,7 +177,7 @@ public sealed class ScoreIdentificationRegressionTests
         var decision = ScoreFactInference.InferWithEvidence(
             "Moonlight Sonata.pdf",
             default,
-            ["Moonlight Sonata", "Ludwig van Beethoven", "Allegro con brio"]);
+            ["Moonlight Sonata", "Composed by Ludwig van Beethoven", "Allegro con brio"]);
 
         Assert.Equal("Moonlight Sonata", decision.Facts.Title);
         Assert.True(decision.TitleVerified);
@@ -193,4 +193,67 @@ public sealed class ScoreIdentificationRegressionTests
         Assert.Equal("Photocopy", decision.Facts.Title);
         Assert.False(decision.TitleVerified);
     }
+
+    [Fact]
+    public void BoilerplateAndMetadataAlone_DoNotVerifyTitle()
+    {
+        var decision = ScoreFactInference.InferWithEvidence("scan0042.pdf",
+            new ScoreMetadata("Sheet Music", "Someone Uploader", null),
+            ["Published edition plate volume twelve", "John Williams"]);
+        Assert.False(decision.TitleVerified);
+        Assert.Equal("Scan 0042", decision.Facts.Title);
+        Assert.Null(decision.Facts.Composer);
+        Assert.False(ScoreFactInference.InferWithEvidence("Dawn - Music by Dario Marianelli.pdf", default, []).TitleVerified);
+        Assert.False(ScoreFactInference.InferWithEvidence("scan.pdf",
+            new ScoreMetadata("Dawn", "John Williams", null), []).TitleVerified);
+    }
+
+    [Fact]
+    public void LoneNameWithoutRoleOrCorroboration_DoesNotBecomeComposer()
+    {
+        var decision = ScoreFactInference.InferWithEvidence("Dawn.pdf", default, ["Dawn", "John Williams"]);
+        Assert.True(decision.TitleVerified);
+        Assert.Null(decision.Facts.Composer);
+    }
+
+    [Fact]
+    public void CorroboratedNameAfterUnrelatedName_Wins()
+    {
+        var decision = ScoreFactInference.InferWithEvidence("Dawn.pdf",
+            new ScoreMetadata(null, "John Williams", null),
+            ["Dawn", "Someone Else", "John Williams"]);
+        Assert.Equal("John Williams", decision.Facts.Composer);
+        var unsupported = ScoreFactInference.InferWithEvidence("Dawn.pdf",
+            new ScoreMetadata(null, "An Uploader", null),
+            ["Dawn", "Someone Else", "John Williams"]);
+        Assert.Null(unsupported.Facts.Composer);
+    }
+
+    [Fact]
+    public void RichLayout_IdentifiesProminentHeadingWithOpaqueFilename()
+    {
+        ScoreTextLine[] lines = [
+            new(2, "Dawn of a new day", .2, .08, .6, .04, null, null, false, ScoreTextSource.Ocr),
+            new(2, "Music by John Williams", .6, .18, .3, .015, null, null, false, ScoreTextSource.Ocr)];
+        var decision = ScoreFactInference.InferRichWithEvidence("scan0042.pdf", default, lines);
+        Assert.True(decision.TitleVerified);
+        Assert.Equal("Dawn of a new day", decision.Facts.Title);
+        Assert.Equal("John Williams", decision.Facts.Composer);
+        Assert.Contains("heading", decision.TitleEvidence);
+        Assert.Equal("Dawn of a new day", ScoreFactInference.InferRich("scan0042.pdf", default, lines).Title);
+    }
+
+    [Fact]
+    public void EquallyProminentDifferentHeadings_Abstain()
+    {
+        ScoreTextLine[] lines = [
+            new(1, "Dawn of a new day", .15, .08, .7, .04, 24, "Bold", true, ScoreTextSource.Embedded),
+            new(1, "Night on the river", .15, .18, .7, .04, 24, "Bold", true, ScoreTextSource.Embedded),
+            new(1, "Music by John Williams", .6, .3, .3, .015, 10, "Roman", false, ScoreTextSource.Embedded)];
+        var decision = ScoreFactInference.InferRichWithEvidence("scan0042.pdf", default, lines);
+        Assert.False(decision.TitleVerified);
+        Assert.Equal("Scan 0042", decision.Facts.Title);
+        Assert.NotNull(decision.TitleRunnerUp);
+    }
+
 }

@@ -5,15 +5,15 @@ namespace Flipper.Core.Tests;
 public sealed class ScoreFactInferenceTests
 {
     [Fact]
-    public void Infer_UsesUsefulEmbeddedMetadata()
+    public void Infer_MetadataAloneDoesNotEstablishIdentity()
     {
         var facts = ScoreFactInference.Infer(
             "rubbish123",
             new ScoreMetadata("Clair de Lune", "Claude Debussy", "Suite bergamasque"),
             []);
 
-        Assert.Equal("Clair de Lune", facts.Title);
-        Assert.Equal("Claude Debussy", facts.Composer);
+        Assert.Equal("Rubbish 123", facts.Title);
+        Assert.Null(facts.Composer);
         Assert.Equal("Suite bergamasque", facts.Subtitle);
     }
 
@@ -23,7 +23,7 @@ public sealed class ScoreFactInferenceTests
         var facts = ScoreFactInference.Infer(
             "Schindlers List - Main Theme Piano Version",
             default,
-            ["John Williams", "(Main Theme)", "Schindler's List", "1993"]);
+            ["Music by John Williams", "(Main Theme)", "Schindler's List", "1993"]);
 
         Assert.Equal("Schindler's List", facts.Title);
         Assert.Equal("John Williams", facts.Composer);
@@ -47,7 +47,7 @@ public sealed class ScoreFactInferenceTests
     public void Infer_DoesNotUseStandaloneCreditLabelAsTitle()
     {
         var facts = ScoreFactInference.Infer(
-            "rubbish123",
+            "dawn.pdf",
             default,
             ["Music by", "Dario Marianelli", "Dawn"]);
 
@@ -75,7 +75,7 @@ public sealed class ScoreFactInferenceTests
         var facts = ScoreFactInference.Infer(
             "scan001",
             new ScoreMetadata("Clair de Lune", "Claude Debussy", null),
-            [credit]);
+            ["Clair de Lune", credit]);
 
         Assert.Equal("Clair de Lune", facts.Title);
         Assert.Equal("Claude Debussy", facts.Composer);
