@@ -25,7 +25,11 @@ public sealed record ScoreExtractionResult(
     string? Detail = null,
     ExtractionStatus Status = ExtractionStatus.Partial,
     ScoreFactInference.InferenceDecision? Decision = null,
-    bool JevEvaluated = false);
+    bool JevTitleEvaluated = false,
+    bool JevComposerEvaluated = false)
+{
+    public bool JevEvaluated => JevTitleEvaluated || JevComposerEvaluated;
+}
 
 public sealed class PdfScoreFactExtractor
 {
@@ -61,7 +65,8 @@ public sealed class PdfScoreFactExtractor
         var embedded = new ScoreExtraction(default, [], ScoreExtractionOutcome.NoReadableText);
         var decision = ScoreFactInference.InferRichWithEvidence(entry.DisplayName, default, []);
         IReadOnlyList<ScoreTextLine> allLines = [];
-        var jevEvaluated = false;
+        var jevTitleEvaluated = false;
+        var jevComposerEvaluated = false;
         var ocrOutcome = OcrOutcome.NotNeeded;
         try
         {
@@ -99,28 +104,38 @@ public sealed class PdfScoreFactExtractor
                 {
                     var candidates = ScoreFactInference.ProposeRichCandidates(
                         entry.DisplayName, embedded.Metadata, allLines);
-                    var selected = await Jev.SelectAsync(apiKey, entry.DisplayName,
-                        embedded.Metadata, candidates, token);
-                    jevEvaluated = candidates.Titles.Count > 0 || candidates.Composers.Count > 0;
-                    var title = selected.Title;
-                    var composer = selected.Composer;
-                    if (string.Equals(title, composer, StringComparison.OrdinalIgnoreCase)) composer = null;
-                    decision = decision with
+                    if (candidates.Titles.Count > 0 || candidates.Composers.Count > 0)
                     {
-                        Facts = new ScoreFacts
+                        var selected = await Jev.SelectAsync(apiKey, entry.DisplayName,
+                            embedded.Metadata, candidates, token);
+                        var titleAsked = candidates.Titles.Count > 0;
+                        var composerAsked = candidates.Composers.Count > 0;
+                        jevTitleEvaluated = titleAsked;
+                        jevComposerEvaluated = composerAsked;
+                        var title = titleAsked ? selected.Title : decision.Facts.Title;
+                        var composer = composerAsked ? selected.Composer : decision.Facts.Composer;
+                        if (string.Equals(title, composer, StringComparison.OrdinalIgnoreCase)) composer = null;
+                        decision = decision with
                         {
-                            Title = title ?? ScoreFactInference.CleanFileName(entry.DisplayName),
-                            Composer = composer,
-                            Subtitle = title is not null && string.Equals(title, decision.Facts.Title,
-                                StringComparison.OrdinalIgnoreCase) ? decision.Facts.Subtitle : null
-                        },
-                        TitleVerified = title is not null,
-                        TitleEvidence = title is null ? "Jev abstained" : $"Jev {selected.Model} selected printed title",
-                        ComposerEvidence = composer is null ? "Jev abstained" : $"Jev {selected.Model} selected composer",
-                        TitleRunnerUp = null,
-                        TitleProbability = selected.TitleProbability,
-                        ComposerProbability = selected.ComposerProbability
-                    };
+                            Facts = new ScoreFacts
+                            {
+                                Title = title ?? ScoreFactInference.CleanFileName(entry.DisplayName),
+                                Composer = composer,
+                                Subtitle = string.Equals(title, decision.Facts.Title,
+                                    StringComparison.OrdinalIgnoreCase) ? decision.Facts.Subtitle : null
+                            },
+                            TitleVerified = titleAsked ? selected.Title is not null : decision.TitleVerified,
+                            TitleEvidence = titleAsked
+                                ? title is null ? "Jev abstained" : $"Jev {selected.Model} selected printed title"
+                                : decision.TitleEvidence,
+                            ComposerEvidence = composerAsked
+                                ? composer is null ? "Jev abstained" : $"Jev {selected.Model} selected composer"
+                                : decision.ComposerEvidence,
+                            TitleRunnerUp = titleAsked ? null : decision.TitleRunnerUp,
+                            TitleProbability = titleAsked ? selected.TitleProbability : decision.TitleProbability,
+                            ComposerProbability = composerAsked ? selected.ComposerProbability : decision.ComposerProbability
+                        };
+                    }
                 }
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -137,7 +152,8 @@ public sealed class PdfScoreFactExtractor
                 && (embedded.Outcome == ScoreExtractionOutcome.ExtractionFailure || ocrOutcome == OcrOutcome.Failed)
                 ? ExtractionStatus.FailedTransient
                 : facts.Title is null || facts.Composer is null ? ExtractionStatus.Partial : ExtractionStatus.Complete;
-            return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision, jevEvaluated);
+            return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision,
+                jevTitleEvaluated, jevComposerEvaluated);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {

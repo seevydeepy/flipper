@@ -281,7 +281,11 @@ public sealed class AutomaticScoreCatalog : IDisposable
                         provenance.Field("title").Confidence = decision.TitleProbability;
                         provenance.Field("composer").Confidence = decision.ComposerProbability;
                     }
-                    _pending[key] = new PendingFacts(entry, facts, provenance, forced);
+                    var refreshFields = (result.JevTitleEvaluated
+                            ? ScoreRefreshFields.Title | ScoreRefreshFields.Subtitle : ScoreRefreshFields.None)
+                        | (result.JevComposerEvaluated ? ScoreRefreshFields.Composer : ScoreRefreshFields.None);
+                    _pending[key] = new PendingFacts(entry, facts, provenance, forced,
+                        forced ? refreshFields : ScoreRefreshFields.All);
                     _overlay.Add(entry, facts);
                     flush = _pending.Count >= BatchSize || lastFlush.Elapsed >= TimeSpan.FromSeconds(2);
                 }
@@ -342,7 +346,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 pair.Value.Entry.Length,
                 pair.Value.Entry.LastWriteUtc,
                 pair.Value.Provenance,
-                pair.Value.ForceRefresh),
+                pair.Value.ForceRefresh,
+                pair.Value.RefreshFields),
             StringComparer.OrdinalIgnoreCase);
         var result = await Task.Run(
             () => ScoreCatalog.TryMergeMissing(root, generated, token),
@@ -460,5 +465,5 @@ public sealed class AutomaticScoreCatalog : IDisposable
     }
 
     private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts, CatalogProvenance Provenance,
-        bool ForceRefresh);
+        bool ForceRefresh, ScoreRefreshFields RefreshFields);
 }

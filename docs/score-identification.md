@@ -37,10 +37,12 @@ it does not receive the PDF or its images.
 With a key saved, the local extractor still finds and cleans candidate page
 titles and composer names. Jev 1.13 selects from these candidates, with a
 `none` choice for each field. A title needs at least 0.98 selected-option
-probability; a composer needs at least 0.90. Otherwise the title remains an
-unverified filename display fallback and the composer remains unknown. A
-service error or timeout keeps the local inference result. These thresholds
-are conservative initial values, not measured calibration for this library.
+probability; a composer needs at least 0.90. An evaluated title below its
+threshold remains an unverified filename display fallback; an evaluated
+composer below its threshold remains unknown. A field with no candidates keeps
+its local inference result. A service error or timeout keeps the local result.
+These thresholds are conservative initial values, not measured calibration for
+this library.
 
 New or changed scores use Jev automatically while a key is saved. Settings also
 has **Reanalyse existing scores** for a deliberate background pass over existing

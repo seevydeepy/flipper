@@ -757,9 +757,12 @@ public static class ScoreCatalog
         }
 
         var before = catalog[actualKey]?.ToJsonString();
-        CopyField(stored, provenance, "title", candidate.Facts.Title, incoming, candidate.ForceRefresh);
-        CopyField(stored, provenance, "composer", candidate.Facts.Composer, incoming, candidate.ForceRefresh);
-        CopyField(stored, provenance, "subtitle", candidate.Facts.Subtitle, incoming, candidate.ForceRefresh);
+        if (candidate.RefreshFields.HasFlag(ScoreRefreshFields.Title))
+            CopyField(stored, provenance, "title", candidate.Facts.Title, incoming, candidate.ForceRefresh);
+        if (candidate.RefreshFields.HasFlag(ScoreRefreshFields.Composer))
+            CopyField(stored, provenance, "composer", candidate.Facts.Composer, incoming, candidate.ForceRefresh);
+        if (candidate.RefreshFields.HasFlag(ScoreRefreshFields.Subtitle))
+            CopyField(stored, provenance, "subtitle", candidate.Facts.Subtitle, incoming, candidate.ForceRefresh);
         provenance.ExtractorVersion = Math.Max(
             provenance.ExtractorVersion, incoming?.ExtractorVersion ?? provenance.ExtractorVersion);
         if (candidate.SourcePath is not null)
@@ -769,6 +772,10 @@ public static class ScoreCatalog
         }
 
         provenance.Status = incoming?.Status ?? provenance.Status;
+        if (candidate.ForceRefresh && provenance.Status is ExtractionStatus.Partial or ExtractionStatus.Complete)
+            provenance.Status = string.IsNullOrWhiteSpace(stored.Facts.Title)
+                || string.IsNullOrWhiteSpace(stored.Facts.Composer)
+                    ? ExtractionStatus.Partial : ExtractionStatus.Complete;
         provenance.Attempts = sourceChanged || extractorUpgraded ? 1 : provenance.Attempts + 1;
         provenance.NextRetryUtc = provenance.Status == ExtractionStatus.FailedTransient
             ? CatalogProvenance.BackoffAfter(provenance.Attempts, DateTime.UtcNow) : null;
@@ -852,13 +859,17 @@ public enum CatalogMergeStatus
     Failed
 }
 
+[Flags]
+public enum ScoreRefreshFields { None = 0, Title = 1, Composer = 2, Subtitle = 4, All = Title | Composer | Subtitle }
+
 public sealed record CatalogMergeCandidate(
     ScoreFacts Facts,
     string? SourcePath = null,
     long Length = 0,
     DateTime LastWriteUtc = default,
     CatalogProvenance? Provenance = null,
-    bool ForceRefresh = false);
+    bool ForceRefresh = false,
+    ScoreRefreshFields RefreshFields = ScoreRefreshFields.All);
 
 public readonly record struct CatalogMergeResult(
     CatalogMergeStatus Status,
