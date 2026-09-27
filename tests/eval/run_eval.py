@@ -58,6 +58,7 @@ def check_composer(got: str | None, want: str | None) -> str:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--cli", required=True)
     parser.add_argument("--out", default="")
