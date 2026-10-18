@@ -163,7 +163,6 @@ public sealed class JevImageSelectionTests
     [InlineData("bytes")]
     [InlineData("pages")]
     [InlineData("later-page")]
-    [InlineData("empty")]
     public async Task InvalidImages_AreNotUploaded(string invalid)
     {
         var uploads = 0;
@@ -174,8 +173,7 @@ public sealed class JevImageSelectionTests
             "large" => [Page(1) with { Height = 1569 }],
             "bytes" => [Page(1) with { Jpeg = new byte[2 * 1024 * 1024 + 1] }],
             "pages" => [Page(1), Page(2), Page(3)],
-            "later-page" => [Page(3)],
-            _ => []
+            _ => [Page(3)]
         };
         var text = new JevScoreSelector.Selection(null, 0.6, null, 0.5, "jev-1.13.0");
         var result = await new JevScoreSelector(http).RefineWithImagesAsync("key", "scan.pdf", default,
@@ -184,6 +182,19 @@ public sealed class JevImageSelectionTests
         Assert.Equal(0, uploads);
         Assert.NotNull(result.ImageWarning);
         Assert.Equal(text with { ImageWarning = result.ImageWarning }, result);
+    }
+
+    [Fact]
+    public async Task WithdrawnImages_KeepTextWithoutReportingFailure()
+    {
+        var uploads = 0;
+        using var http = new HttpClient(new Handler((_, _) => { uploads++; throw new Exception("Unexpected upload"); }));
+        var text = new JevScoreSelector.Selection("Moonlight Sonata", 0.99, null, 0.5, "jev-1.13.0");
+        var result = await new JevScoreSelector(http).RefineWithImagesAsync("key", "scan.pdf", default,
+            Candidates, text, _ => Task.FromResult<IReadOnlyList<JevScoreSelector.PageImage>>([]), default);
+
+        Assert.Equal(0, uploads);
+        Assert.Equal(text, result);
     }
 
     // Opaque bytes exercise the upload contract; the Windows render smoke check decodes real JPEGs.
