@@ -54,7 +54,9 @@ public sealed class JevScoreSelector(HttpClient http)
         {
             var images = await loadImages(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            if (images.Count is < 1 or > MaxImagePages
+            // The provider can withdraw the images if permission changed during rendering.
+            if (images.Count == 0) return text;
+            if (images.Count > MaxImagePages
                 || images.Select(image => image.PageNumber).Distinct().Count() != images.Count
                 || images.Any(image => image.PageNumber is < 1 or > MaxImagePages
                     || image.Width is < MinImageDimension or > MaxImageDimension

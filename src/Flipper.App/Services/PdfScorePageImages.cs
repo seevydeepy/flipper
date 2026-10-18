@@ -12,6 +12,7 @@ internal static class PdfScorePageImages
         if (!permitted()) return [];
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         var count = Math.Min(JevScoreSelector.MaxImagePages, PdfBitmapRenderer.GetPageCount(bytes));
+        if (count <= 0) throw new InvalidDataException("PDF has no pages to render.");
         var images = new List<JevScoreSelector.PageImage>();
         for (var page = 0; page < count; page++)
         {
