@@ -27,7 +27,9 @@ public sealed record ScoreExtractionResult(
     ScoreFactInference.InferenceDecision? Decision = null,
     bool JevTitleEvaluated = false,
     bool JevComposerEvaluated = false,
-    string? JevError = null)
+    string? JevError = null,
+    bool JevUsedImages = false,
+    string? JevImageWarning = null)
 {
     public bool JevEvaluated => JevTitleEvaluated || JevComposerEvaluated;
 }
@@ -56,7 +58,8 @@ public sealed class PdfScoreFactExtractor
 
     public async Task<ScoreExtractionResult> ExtractWithStatusAsync(
         ScoreEntry entry,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool>? allowImageFallback = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var budget = new CancellationTokenSource(TimeBudget);
@@ -68,6 +71,8 @@ public sealed class PdfScoreFactExtractor
         IReadOnlyList<ScoreTextLine> allLines = [];
         var jevTitleEvaluated = false;
         var jevComposerEvaluated = false;
+        var jevUsedImages = false;
+        string? jevImageWarning = null;
         string? jevError = "No API key saved. Add one in Settings.";
         var ocrOutcome = OcrOutcome.NotNeeded;
         try
@@ -111,6 +116,24 @@ public sealed class PdfScoreFactExtractor
                     {
                         var selected = await Jev.SelectAsync(apiKey, entry.DisplayName,
                             embedded.Metadata, candidates, token);
+                        if (allowImageFallback?.Invoke() == true)
+                        {
+                            try
+                            {
+                                selected = await Jev.RefineWithImagesAsync(apiKey, entry.DisplayName,
+                                    embedded.Metadata, candidates, selected,
+                                    ct => PdfScorePageImages.ReadAsync(entry.DisplayFullPath, allowImageFallback, ct), token);
+                            }
+                            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                            {
+                                // The optional image pass shares the extraction budget. Keep a
+                                // completed text decision if only this extra pass runs out of time.
+                                selected = selected with { ImageWarning = JevScoreSelector.ImageFailureMessage };
+                            }
+                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        jevUsedImages = selected.UsedImages;
+                        jevImageWarning = selected.ImageWarning;
                         var titleAsked = candidates.Titles.Count > 0;
                         var composerAsked = candidates.Composers.Count > 0;
                         jevTitleEvaluated = titleAsked;
@@ -129,10 +152,12 @@ public sealed class PdfScoreFactExtractor
                             },
                             TitleVerified = titleAsked ? selected.Title is not null : decision.TitleVerified,
                             TitleEvidence = titleAsked
-                                ? title is null ? "Jev abstained" : $"Jev {selected.Model} selected printed title"
+                                ? (title is null ? "Jev abstained" : $"Jev {selected.Model} selected printed title")
+                                    + (selected.TitleUsedImages ? " using page images" : "")
                                 : decision.TitleEvidence,
                             ComposerEvidence = composerAsked
-                                ? composer is null ? "Jev abstained" : $"Jev {selected.Model} selected composer"
+                                ? (composer is null ? "Jev abstained" : $"Jev {selected.Model} selected composer")
+                                    + (selected.ComposerUsedImages ? " using page images" : "")
                                 : decision.ComposerEvidence,
                             TitleRunnerUp = titleAsked ? null : decision.TitleRunnerUp,
                             TitleProbability = titleAsked ? selected.TitleProbability : decision.TitleProbability,
@@ -159,14 +184,16 @@ public sealed class PdfScoreFactExtractor
             {
                 jevError = "Could not read the saved key or Jev response. Check the key and try again.";
             }
-            token.ThrowIfCancellationRequested();
+            // A timed-out optional image check must not erase a completed text pass.
+            if (jevTitleEvaluated || jevComposerEvaluated) cancellationToken.ThrowIfCancellationRequested();
+            else token.ThrowIfCancellationRequested();
             var facts = IdentifiedFacts(decision);
             var status = !decision.TitleVerified
                 && (embedded.Outcome == ScoreExtractionOutcome.ExtractionFailure || ocrOutcome == OcrOutcome.Failed)
                 ? ExtractionStatus.FailedTransient
                 : facts.Title is null || facts.Composer is null ? ExtractionStatus.Partial : ExtractionStatus.Complete;
             return new ScoreExtractionResult(facts, embedded.Outcome, ocrOutcome, detail, status, decision,
-                jevTitleEvaluated, jevComposerEvaluated, jevError);
+                jevTitleEvaluated, jevComposerEvaluated, jevError, jevUsedImages, jevImageWarning);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
         {

@@ -153,14 +153,16 @@ public sealed partial class LibraryPage
             progress.Maximum = Math.Max(1, job.Total);
             progress.Value = job.Completed;
             var heading = job.Total == 0 ? "No eligible scores to reanalyse."
-                : !job.IsRunning ? (job.Failed == 0 ? "Reanalysis finished." : "Reanalysis finished with errors.")
+                : !job.IsRunning ? (job.Failed == 0 && job.ImageFailures == 0 ? "Reanalysis finished." : "Reanalysis finished with issues.")
                 : job.WaitingForSave ? "Paused: could not save catalogue results. Retry the save."
                 : job.Paused ? "Paused while the reader is open."
                 : job.CurrentScore is null ? "Reanalysis queued…" : $"Analysing: {job.CurrentScore}";
             jobStatus.Text = $"{heading}\n{job.Completed} of {job.Total} checked · {job.Matched} with matches · "
                 + $"{job.Unmatched} without a confident match · {job.Failed} failed"
+                + (job.ImageChecks + job.ImageFailures > 0
+                    ? $"\nPage image checks: {job.ImageChecks} completed · {job.ImageFailures} failed (text results kept)." : "")
                 + (job.Skipped > 0 ? $"\n{job.Skipped} skipped (manual, legacy or not yet catalogued)." : "")
-                + (job.LastIssue is not null ? $"\nLast error: {job.LastIssue}" : "");
+                + (job.LastIssue is not null ? $"\nLast issue: {job.LastIssue}" : "");
         }
         try
         {
@@ -205,20 +207,40 @@ public sealed partial class LibraryPage
             ShowProgress();
         };
 
+        var images = new CheckBox
+        {
+            Content = new TextBlock { Text = "Use page images for uncertain matches (experimental)", TextWrapping = TextWrapping.Wrap },
+            IsChecked = App.Current.Settings.JevImageFallbackEnabled,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        AutomationProperties.SetName(images, "Use page images for uncertain Jev matches (experimental)");
+        images.Click += (_, _) =>
+        {
+            App.Current.Settings.JevImageFallbackEnabled = images.IsChecked == true;
+            App.Current.PersistSettings();
+        };
         var info = new Button
         {
             Content = "?", MinWidth = 32, MinHeight = 32, Padding = new Thickness(4),
             VerticalAlignment = VerticalAlignment.Center,
             Flyout = new Flyout
             {
-                Content = new TextBlock
+                Content = new ScrollViewer
                 {
-                    MaxWidth = 320, TextWrapping = TextWrapping.Wrap,
-                    Text = "Jev is optional. A saved TypeSafe API key enables matching for new or changed scores. "
-                        + "It sends the filename, extracted score text and PDF metadata to TypeSafe, but no PDF files or images. "
-                        + "API usage may incur charges. Remove the key to use local identification only.\n\n"
-                        + "Reanalyse checks existing generated entries. It can replace or clear generated details; "
-                        + "manual corrections and legacy entries are kept. Progress and results remain here when you close and reopen Settings during this app session."
+                    MaxHeight = 360, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    Content = new TextBlock
+                    {
+                        MaxWidth = 320, TextWrapping = TextWrapping.Wrap,
+                        Text = "Jev is optional. A saved TypeSafe API key enables matching for new or changed scores. "
+                            + "It sends the filename, extracted text and PDF metadata to TypeSafe. Remove the key to use local identification only.\n\n"
+                            + "Page images are off by default. If enabled, uncertain text results can trigger one extra request with images of up to the first two pages. "
+                            + "This experimental check may improve matching but adds API usage. Confident text results are kept if it fails. "
+                            + "The PDF file itself is never uploaded. API usage may incur charges.\n\n"
+                            + "Reanalyse checks existing generated entries. It can replace or clear generated details; "
+                            + "manual corrections and legacy entries are kept. Progress and results remain here when you close and reopen Settings during this app session."
+                    }
                 }
             }
         };
@@ -246,6 +268,7 @@ public sealed partial class LibraryPage
         section.Children.Add(key);
         section.Children.Add(buttons);
         section.Children.Add(status);
+        section.Children.Add(images);
         section.Children.Add(reanalyse);
         section.Children.Add(progress);
         section.Children.Add(jobStatus);

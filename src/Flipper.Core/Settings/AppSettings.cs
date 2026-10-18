@@ -30,6 +30,7 @@ public sealed class AppSettings
     public string? MicrophoneDeviceId { get; set; }
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public bool CropToInk { get; set; }
+    public bool JevImageFallbackEnabled { get; set; }
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Playlist> Playlists { get; set; } = new();
     public string? SelectedPlaylistId { get; set; }

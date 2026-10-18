@@ -2,7 +2,7 @@ using Flipper.Core.Library;
 
 namespace Flipper.App.Services;
 
-public sealed class AutomaticScoreCatalog : IDisposable
+public sealed class AutomaticScoreCatalog(Func<bool>? allowImageFallback = null) : IDisposable
 {
     private const int BatchSize = 8;
     private readonly object _gate = new();
@@ -269,7 +269,7 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 ScoreExtractionResult result;
                 try
                 {
-                    result = await _extractor.ExtractWithStatusAsync(entry, token);
+                    result = await _extractor.ExtractWithStatusAsync(entry, token, allowImageFallback);
                 }
                 catch (OperationCanceledException)
                 {
@@ -326,7 +326,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                     _pending[key] = new PendingFacts(entry, facts, provenance, forced,
                         forced ? refreshFields : ScoreRefreshFields.All,
                         result.JevTitleEvaluated && facts.Title is not null
-                            || result.JevComposerEvaluated && facts.Composer is not null);
+                            || result.JevComposerEvaluated && facts.Composer is not null,
+                        result.JevUsedImages, result.JevImageWarning);
                     _overlay.Add(entry, facts);
                     flush = _pending.Count >= BatchSize || lastFlush.Elapsed >= TimeSpan.FromSeconds(2);
                 }
@@ -423,7 +424,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
                 _seen.Remove(WorkId(pair.Value.Entry));
                 if (pair.Value.ForceRefresh)
                     CompleteJevLocked(pair.Value.Entry, pair.Value.Matched,
-                        rejected.Contains(pair.Key) ? "The PDF changed before its result could be saved." : null);
+                        rejected.Contains(pair.Key) ? "The PDF changed before its result could be saved." : null,
+                        pair.Value.UsedImages, pair.Value.ImageWarning);
                 if (rejected.Contains(pair.Key))
                 {
                     _overlay.Remove(pair.Value.Entry);
@@ -451,7 +453,8 @@ public sealed class AutomaticScoreCatalog : IDisposable
         }
     }
 
-    private void CompleteJevLocked(ScoreEntry entry, bool matched, string? error)
+    private void CompleteJevLocked(ScoreEntry entry, bool matched, string? error,
+        bool usedImages = false, string? imageWarning = null)
     {
         if (!_forced.Remove(WorkId(entry)) || _jevProgress is null) return;
         _jevProgress = _jevProgress with
@@ -460,8 +463,11 @@ public sealed class AutomaticScoreCatalog : IDisposable
             Matched = _jevProgress.Matched + (error is null && matched ? 1 : 0),
             Unmatched = _jevProgress.Unmatched + (error is null && !matched ? 1 : 0),
             Failed = _jevProgress.Failed + (error is null ? 0 : 1),
+            ImageChecks = _jevProgress.ImageChecks + (usedImages ? 1 : 0),
+            ImageFailures = _jevProgress.ImageFailures + (imageWarning is not null ? 1 : 0),
             CurrentScore = null,
-            LastIssue = error is null ? _jevProgress.LastIssue : $"{entry.DisplayName}: {error}"
+            LastIssue = error is null && imageWarning is null ? _jevProgress.LastIssue
+                : $"{entry.DisplayName}: {error ?? imageWarning}"
         };
     }
 
@@ -523,12 +529,13 @@ public sealed class AutomaticScoreCatalog : IDisposable
     }
 
     private sealed record PendingFacts(ScoreEntry Entry, ScoreFacts Facts, CatalogProvenance Provenance,
-        bool ForceRefresh, ScoreRefreshFields RefreshFields, bool Matched);
+        bool ForceRefresh, ScoreRefreshFields RefreshFields, bool Matched, bool UsedImages, string? ImageWarning);
 }
 
 public sealed record JevReanalysisProgress(int Total, int Skipped, int Completed = 0,
     int Matched = 0, int Unmatched = 0, int Failed = 0, string? CurrentScore = null,
-    string? LastIssue = null, bool Paused = false, bool WaitingForSave = false)
+    string? LastIssue = null, bool Paused = false, bool WaitingForSave = false,
+    int ImageChecks = 0, int ImageFailures = 0)
 {
     public bool IsRunning => Completed < Total;
 }

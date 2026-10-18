@@ -36,7 +36,7 @@ public sealed partial class LibraryPage : Page
     private const double PlaylistDeleteSize = 32;
 
     private readonly LibraryWatcher _watcher = new();
-    private readonly AutomaticScoreCatalog _automaticCatalog = new();
+    private readonly AutomaticScoreCatalog _automaticCatalog = new(() => App.Current.Settings.JevImageFallbackEnabled);
     private readonly ResettableCollection<ScoreCard> _cards = new();
     private readonly ScoreCatalogCache _catalogCache = new();
     private readonly PlaylistLibraryCache _playlistCache = new();
@@ -959,7 +959,7 @@ public sealed partial class LibraryPage : Page
         matchLabel.Children.Add(new TextBlock { Text = "AI", VerticalAlignment = VerticalAlignment.Center });
         var match = new Button { Content = matchLabel, HorizontalAlignment = HorizontalAlignment.Right };
         AutomationProperties.SetName(match, "Match this score with Jev AI");
-        ToolTipService.SetToolTip(match, "Send this score's extracted text and metadata to Jev. Review suggestions before saving.");
+        ToolTipService.SetToolTip(match, "Send this score's text and metadata to Jev, plus page images if enabled in Settings. Review suggestions before saving.");
         var matching = new ProgressBar { IsIndeterminate = true, Visibility = Visibility.Collapsed };
         var content = new StackPanel { Spacing = 12, MinWidth = 280 };
         content.Children.Add(match);
@@ -987,6 +987,9 @@ public sealed partial class LibraryPage : Page
             matching.Visibility = Visibility.Visible;
             error.Visibility = Visibility.Visible;
             error.Text = "Reading this score and asking Jev…";
+            var settings = App.Current.Settings;
+            if (settings.JevImageFallbackEnabled)
+                error.Text += " Page images will be checked if the text result is uncertain.";
             try
             {
                 if (JevApiKeyStore.Load() is null)
@@ -995,7 +998,7 @@ public sealed partial class LibraryPage : Page
                     return;
                 }
                 var result = await Task.Run(() => new PdfScoreFactExtractor()
-                    .ExtractWithStatusAsync(entry, matchCancellation.Token));
+                    .ExtractWithStatusAsync(entry, matchCancellation.Token, () => settings.JevImageFallbackEnabled));
                 if (matchCancellation.IsCancellationRequested || !_active || root != _snapshot.RootDisplayPath) return;
                 var currentFile = new FileInfo(entry.DisplayFullPath);
                 if (!currentFile.Exists || currentFile.Length != entry.Length || currentFile.LastWriteTimeUtc != entry.LastWriteUtc)
@@ -1023,6 +1026,8 @@ public sealed partial class LibraryPage : Page
                     ? $"Jev matched {string.Join(" and ", suggestions)}. Review the suggestions, then Save to apply them."
                     : result.JevEvaluated ? "Jev found no confident match. Your details are unchanged."
                     : "No readable title or composer candidates were found. Your details are unchanged.";
+                if (result.JevUsedImages) error.Text += " Page images were checked.";
+                if (result.JevImageWarning is not null) error.Text += $"\n{result.JevImageWarning}";
             }
             catch (OperationCanceledException) { }
             catch (Exception)

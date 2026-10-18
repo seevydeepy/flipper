@@ -31,8 +31,9 @@ inference decision, including its evidence.
 The Settings menu accepts a user-supplied TypeSafe API key. It stays in the
 Windows Credential Locker for that user, outside `settings.json` and the shared
 score catalogue. Removing it restores local-only identification. No key is
-bundled with Carousel. The API sees extracted text, PDF metadata and the filename;
-it does not receive the PDF or its images.
+bundled with Carousel. The API sees extracted text, PDF metadata and the filename.
+Page images require the separate **Use page images for uncertain matches
+(experimental)** setting, which defaults to off. The PDF file is never uploaded.
 
 With a key saved, the local extractor still finds and cleans candidate page
 titles and composer names. Jev 1.13 selects from these candidates, with a
@@ -43,6 +44,28 @@ composer below its threshold remains unknown. A field with no candidates keeps
 its local inference result. A service error or timeout keeps the local result.
 These thresholds are conservative initial values, not measured calibration for
 this library.
+
+With image checks enabled, a valid text answer below its field's threshold can
+trigger one additional request. Only unresolved fields are asked again; accepted
+text results, confident `none` answers and fields without candidates are kept.
+No text response (including a service error) means no image request. Images do not
+add candidates or generate names: an unreadable scan with no local candidates
+still needs manual correction. The same probability thresholds apply to images.
+
+The worker renders at most the first two PDF pages to JPEG in memory, with each
+side between 280 and 1568 pixels (padding narrow pages), at most 2 MiB per image.
+It uses the shared PDF renderer and the existing 30-second extraction budget.
+Images are sent once in the request state using multipart uploads and the required
+experimental-image header. No temporary page files are saved. Disabling the
+setting prevents further image requests; a request already sent may finish.
+An image error or timeout retains the completed text decision and adds a warning.
+The score editor reports image use or failure, and catalogue progress retains
+image-check totals and warnings when Settings is reopened.
+
+TypeSafe's [image API](https://docs.typesafe.ai/images) supports the pinned
+`jev-1.13.0` model, but is experimental. Its format, limits and accuracy may change.
+This fallback is intended to resolve ambiguous page layout or credits, not to
+replace OCR. A benefit on real scores has not yet been measured.
 
 New or changed scores use Jev automatically while a key is saved. Settings also
 has **Reanalyse current catalogue** for a deliberate background pass over existing
