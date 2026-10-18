@@ -18,7 +18,8 @@ public sealed class SettingsStoreTests
                 Sort = SortMode.Recent,
                 SortReversed = true,
                 UiScalePercent = 150,
-                CropToInk = true
+                CropToInk = true,
+                JevImageFallbackEnabled = true
             });
 
             var loaded = store.Load();
@@ -27,6 +28,7 @@ public sealed class SettingsStoreTests
             Assert.True(loaded.SortReversed);
             Assert.Equal(150, loaded.UiScalePercent);
             Assert.True(loaded.CropToInk);
+            Assert.True(loaded.JevImageFallbackEnabled);
             Assert.True(loaded.VoiceTurningEnabled);
         }
         finally
@@ -92,6 +94,7 @@ public sealed class SettingsStoreTests
             Assert.True(loaded.SortReversed);
             Assert.Equal(100, loaded.UiScalePercent);
             Assert.False(loaded.CropToInk);
+            Assert.False(loaded.JevImageFallbackEnabled);
         }
         finally
         {
