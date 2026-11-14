@@ -1,4 +1,5 @@
 using Flipper.Core.Library;
+using Flipper.Core.Reader;
 using Flipper.Core.Settings;
 
 namespace Flipper.Core.Tests;
@@ -57,6 +58,98 @@ public sealed class SettingsStoreTests
 
             var loaded = store.Load();
             Assert.False(loaded.VoiceTurningEnabled);
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void SaveLoad_RoundTripsWinkCalibrationAcrossStoreInstances()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            var profile = new WinkCalibrationProfile
+            {
+                CameraId = "front-camera",
+                CreatedUtc = new DateTimeOffset(2026, 11, 14, 12, 0, 0, TimeSpan.Zero),
+                LeftOpen = 0.89,
+                LeftClosed = 0.10,
+                RightOpen = 0.86,
+                RightClosed = 0.12,
+                ClosedThreshold = 0.25,
+                LeftWinkOtherEyeMinimum = 0.45,
+                LeftWinkMinimumDifference = 0.3,
+                RightWinkOtherEyeMinimum = 0.3,
+                RightWinkMinimumDifference = 0.2
+            };
+            new SettingsStore(path).Save(new AppSettings { WinkTurningEnabled = true, WinkCalibration = profile });
+
+            var loaded = new SettingsStore(path).Load();
+            Assert.True(loaded.WinkTurningEnabled);
+            Assert.Equal(profile, loaded.WinkCalibration);
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void Load_LegacyWinkSettings_HaveNoCalibration()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, """{ "WinkTurningEnabled": true }""");
+
+            var loaded = new SettingsStore(path).Load();
+            Assert.True(loaded.WinkTurningEnabled);
+            Assert.Null(loaded.WinkCalibration);
+        }
+        finally
+        {
+            DeleteParent(path);
+        }
+    }
+
+    [Fact]
+    public void Load_InvalidWinkCalibration_DropsOnlyCalibration()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "flipper-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, """
+                {
+                  "WinkTurningEnabled": true,
+                  "VoiceTurningEnabled": false,
+                  "SearchQuery": "chopin",
+                  "WinkCalibration": {
+                    "Version": 1,
+                    "CameraId": "front-camera",
+                    "CreatedUtc": "2026-11-14T12:00:00+00:00",
+                    "LeftOpen": 0.60,
+                    "LeftClosed": 0.53,
+                    "RightOpen": 0.86,
+                    "RightClosed": 0.12,
+                    "ClosedThreshold": 0.25,
+                    "LeftWinkOtherEyeMinimum": 0.45,
+                    "LeftWinkMinimumDifference": 0.3,
+                    "RightWinkOtherEyeMinimum": 0.3,
+                    "RightWinkMinimumDifference": 0.2
+                  }
+                }
+                """);
+
+            var loaded = new SettingsStore(path).Load();
+            Assert.Null(loaded.WinkCalibration);
+            Assert.True(loaded.WinkTurningEnabled);
+            Assert.False(loaded.VoiceTurningEnabled);
+            Assert.Equal("chopin", loaded.SearchQuery);
         }
         finally
         {
