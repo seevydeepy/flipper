@@ -4,6 +4,11 @@ using Microsoft.ML.OnnxRuntime;
 
 namespace Flipper.App.Services;
 
+// Coordinates are in the upright, unmirrored camera frame, in pixels.
+internal readonly record struct WinkFaceGeometry(
+    float X, float Y, float Width, float Height,
+    float LeftEyeX, float LeftEyeY, float RightEyeX, float RightEyeY);
+
 internal readonly record struct WinkEyeObservation(
     EyeState Left,
     EyeState Right,
@@ -11,7 +16,8 @@ internal readonly record struct WinkEyeObservation(
     float? RightOpenProbability,
     float? EyeDistance,
     string TrackingStatus,
-    int RotationQuarterTurns = 0);
+    int RotationQuarterTurns = 0,
+    WinkFaceGeometry? Geometry = null);
 
 internal sealed class WinkEyeEstimator : IDisposable
 {
@@ -117,11 +123,19 @@ internal sealed class WinkEyeEstimator : IDisposable
 
         var leftEye = (detected.LeftEye - offset + new Vector2(0.5f)) * pixelScale - new Vector2(0.5f);
         var rightEye = (detected.RightEye - offset + new Vector2(0.5f)) * pixelScale - new Vector2(0.5f);
+        var faceTopLeft = (detected.TopLeft - offset + new Vector2(0.5f)) * pixelScale - new Vector2(0.5f);
+        var faceSize = detected.Size * pixelScale;
+        WinkFaceGeometry? geometry = null;
+        if (IsFinite(faceTopLeft) && IsFinite(faceSize) && IsFinite(leftEye) && IsFinite(rightEye))
+        {
+            geometry = new(faceTopLeft.X, faceTopLeft.Y, faceSize.X, faceSize.Y,
+                leftEye.X, leftEye.Y, rightEye.X, rightEye.Y);
+        }
         var eyeLine = leftEye - rightEye;
         var eyeDistance = eyeLine.Length();
         if (!float.IsFinite(eyeDistance) || eyeDistance < MinimumEyeDistance)
         {
-            return Untracked("eyes_too_small", rotation, float.IsFinite(eyeDistance) ? eyeDistance : null);
+            return Untracked("eyes_too_small", rotation, float.IsFinite(eyeDistance) ? eyeDistance : null, geometry);
         }
 
         var across = eyeLine * (EyeCropWidthRatio / EyeInputSize);
@@ -130,16 +144,18 @@ internal sealed class WinkEyeEstimator : IDisposable
         var frameMax = new Vector2(frameWidth - 1, frameHeight - 1);
         if (!CropFits(leftEye, halfExtent, frameMax) || !CropFits(rightEye, halfExtent, frameMax))
         {
-            return Untracked("eye_crop_outside_frame", rotation, eyeDistance);
+            return Untracked("eye_crop_outside_frame", rotation, eyeDistance, geometry);
         }
 
         var left = ClassifyEye(bgra, width, height, rotation, leftEye, across, down, options);
         var right = ClassifyEye(bgra, width, height, rotation, rightEye, across, down, options);
-        return new(left.State, right.State, left.OpenProbability, right.OpenProbability, eyeDistance, faceStatus, rotation);
+        return new(left.State, right.State, left.OpenProbability, right.OpenProbability, eyeDistance, faceStatus, rotation, geometry);
     }
 
-    private static WinkEyeObservation Untracked(string status, int rotation, float? eyeDistance = null) =>
-        new(EyeState.Unknown, EyeState.Unknown, null, null, eyeDistance, status, rotation);
+    private static bool IsFinite(Vector2 point) => float.IsFinite(point.X) && float.IsFinite(point.Y);
+
+    private static WinkEyeObservation Untracked(string status, int rotation, float? eyeDistance = null, WinkFaceGeometry? geometry = null) =>
+        new(EyeState.Unknown, EyeState.Unknown, null, null, eyeDistance, status, rotation, geometry);
 
     // The YuNet grid and landmark decoding follows the OpenCV FaceDetectorYN implementation.
     // Adapted in C# for ONNX Runtime. See Wink/NOTICE.txt for the source and licence.

@@ -20,7 +20,9 @@ public sealed record WinkCalibrationResult(WinkCalibrationProfile? Profile, Wink
 
 public static class WinkCalibration
 {
+    private const double BlinkFloor = 0.12;
     private static readonly TimeSpan MaximumSampleGap = TimeSpan.FromMilliseconds(250);
+    private const double MinimumFinalOpenMs = 100;
     private static readonly double[] ClosedThresholds = [0.25, 0.35, 0.45];
     private static readonly double[] OtherEyeMinimums = [0.6, 0.45, 0.3, 0.2];
     private static readonly double[] MinimumDifferences = [0.6, 0.45, 0.3, 0.2, 0.12];
@@ -28,13 +30,27 @@ public static class WinkCalibration
     public static WinkCalibrationResult Fit(
         string cameraId,
         IReadOnlyList<WinkCalibrationSample> openSamples,
-        IReadOnlyList<WinkCalibrationTrial> trainingTrials)
+        IReadOnlyList<WinkCalibrationTrial> trainingTrials) =>
+        Fit(cameraId, openSamples, trainingTrials, repeated: false);
+
+    public static WinkCalibrationResult FitRepeated(
+        string cameraId,
+        IReadOnlyList<WinkCalibrationSample> openSamples,
+        IReadOnlyList<WinkCalibrationTrial> trainingTrials) =>
+        Fit(cameraId, openSamples, trainingTrials, repeated: true);
+
+    private static WinkCalibrationResult Fit(
+        string cameraId,
+        IReadOnlyList<WinkCalibrationSample> openSamples,
+        IReadOnlyList<WinkCalibrationTrial> trainingTrials,
+        bool repeated)
     {
+        var required = repeated ? 4 : 2;
         var baseline = openSamples.Where(IsUsable).ToArray();
         if (string.IsNullOrWhiteSpace(cameraId) || baseline.Length < 20
-            || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.RightWink) < 2
-            || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.LeftWink) < 2
-            || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.Blink) < 2
+            || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.RightWink) < required
+            || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.LeftWink) < required
+            || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.Blink) < required
             || !trainingTrials.Any(trial => trial.Actual == WinkCalibrationGesture.Neither))
         {
             return new(null, WinkCalibrationFailure.InsufficientSamples);
@@ -87,7 +103,10 @@ public static class WinkCalibration
                         RightWinkOtherEyeMinimum = right.OtherEyeMinimum,
                         RightWinkMinimumDifference = right.MinimumDifference
                     };
-                    if (trainingTrials.All(trial => ReplayMatches(candidate, trial)))
+                    var matches = repeated
+                        ? MatchesRepeated(candidate, trainingTrials, required)
+                        : trainingTrials.All(trial => ReplayMatches(candidate, trial));
+                    if (matches)
                     {
                         return new(candidate, WinkCalibrationFailure.None);
                     }
@@ -100,6 +119,60 @@ public static class WinkCalibration
 
     public static bool Matches(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
         profile.IsValid && IsCompleteTrial(trial) && ReplayMatches(profile, trial);
+
+    public static bool IsIncidentalBlink(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
+        profile.IsValid && IsCompleteTrial(trial) && ReplayIncidentalBlink(profile, trial);
+
+    private static bool MatchesRepeated(
+        WinkCalibrationProfile profile,
+        IReadOnlyList<WinkCalibrationTrial> trials,
+        int required)
+    {
+        var left = 0;
+        var right = 0;
+        foreach (var trial in trials)
+        {
+            if (!ReplayMatches(profile, trial))
+            {
+                if (!ReplayIncidentalBlink(profile, trial))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (trial.Actual == WinkCalibrationGesture.LeftWink)
+            {
+                left++;
+            }
+            else if (trial.Actual == WinkCalibrationGesture.RightWink)
+            {
+                right++;
+            }
+        }
+
+        return left >= required && right >= required;
+    }
+
+    private static bool ReplayIncidentalBlink(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
+        BlinkTrialIfIncidental(profile, trial) is { } blink && ReplayMatches(profile, blink);
+
+    private static WinkCalibrationTrial? BlinkTrialIfIncidental(WinkCalibrationProfile profile, WinkCalibrationTrial trial)
+    {
+        if (trial.Actual is not (WinkCalibrationGesture.LeftWink or WinkCalibrationGesture.RightWink))
+        {
+            return null;
+        }
+
+        // Convert the classifier's bilateral blink floor back into raw probabilities.
+        var leftLimit = profile.LeftClosed + BlinkFloor * (profile.LeftOpen - profile.LeftClosed);
+        var rightLimit = profile.RightClosed + BlinkFloor * (profile.RightOpen - profile.RightClosed);
+        return trial.Samples.Any(sample => sample.TimeMs >= trial.WarmupMs && IsUsable(sample)
+            && sample.LeftOpenProbability!.Value <= leftLimit && sample.RightOpenProbability!.Value <= rightLimit)
+            ? trial with { Actual = WinkCalibrationGesture.Blink }
+            : null;
+    }
 
     private static bool ReplayMatches(WinkCalibrationProfile profile, WinkCalibrationTrial trial)
     {
@@ -155,7 +228,9 @@ public static class WinkCalibration
             }
         }
 
-        return matched || expectedTurn == 0;
+        return (matched || expectedTurn == 0)
+            && bothOpenSince is { } finalOpenSince
+            && trial.Samples[^1].TimeMs - finalOpenSince >= MinimumFinalOpenMs;
     }
 
     private static (double Left, double Right)? BlinkAnchors(WinkCalibrationTrial trial)

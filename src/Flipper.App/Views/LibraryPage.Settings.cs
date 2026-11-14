@@ -365,20 +365,12 @@ public sealed partial class LibraryPage
         var calibrationStatus = CreateSettingsValue(App.Current.Settings.WinkCalibration is { IsValid: true } ? "Calibrated" : string.Empty);
         var calibrate = new Button { Content = App.Current.Settings.WinkCalibration is { IsValid: true } ? "Recalibrate" : "Calibrate" };
         AutomationProperties.SetName(calibrate, "Calibrate wink turning");
-        var calibrationHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var details = new StackPanel { Spacing = 8 };
         details.Children.Add(calibrationStatus);
         details.Children.Add(calibrate);
-        details.Children.Add(calibrationHost);
-        void CloseCalibration()
-        {
-            calibrationHost.Content = null;
-            calibrate.Visibility = Visibility.Visible;
-        }
         calibrate.Click += (_, _) =>
         {
-            calibrate.Visibility = Visibility.Collapsed;
-            calibrationHost.Content = new WinkCalibrationPanel(profile =>
+            WinkCalibrationWindow.Show(profile =>
             {
                 var previous = App.Current.Settings.WinkCalibration;
                 App.Current.Settings.WinkCalibration = profile;
@@ -390,7 +382,7 @@ public sealed partial class LibraryPage
                 }
                 calibrationStatus.Text = "Calibrated";
                 calibrate.Content = "Recalibrate";
-            }, CloseCalibration);
+            });
         };
         var toggle = new ToggleSwitch
         {
@@ -406,7 +398,7 @@ public sealed partial class LibraryPage
             App.Current.Settings.WinkTurningEnabled = toggle.IsOn;
             App.Current.PersistSettings();
             details.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
-            if (!toggle.IsOn) CloseCalibration();
+            if (!toggle.IsOn) WinkCalibrationWindow.CloseCurrent();
         };
         details.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
 
