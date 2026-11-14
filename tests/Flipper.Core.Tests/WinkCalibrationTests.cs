@@ -172,6 +172,88 @@ public sealed class WinkCalibrationTests
         Assert.False(WinkCalibration.Matches(profile, Trial(Blink, -6, (Closed, Closed), (Closed, Closed))));
     }
 
+    [Fact]
+    public void Matches_RejectsABlinkWithoutStableReopeningAtTheEnd()
+    {
+        var profile = Assert.IsType<WinkCalibrationProfile>(Fit().Profile);
+        var blink = Trial(Blink, 0, (Closed, Closed), (Closed, Closed));
+        var frames = blink.Samples.ToArray();
+        var finalTrackingLoss = frames[..28];
+        finalTrackingLoss[^1] = finalTrackingLoss[^1] with { IsTracked = false };
+
+        Assert.False(WinkCalibration.Matches(profile, blink with { Samples = frames[..25] }));
+        Assert.False(WinkCalibration.Matches(profile, blink with { Samples = frames[..27] }));
+        Assert.False(WinkCalibration.Matches(profile, blink with { Samples = finalTrackingLoss }));
+        Assert.True(WinkCalibration.Matches(profile, blink with { Samples = frames[..28] }));
+    }
+
+    [Fact]
+    public void FitRepeated_ToleratesAnIncidentalBlinkWithoutChangingStrictMatching()
+    {
+        var incidental = Trial(RightWink, 4, (Closed, Closed), (Closed, Closed));
+        WinkCalibrationTrial[] training = [.. RepeatedTrials(), incidental];
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), training);
+
+        Assert.Equal(None, result.Failure);
+        var profile = Assert.IsType<WinkCalibrationProfile>(result.Profile);
+        Assert.True(WinkCalibration.IsIncidentalBlink(profile, incidental));
+        Assert.False(WinkCalibration.IsIncidentalBlink(profile, incidental with { Actual = Blink }));
+        Assert.False(WinkCalibration.Matches(profile, incidental));
+        Assert.Equal(NoSeparation, Fit(training).Failure);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    public void FitRepeated_IncidentalBlinksCannotFillWinkQuota(int genuineWinks)
+    {
+        var training = RepeatedTrials();
+        for (var index = genuineWinks; index < 4; index++)
+        {
+            training[index] = Trial(RightWink, index, (Closed, Closed), (Closed, Closed));
+        }
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), training);
+
+        Assert.Equal(NoSeparation, result.Failure);
+        Assert.Null(result.Profile);
+    }
+
+    [Fact]
+    public void FitRepeated_RejectsWrongAndMissedWinksWithoutHardBlinkEvidence()
+    {
+        var training = RepeatedTrials();
+        var profile = Assert.IsType<WinkCalibrationProfile>(WinkCalibration.FitRepeated(CameraId, Baseline(), training).Profile);
+        var wrongEye = Trial(RightWink, 3, (Closed, 0.46f), (0.1f, 0.48f));
+        var missed = Trial(RightWink, 3, (0.66f, 0.66f), (0.64f, 0.65f));
+
+        foreach (var trial in new[] { wrongEye, missed })
+        {
+            Assert.False(WinkCalibration.IsIncidentalBlink(profile, trial));
+            Assert.Equal(NoSeparation, WinkCalibration.FitRepeated(CameraId, Baseline(), [.. training, trial]).Failure);
+        }
+    }
+
+    [Fact]
+    public void IsIncidentalBlink_RequiresPostPromptClosureAndNoDetectedTurn()
+    {
+        var profile = Assert.IsType<WinkCalibrationProfile>(Fit().Profile);
+        var beforePrompt = Trial(RightWink, -6, (Closed, Closed), (Closed, Closed));
+        var staggered = Trial(RightWink, 0, (Closed, 0.4f), (0.4f, Closed));
+        var blink = Trial(RightWink, 0, (Closed, Closed), (Closed, Closed));
+        var samples = blink.Samples.ToArray();
+        samples[39] = new(1950, 0.45f, Closed);
+        samples[40] = new(2000, 0.44f, 0.11f);
+        var withWink = blink with { Samples = samples };
+
+        Assert.False(WinkCalibration.IsIncidentalBlink(profile, beforePrompt));
+        Assert.True(WinkCalibration.Matches(profile, staggered with { Actual = Blink }));
+        Assert.False(WinkCalibration.IsIncidentalBlink(profile, staggered));
+        Assert.True(WinkCalibration.Matches(profile, withWink));
+        Assert.False(WinkCalibration.IsIncidentalBlink(profile, withWink));
+    }
+
     private static WinkCalibrationResult Fit(WinkCalibrationTrial[]? training = null) =>
         WinkCalibration.Fit(CameraId, Baseline(), training ?? TrainingTrials());
 
@@ -183,6 +265,14 @@ public sealed class WinkCalibrationTests
         Trial(LeftWink, 3, (0.11f, 0.44f), (0.13f, 0.46f), (Closed, 0.45f)),
         Trial(Blink, 2, (Closed, Closed), (0.11f, 0.12f), (Closed, Closed)),
         Trial(Blink, 3, (Open, Closed), (Closed, Closed), (Closed, Closed), (Closed, Open)),
+        new(Neither, Baseline(), 0)
+    ];
+
+    private static WinkCalibrationTrial[] RepeatedTrials() =>
+    [
+        .. Enumerable.Range(0, 4).Select(offset => Trial(RightWink, offset, (0.45f, Closed), (0.44f, 0.11f))),
+        .. Enumerable.Range(0, 4).Select(offset => Trial(LeftWink, offset, (Closed, 0.46f), (0.11f, 0.45f))),
+        .. Enumerable.Range(0, 4).Select(offset => Trial(Blink, offset, (Closed, Closed), (Closed, Closed))),
         new(Neither, Baseline(), 0)
     ];
 
