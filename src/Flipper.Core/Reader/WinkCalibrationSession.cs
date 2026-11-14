@@ -13,11 +13,11 @@ public sealed class WinkCalibrationSession(string cameraId)
 {
     private const int InitialSamples = 6;
     private const int ExtraSamples = 3;
-    private const int CheckSamples = 3;
     private const int RetainedSamples = 12;
     private const double StillTimeMs = 2500;
     private readonly List<WinkCalibrationSample> _still = [];
     private readonly List<WinkCalibrationTrial> _training = [];
+    private readonly List<WinkCalibrationTrial> _freshMisses = [];
     private WinkCalibrationSample[] _baseline = [];
     private WinkCalibrationCapture? _capture;
     private double _leftOpen;
@@ -38,16 +38,9 @@ public sealed class WinkCalibrationSession(string cameraId)
     public WinkCalibrationFailure LastFailure { get; private set; }
     public WinkCalibrationProfile? Profile { get; private set; }
     public WinkCalibrationAssessment? Assessment { get; private set; }
-    public int RequiredFreshChecks => 3 * CheckSamples + 1;
-    public int PassedFreshChecks => Phase switch
-    {
-        WinkCalibrationPhase.RightCheck => PhaseSamples,
-        WinkCalibrationPhase.LeftCheck => CheckSamples + PhaseSamples,
-        WinkCalibrationPhase.BlinkCheck => 2 * CheckSamples + PhaseSamples,
-        WinkCalibrationPhase.OpenCheck => 3 * CheckSamples,
-        WinkCalibrationPhase.Ready => RequiredFreshChecks,
-        _ => 0
-    };
+    public int FreshAttemptsRequired => WinkCalibration.FreshCheckTotal;
+    public int FreshAttemptsCompleted { get; private set; }
+    public int FreshCorrectCount { get; private set; }
 
     public void Pause()
     {
@@ -93,12 +86,14 @@ public sealed class WinkCalibrationSession(string cameraId)
             }
             else if (WinkCalibration.Matches(Profile!, trial))
             {
+                FreshAttemptsCompleted++;
+                FreshCorrectCount++;
+                _freshMisses.Clear();
                 Phase = WinkCalibrationPhase.Ready;
             }
             else
             {
-                AddTraining(trial);
-                Refit();
+                Refit(trial);
             }
             return;
         }
@@ -106,14 +101,26 @@ public sealed class WinkCalibrationSession(string cameraId)
         if (_capture?.Observe(sample) is not { } completed) return;
         if (Phase is WinkCalibrationPhase.RightCheck or WinkCalibrationPhase.LeftCheck or WinkCalibrationPhase.BlinkCheck)
         {
-            if (WinkCalibration.IsIncidentalBlink(Profile!, completed)) return;
-            if (!WinkCalibration.Matches(Profile!, completed))
+            var outcome = WinkCalibration.Evaluate(Profile!, completed);
+            if ((outcome is WinkCalibrationTrialOutcome.Miss or WinkCalibrationTrialOutcome.Invalid)
+                && WinkCalibration.IsIncidentalBlink(Profile!, completed)) return;
+            if (outcome == WinkCalibrationTrialOutcome.Match)
             {
-                // A failed check becomes training evidence. All checks must then use fresh gestures.
-                AddTraining(completed);
-                Refit();
+                FreshCorrectCount++;
+            }
+            else if (outcome == WinkCalibrationTrialOutcome.Miss
+                && _freshMisses.Count(trial => trial.Actual == completed.Actual)
+                    < WinkCalibration.FreshWinkAttempts - WinkCalibration.MinimumMatchedWinks)
+            {
+                _freshMisses.Add(completed);
+            }
+            else
+            {
+                Refit(completed);
                 return;
             }
+
+            FreshAttemptsCompleted++;
         }
         else AddTraining(completed);
         if (++PhaseSamples < RequiredSamples) return;
@@ -130,10 +137,10 @@ public sealed class WinkCalibrationSession(string cameraId)
                 _fitTaken = false;
                 break;
             case WinkCalibrationPhase.RightCheck:
-                Begin(WinkCalibrationPhase.LeftCheck, CheckSamples);
+                Begin(WinkCalibrationPhase.LeftCheck, WinkCalibration.FreshWinkAttempts);
                 break;
             case WinkCalibrationPhase.LeftCheck:
-                Begin(WinkCalibrationPhase.BlinkCheck, CheckSamples);
+                Begin(WinkCalibrationPhase.BlinkCheck, WinkCalibration.FreshBlinkAttempts);
                 break;
             case WinkCalibrationPhase.BlinkCheck:
                 Begin(WinkCalibrationPhase.OpenCheck, 0);
@@ -162,7 +169,7 @@ public sealed class WinkCalibrationSession(string cameraId)
         }
         Profile = profile;
         NeedsMoreSamples = false;
-        Begin(WinkCalibrationPhase.RightCheck, CheckSamples);
+        Begin(WinkCalibrationPhase.RightCheck, WinkCalibration.FreshWinkAttempts);
     }
 
     private void Begin(WinkCalibrationPhase phase, int required)
@@ -182,8 +189,17 @@ public sealed class WinkCalibrationSession(string cameraId)
         _capture = required > 0 ? new(gesture, _leftOpen, _rightOpen) : null;
     }
 
-    private void Refit()
+    private void Refit(WinkCalibrationTrial failed)
     {
+        // Once the candidate is rejected, keep failed checks as training evidence.
+        foreach (var missed in _freshMisses)
+        {
+            AddTraining(missed);
+        }
+        AddTraining(failed);
+        _freshMisses.Clear();
+        FreshAttemptsCompleted = 0;
+        FreshCorrectCount = 0;
         Profile = null;
         NeedsMoreSamples = true;
         LastFailure = WinkCalibrationFailure.NoSeparation;

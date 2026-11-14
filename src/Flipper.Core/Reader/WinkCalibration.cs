@@ -16,20 +16,31 @@ public sealed record WinkCalibrationTrial(
 
 public enum WinkCalibrationFailure { None, InsufficientSamples, UnstableTracking, InsufficientEyeRange, NoSeparation }
 
-public sealed record WinkCalibrationMatchCount(int Matched, int Total, int Required);
+public enum WinkCalibrationTrialOutcome { Match, Miss, UnsafeTurn, Invalid }
+
+public sealed record WinkCalibrationMatchCount(int Matched, int Total, int Required)
+{
+    public double MatchPercentage => Total == 0 ? 0 : 100d * Matched / Total;
+}
 
 public sealed record WinkCalibrationAssessment(
     WinkCalibrationProfile Candidate,
     WinkCalibrationMatchCount RightWinks,
     WinkCalibrationMatchCount LeftWinks,
     WinkCalibrationMatchCount Blinks,
-    WinkCalibrationMatchCount OpenEyes)
+    WinkCalibrationMatchCount OpenEyes,
+    bool IsSafe)
 {
     public int MatchedCount => RightWinks.Matched + LeftWinks.Matched + Blinks.Matched + OpenEyes.Matched;
     public int SampleCount => RightWinks.Total + LeftWinks.Total + Blinks.Total + OpenEyes.Total;
     public double MatchPercentage => SampleCount == 0 ? 0 : 100d * MatchedCount / SampleCount;
+    public double WinkMatchPercentage => Math.Min(RightWinks.MatchPercentage, LeftWinks.MatchPercentage);
     public bool HasRequiredSamples => RightWinks.Total >= RightWinks.Required && LeftWinks.Total >= LeftWinks.Required
         && Blinks.Total >= Blinks.Required && OpenEyes.Total >= OpenEyes.Required;
+    public bool MeetsRepeatedTarget => IsSafe && HasRequiredSamples
+        && RightWinks.Matched >= WinkCalibration.MinimumMatchedWinks && LeftWinks.Matched >= WinkCalibration.MinimumMatchedWinks
+        && WinkMatchPercentage >= WinkCalibration.WinkTargetPercentage
+        && Blinks.Matched == Blinks.Total && OpenEyes.Matched == OpenEyes.Total;
 }
 
 public sealed record WinkCalibrationResult(
@@ -39,6 +50,11 @@ public sealed record WinkCalibrationResult(
 
 public static class WinkCalibration
 {
+    public const int WinkTargetPercentage = 80;
+    public const int MinimumMatchedWinks = 4;
+    public const int FreshWinkAttempts = 5;
+    public const int FreshBlinkAttempts = 3;
+    public const int FreshCheckTotal = 2 * FreshWinkAttempts + FreshBlinkAttempts + 1;
     private const double BlinkFloor = 0.12;
     private static readonly TimeSpan MaximumSampleGap = TimeSpan.FromMilliseconds(250);
     private const double MinimumFinalOpenMs = 100;
@@ -64,7 +80,7 @@ public static class WinkCalibration
         IReadOnlyList<WinkCalibrationTrial> trainingTrials,
         bool repeated)
     {
-        var required = repeated ? 4 : 2;
+        var required = repeated ? MinimumMatchedWinks : 2;
         var baseline = openSamples.Where(IsUsable).ToArray();
         if (string.IsNullOrWhiteSpace(cameraId) || baseline.Length < 20
             || trainingTrials.Count(trial => trial.Actual == WinkCalibrationGesture.RightWink) < required
@@ -109,6 +125,7 @@ public static class WinkCalibration
                       from minimumDifference in MinimumDifferences
                       select (OtherEyeMinimum: otherEyeMinimum, MinimumDifference: minimumDifference)).ToArray();
         WinkCalibrationAssessment? best = null;
+        WinkCalibrationAssessment? bestAccepted = null;
         foreach (var closedThreshold in ClosedThresholds)
         {
             foreach (var left in shapes)
@@ -124,9 +141,16 @@ public static class WinkCalibration
                         RightWinkMinimumDifference = right.MinimumDifference
                     };
                     var assessment = Assess(candidate, trainingTrials, repeated);
-                    if (assessment.HasRequiredSamples && assessment.MatchedCount == assessment.SampleCount)
+                    var completeMatch = assessment.HasRequiredSamples && assessment.MatchedCount == assessment.SampleCount;
+                    var meetsTarget = repeated ? assessment.MeetsRepeatedTarget : completeMatch;
+                    if (meetsTarget && completeMatch)
                     {
                         return new(candidate, WinkCalibrationFailure.None, assessment);
+                    }
+
+                    if (meetsTarget && (bestAccepted is null || IsBetterWinkMatch(assessment, bestAccepted)))
+                    {
+                        bestAccepted = assessment;
                     }
 
                     if (best is null || IsBetterAssessment(assessment, best))
@@ -137,11 +161,16 @@ public static class WinkCalibration
             }
         }
 
-        return new(null, WinkCalibrationFailure.NoSeparation, best);
+        return bestAccepted is { } accepted
+            ? new(accepted.Candidate, WinkCalibrationFailure.None, accepted)
+            : new(null, WinkCalibrationFailure.NoSeparation, best);
     }
 
     public static bool Matches(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
-        profile.IsValid && IsCompleteTrial(trial) && ReplayMatches(profile, trial);
+        Evaluate(profile, trial) == WinkCalibrationTrialOutcome.Match;
+
+    public static WinkCalibrationTrialOutcome Evaluate(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
+        profile.IsValid && IsCompleteTrial(trial) ? Replay(profile, trial) : WinkCalibrationTrialOutcome.Invalid;
 
     public static bool IsIncidentalBlink(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
         profile.IsValid && IsCompleteTrial(trial) && ReplayIncidentalBlink(profile, trial);
@@ -160,33 +189,44 @@ public static class WinkCalibration
         Span<int> totals = stackalloc int[4];
         matched.Clear();
         totals.Clear();
+        var safe = true;
         foreach (var trial in trials)
         {
-            var matches = ReplayMatches(profile, trial);
-            if (!matches && repeated && ReplayIncidentalBlink(profile, trial))
+            var outcome = Replay(profile, trial);
+            if (repeated && (outcome is WinkCalibrationTrialOutcome.Miss or WinkCalibrationTrialOutcome.Invalid)
+                && ReplayIncidentalBlink(profile, trial))
             {
                 continue;
             }
 
             var index = (int)trial.Actual;
             totals[index]++;
-            if (matches)
+            if (outcome == WinkCalibrationTrialOutcome.Match)
             {
                 matched[index]++;
             }
+            else if (outcome != WinkCalibrationTrialOutcome.Miss)
+            {
+                safe = false;
+            }
         }
 
-        var required = repeated ? 4 : 2;
+        var required = repeated ? MinimumMatchedWinks : 2;
         var right = (int)WinkCalibrationGesture.RightWink;
         var left = (int)WinkCalibrationGesture.LeftWink;
         var blink = (int)WinkCalibrationGesture.Blink;
         var open = (int)WinkCalibrationGesture.Neither;
         return new(profile, new(matched[right], totals[right], required), new(matched[left], totals[left], required),
-            new(matched[blink], totals[blink], required), new(matched[open], totals[open], 1));
+            new(matched[blink], totals[blink], required), new(matched[open], totals[open], 1), safe);
     }
 
     private static bool IsBetterAssessment(WinkCalibrationAssessment candidate, WinkCalibrationAssessment best)
     {
+        if (candidate.IsSafe != best.IsSafe)
+        {
+            return candidate.IsSafe;
+        }
+
         var candidateHasWinks = candidate.RightWinks.Matched >= candidate.RightWinks.Required
             && candidate.LeftWinks.Matched >= candidate.LeftWinks.Required;
         var bestHasWinks = best.RightWinks.Matched >= best.RightWinks.Required && best.LeftWinks.Matched >= best.LeftWinks.Required;
@@ -199,8 +239,14 @@ public static class WinkCalibration
             || (candidate.MatchPercentage == best.MatchPercentage && candidate.MatchedCount > best.MatchedCount);
     }
 
+    private static bool IsBetterWinkMatch(WinkCalibrationAssessment candidate, WinkCalibrationAssessment best) =>
+        candidate.WinkMatchPercentage > best.WinkMatchPercentage
+        || (candidate.WinkMatchPercentage == best.WinkMatchPercentage
+            && (candidate.RightWinks.Matched + candidate.LeftWinks.Matched) * (long)(best.RightWinks.Total + best.LeftWinks.Total)
+                > (best.RightWinks.Matched + best.LeftWinks.Matched) * (long)(candidate.RightWinks.Total + candidate.LeftWinks.Total));
+
     private static bool ReplayIncidentalBlink(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
-        BlinkTrialIfIncidental(profile, trial) is { } blink && ReplayMatches(profile, blink);
+        BlinkTrialIfIncidental(profile, trial) is { } blink && Replay(profile, blink) == WinkCalibrationTrialOutcome.Match;
 
     private static WinkCalibrationTrial? BlinkTrialIfIncidental(WinkCalibrationProfile profile, WinkCalibrationTrial trial)
     {
@@ -218,16 +264,8 @@ public static class WinkCalibration
             : null;
     }
 
-    private static bool ReplayMatches(WinkCalibrationProfile profile, WinkCalibrationTrial trial)
+    private static WinkCalibrationTrialOutcome Replay(WinkCalibrationProfile profile, WinkCalibrationTrial trial)
     {
-        if (trial.Actual == WinkCalibrationGesture.Blink
-            && (BlinkAnchors(trial) is not { } blink
-                || blink.Left > (profile.LeftClosed + profile.LeftOpen) / 2
-                || blink.Right > (profile.RightClosed + profile.RightOpen) / 2))
-        {
-            return false;
-        }
-
         var expectedTurn = trial.Actual switch
         {
             WinkCalibrationGesture.RightWink => 1,
@@ -236,6 +274,7 @@ public static class WinkCalibration
         };
         var detector = new WinkPageTurnDetector();
         var matched = false;
+        var interrupted = false;
         TimeSpan? previousTimestamp = null;
         double? bothOpenSince = null;
         foreach (var sample in trial.Samples)
@@ -243,6 +282,7 @@ public static class WinkCalibration
             if (!IsUsable(sample))
             {
                 detector.Reset();
+                interrupted = true;
                 previousTimestamp = null;
                 bothOpenSince = null;
                 continue;
@@ -253,6 +293,7 @@ public static class WinkCalibration
             if (previousTimestamp is { } previous && timestamp - previous > MaximumSampleGap)
             {
                 bothOpenSince = null;
+                interrupted = true;
             }
 
             bothOpenSince = (left, right) == (EyeState.Open, EyeState.Open)
@@ -265,16 +306,28 @@ public static class WinkCalibration
                 // Confirmation is delayed. A wink already reopening before the prompt belongs to warm-up.
                 if (bothOpenSince is not { } reopened || reopened < trial.WarmupMs || turn != expectedTurn || matched)
                 {
-                    return false;
+                    return WinkCalibrationTrialOutcome.UnsafeTurn;
                 }
 
                 matched = true;
             }
         }
 
-        return (matched || expectedTurn == 0)
-            && bothOpenSince is { } finalOpenSince
-            && trial.Samples[^1].TimeMs - finalOpenSince >= MinimumFinalOpenMs;
+        if (bothOpenSince is not { } finalOpenSince || trial.Samples[^1].TimeMs - finalOpenSince < MinimumFinalOpenMs
+            || (trial.Actual == WinkCalibrationGesture.Blink
+                && (BlinkAnchors(trial) is not { } blink
+                    || blink.Left > (profile.LeftClosed + profile.LeftOpen) / 2
+                    || blink.Right > (profile.RightClosed + profile.RightOpen) / 2)))
+        {
+            return WinkCalibrationTrialOutcome.Invalid;
+        }
+
+        if (matched || expectedTurn == 0)
+        {
+            return WinkCalibrationTrialOutcome.Match;
+        }
+
+        return interrupted ? WinkCalibrationTrialOutcome.Invalid : WinkCalibrationTrialOutcome.Miss;
     }
 
     private static (double Left, double Right)? BlinkAnchors(WinkCalibrationTrial trial)
