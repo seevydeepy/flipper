@@ -20,12 +20,12 @@ internal static class TrialReplay
         if (trials.Length == 0)
             throw new InvalidDataException("No labelled trial archives were found.");
 
-        using var estimator = new WinkEyeEstimator();
         var results = new List<ReplayResult>();
         foreach (var trial in trials)
         {
             try
             {
+                using var estimator = new WinkEyeEstimator();
                 results.Add(await ReplayAsync(Path.GetFullPath(trial), estimator).ConfigureAwait(false));
             }
             catch (Exception error) when (error is InvalidDataException or IOException or JsonException)
@@ -47,6 +47,7 @@ internal static class TrialReplay
         TrialData.Validate(manifest);
 
         var detector = new WinkPageTurnDetector();
+        (int Width, int Height, int RotationQuarterTurns)? lastGeometry = null;
         var current = new TrialFrameInfo[manifest.Frames.Length];
         var trace = new FrameTrace[manifest.Frames.Length];
         byte[] pixels = [];
@@ -63,6 +64,9 @@ internal static class TrialReplay
             await using var image = entry.Open();
             await image.ReadExactlyAsync(pixels).ConfigureAwait(false);
             var eyes = estimator.ObserveDetailed(pixels, frame.Width, frame.Height);
+            var geometry = (frame.Width, frame.Height, eyes.RotationQuarterTurns);
+            if (lastGeometry != geometry) detector.Reset();
+            lastGeometry = geometry;
             var timestamp = TimeSpan.FromTicks(checked((long)Math.Round(frame.TimeMs * TimeSpan.TicksPerMillisecond)));
             var direction = detector.Observe(eyes.Left, eyes.Right, timestamp);
             current[index] = frame with { Eyes = eyes, Turn = direction };

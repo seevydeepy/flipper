@@ -1,4 +1,5 @@
 using Flipper.Core.Library;
+using Flipper.Core.Reader;
 
 namespace Flipper.Core.Settings;
 
@@ -28,6 +29,7 @@ public sealed class AppSettings
     public bool ShowTrash { get; set; }
     public bool VoiceTurningEnabled { get; set; } = true;
     public bool WinkTurningEnabled { get; set; }
+    public WinkCalibrationProfile? WinkCalibration { get; set; }
     public string? MicrophoneDeviceId { get; set; }
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public bool CropToInk { get; set; }
@@ -42,6 +44,7 @@ public sealed class AppSettings
 
     public void Normalize()
     {
+        if (WinkCalibration is { IsValid: false }) WinkCalibration = null;
         Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
         Playlists ??= new List<Playlist>();
         FolderExpanded ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);

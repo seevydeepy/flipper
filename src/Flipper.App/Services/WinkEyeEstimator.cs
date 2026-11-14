@@ -10,7 +10,8 @@ internal readonly record struct WinkEyeObservation(
     float? LeftOpenProbability,
     float? RightOpenProbability,
     float? EyeDistance,
-    string TrackingStatus);
+    string TrackingStatus,
+    int RotationQuarterTurns = 0);
 
 internal sealed class WinkEyeEstimator : IDisposable
 {
@@ -34,6 +35,8 @@ internal sealed class WinkEyeEstimator : IDisposable
     private readonly float[] _faceInput = new float[3 * FaceInputSize * FaceInputSize];
     private readonly float[] _eyeInput = new float[3 * EyeInputSize * EyeInputSize];
     private readonly List<Face> _faces = [];
+    private (int Width, int Height) _sourceSize;
+    private int _rotationQuarterTurns;
 
     private readonly record struct Face(float Score, Vector2 TopLeft, Vector2 Size, Vector2 LeftEye, Vector2 RightEye);
 
@@ -65,26 +68,35 @@ internal sealed class WinkEyeEstimator : IDisposable
     {
         if (width <= 0 || height <= 0 || (long)width * height > bgra.Length / 4)
         {
-            return Untracked("invalid_frame");
+            return Untracked("invalid_frame", 0);
         }
 
-        var scale = (float)FaceInputSize / Math.Max(width, height);
-        var resizedWidth = Math.Max(1, (int)MathF.Round(width * scale));
-        var resizedHeight = Math.Max(1, (int)MathF.Round(height * scale));
+        if (_sourceSize != (width, height))
+        {
+            _sourceSize = (width, height);
+            _rotationQuarterTurns = 0;
+        }
+
+        var rotation = _rotationQuarterTurns;
+        var (frameWidth, frameHeight) = WinkFrameRotation.GetSize(width, height, rotation);
+        var scale = (float)FaceInputSize / Math.Max(frameWidth, frameHeight);
+        var resizedWidth = Math.Max(1, (int)MathF.Round(frameWidth * scale));
+        var resizedHeight = Math.Max(1, (int)MathF.Round(frameHeight * scale));
         var offsetX = (FaceInputSize - resizedWidth) / 2;
         var offsetY = (FaceInputSize - resizedHeight) / 2;
-        var pixelScale = new Vector2((float)width / resizedWidth, (float)height / resizedHeight);
+        var pixelScale = new Vector2((float)frameWidth / resizedWidth, (float)frameHeight / resizedHeight);
         var offset = new Vector2(offsetX, offsetY);
 
         Array.Clear(_faceInput);
         for (var y = 0; y < resizedHeight; y++)
         {
-            var sourceY = Math.Clamp((y + 0.5f) * pixelScale.Y - 0.5f, 0, height - 1);
+            var frameY = Math.Clamp((y + 0.5f) * pixelScale.Y - 0.5f, 0, frameHeight - 1);
             for (var x = 0; x < resizedWidth; x++)
             {
-                var sourceX = Math.Clamp((x + 0.5f) * pixelScale.X - 0.5f, 0, width - 1);
+                var frameX = Math.Clamp((x + 0.5f) * pixelScale.X - 0.5f, 0, frameWidth - 1);
+                var source = WinkFrameRotation.ToSource(new Vector2(frameX, frameY), width, height, rotation);
                 var index = (y + offsetY) * FaceInputSize + x + offsetX;
-                SampleBgr(bgra, width, height, sourceX, sourceY, _faceInput, index, FaceInputSize * FaceInputSize);
+                SampleBgr(bgra, width, height, source.X, source.Y, _faceInput, index, FaceInputSize * FaceInputSize);
             }
         }
 
@@ -94,7 +106,13 @@ internal sealed class WinkEyeEstimator : IDisposable
         var face = FindSingleFace(outputs.ToArray(), out var faceStatus);
         if (face is not { } detected)
         {
-            return Untracked(faceStatus);
+            // Keep each frame to one inference and only search on a missing face.
+            if (faceStatus == "no_face")
+            {
+                _rotationQuarterTurns = (rotation + 1) % 4;
+            }
+
+            return Untracked(faceStatus, rotation);
         }
 
         var leftEye = (detected.LeftEye - offset + new Vector2(0.5f)) * pixelScale - new Vector2(0.5f);
@@ -103,25 +121,25 @@ internal sealed class WinkEyeEstimator : IDisposable
         var eyeDistance = eyeLine.Length();
         if (!float.IsFinite(eyeDistance) || eyeDistance < MinimumEyeDistance)
         {
-            return Untracked("eyes_too_small", float.IsFinite(eyeDistance) ? eyeDistance : null);
+            return Untracked("eyes_too_small", rotation, float.IsFinite(eyeDistance) ? eyeDistance : null);
         }
 
         var across = eyeLine * (EyeCropWidthRatio / EyeInputSize);
         var down = new Vector2(-across.Y, across.X);
         var halfExtent = (Vector2.Abs(across) + Vector2.Abs(down)) * ((EyeInputSize - 1) * 0.5f);
-        var frameMax = new Vector2(width - 1, height - 1);
+        var frameMax = new Vector2(frameWidth - 1, frameHeight - 1);
         if (!CropFits(leftEye, halfExtent, frameMax) || !CropFits(rightEye, halfExtent, frameMax))
         {
-            return Untracked("eye_crop_outside_frame", eyeDistance);
+            return Untracked("eye_crop_outside_frame", rotation, eyeDistance);
         }
 
-        var left = ClassifyEye(bgra, width, height, leftEye, across, down, options);
-        var right = ClassifyEye(bgra, width, height, rightEye, across, down, options);
-        return new(left.State, right.State, left.OpenProbability, right.OpenProbability, eyeDistance, faceStatus);
+        var left = ClassifyEye(bgra, width, height, rotation, leftEye, across, down, options);
+        var right = ClassifyEye(bgra, width, height, rotation, rightEye, across, down, options);
+        return new(left.State, right.State, left.OpenProbability, right.OpenProbability, eyeDistance, faceStatus, rotation);
     }
 
-    private static WinkEyeObservation Untracked(string status, float? eyeDistance = null) =>
-        new(EyeState.Unknown, EyeState.Unknown, null, null, eyeDistance, status);
+    private static WinkEyeObservation Untracked(string status, int rotation, float? eyeDistance = null) =>
+        new(EyeState.Unknown, EyeState.Unknown, null, null, eyeDistance, status, rotation);
 
     // The YuNet grid and landmark decoding follows the OpenCV FaceDetectorYN implementation.
     // Adapted in C# for ONNX Runtime. See Wink/NOTICE.txt for the source and licence.
@@ -199,7 +217,7 @@ internal sealed class WinkEyeEstimator : IDisposable
         centre.X - halfExtent.X >= 0 && centre.Y - halfExtent.Y >= 0 &&
         centre.X + halfExtent.X <= frameMax.X && centre.Y + halfExtent.Y <= frameMax.Y;
 
-    private (EyeState State, float OpenProbability) ClassifyEye(byte[] bgra, int width, int height,
+    private (EyeState State, float OpenProbability) ClassifyEye(byte[] bgra, int width, int height, int rotation,
         Vector2 centre, Vector2 across, Vector2 down, RunOptions options)
     {
         var firstPixel = centre - (across + down) * ((EyeInputSize - 1) * 0.5f);
@@ -207,7 +225,8 @@ internal sealed class WinkEyeEstimator : IDisposable
         {
             for (var x = 0; x < EyeInputSize; x++)
             {
-                var source = firstPixel + x * across + y * down;
+                var sample = firstPixel + x * across + y * down;
+                var source = WinkFrameRotation.ToSource(sample, width, height, rotation);
                 SampleBgr(bgra, width, height, source.X, source.Y, _eyeInput, y * EyeInputSize + x, EyeInputSize * EyeInputSize);
             }
         }

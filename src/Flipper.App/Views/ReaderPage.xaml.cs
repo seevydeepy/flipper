@@ -178,7 +178,7 @@ public sealed partial class ReaderPage : Page
             {
                 if (epoch == _winkEpoch && !token.IsCancellationRequested && _ready)
                     WinkLabel.Text = status;
-            }), token);
+            }), token, calibration: App.Current.Settings.WinkCalibration);
     }
 
     private void OnVoiceKeyword(string keyword)

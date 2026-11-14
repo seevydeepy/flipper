@@ -362,6 +362,36 @@ public sealed partial class LibraryPage
 
     private static FrameworkElement CreateWinkSection()
     {
+        var calibrationStatus = CreateSettingsValue(App.Current.Settings.WinkCalibration is { IsValid: true } ? "Calibrated" : string.Empty);
+        var calibrate = new Button { Content = App.Current.Settings.WinkCalibration is { IsValid: true } ? "Recalibrate" : "Calibrate" };
+        AutomationProperties.SetName(calibrate, "Calibrate wink turning");
+        var calibrationHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        var details = new StackPanel { Spacing = 8 };
+        details.Children.Add(calibrationStatus);
+        details.Children.Add(calibrate);
+        details.Children.Add(calibrationHost);
+        void CloseCalibration()
+        {
+            calibrationHost.Content = null;
+            calibrate.Visibility = Visibility.Visible;
+        }
+        calibrate.Click += (_, _) =>
+        {
+            calibrate.Visibility = Visibility.Collapsed;
+            calibrationHost.Content = new WinkCalibrationPanel(profile =>
+            {
+                var previous = App.Current.Settings.WinkCalibration;
+                App.Current.Settings.WinkCalibration = profile;
+                try { App.Current.SettingsStore.Save(App.Current.Settings); }
+                catch
+                {
+                    App.Current.Settings.WinkCalibration = previous;
+                    throw;
+                }
+                calibrationStatus.Text = "Calibrated";
+                calibrate.Content = "Recalibrate";
+            }, CloseCalibration);
+        };
         var toggle = new ToggleSwitch
         {
             IsOn = App.Current.Settings.WinkTurningEnabled,
@@ -375,7 +405,10 @@ public sealed partial class LibraryPage
         {
             App.Current.Settings.WinkTurningEnabled = toggle.IsOn;
             App.Current.PersistSettings();
+            details.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+            if (!toggle.IsOn) CloseCalibration();
         };
+        details.Visibility = toggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
 
         var label = CreateSettingsLabel("Wink turning");
         label.VerticalAlignment = VerticalAlignment.Center;
@@ -396,7 +429,8 @@ public sealed partial class LibraryPage
                     Text = "Use the camera to turn pages. Your right eye: next page. Your left eye: previous page.",
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = (Brush)Application.Current.Resources["MuteBrush"]
-                }
+                },
+                details
             }
         };
     }

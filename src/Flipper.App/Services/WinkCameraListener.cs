@@ -11,14 +11,14 @@ namespace Flipper.App.Services;
 
 // Pixels are borrowed for the synchronous callback; a recorder must copy them.
 internal readonly record struct WinkCameraFrame(TimeSpan Timestamp, byte[] Pixels,
-    int Width, int Height, WinkEyeObservation Eyes, int Turn);
+    int Width, int Height, WinkEyeObservation Eyes, int Turn, string CameraId = "");
 
 internal static class WinkCameraListener
 {
     // Each run owns its camera, models and buffers. Cancellation completes cleanup
     // before the reader starts a replacement run. Images never leave this process.
     public static async Task RunAsync(Action<int> onTurn, Action<string> onStatus, CancellationToken token,
-        Action<WinkCameraFrame>? onFrame = null)
+        Action<WinkCameraFrame>? onFrame = null, WinkCalibrationProfile? calibration = null)
     {
         try
         {
@@ -36,6 +36,9 @@ internal static class WinkCameraListener
                 onStatus("Wink turning off — no camera");
                 return;
             }
+            var cameraId = choice.Source.DeviceInformation?.Id ?? choice.Source.Id;
+            var profile = calibration is { IsValid: true }
+                && string.Equals(calibration.CameraId, cameraId, StringComparison.Ordinal) ? calibration : null;
 
             using var estimator = await Task.Run(() => new WinkEyeEstimator(), token);
             token.ThrowIfCancellationRequested();
@@ -74,7 +77,7 @@ internal static class WinkCameraListener
                     }
                     failed.Token.ThrowIfCancellationRequested();
                     onStatus("Wink turning on");
-                    await Task.Run(() => ReadFramesAsync(reader, available, estimator, onTurn, failed.Token, onFrame));
+                    await Task.Run(() => ReadFramesAsync(reader, available, estimator, onTurn, failed.Token, onFrame, cameraId, profile));
                 }
                 finally
                 {
@@ -104,12 +107,14 @@ internal static class WinkCameraListener
     }
 
     private static async Task ReadFramesAsync(MediaFrameReader reader, SemaphoreSlim available,
-        WinkEyeEstimator estimator, Action<int> onTurn, CancellationToken token, Action<WinkCameraFrame>? onFrame)
+        WinkEyeEstimator estimator, Action<int> onTurn, CancellationToken token, Action<WinkCameraFrame>? onFrame,
+        string cameraId, WinkCalibrationProfile? calibration)
     {
         var detector = new WinkPageTurnDetector();
         var clock = Stopwatch.StartNew();
         var lastFrame = clock.Elapsed;
         TimeSpan? lastTimestamp = null;
+        (int Width, int Height, int Rotation)? lastGeometry = null;
         byte[] pixels = [];
         while (true)
         {
@@ -133,9 +138,14 @@ internal static class WinkCameraListener
                     if (pixels.Length != size) pixels = new byte[size];
                     image.CopyToBuffer(pixels.AsBuffer());
                     var eyes = estimator.ObserveDetailed(pixels, image.PixelWidth, image.PixelHeight);
-                    var direction = detector.Observe(eyes.Left, eyes.Right, started);
+                    var geometry = (image.PixelWidth, image.PixelHeight, eyes.RotationQuarterTurns);
+                    if (lastGeometry != geometry) detector.Reset();
+                    lastGeometry = geometry;
+                    var states = calibration is null ? (eyes.Left, eyes.Right)
+                        : WinkProbabilityClassifier.Classify(calibration, eyes.LeftOpenProbability, eyes.RightOpenProbability);
+                    var direction = detector.Observe(states.Item1, states.Item2, started);
                     token.ThrowIfCancellationRequested();
-                    onFrame?.Invoke(new WinkCameraFrame(started, pixels, image.PixelWidth, image.PixelHeight, eyes, direction));
+                    onFrame?.Invoke(new WinkCameraFrame(started, pixels, image.PixelWidth, image.PixelHeight, eyes, direction, cameraId));
                     if (direction != 0) onTurn(direction);
                 }
                 else if (started - lastFrame > TimeSpan.FromSeconds(3))
