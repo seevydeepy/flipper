@@ -329,7 +329,41 @@ public sealed partial class LibraryPage
                 return;
             }
 
-            details.Children.Add(CreateMicrophonePicker(mics));
+            var calibrationStatus = CreateSettingsValue(string.Empty);
+            var calibrate = new Button();
+            AutomationProperties.SetName(calibrate, "Calibrate voice turning");
+            void RefreshCalibration()
+            {
+                var deviceId = App.Current.Settings.MicrophoneDeviceId;
+                if (string.IsNullOrWhiteSpace(deviceId))
+                {
+                    try { deviceId = Windows.Media.Devices.MediaDevice.GetDefaultAudioCaptureId(Windows.Media.Devices.AudioDeviceRole.Default); }
+                    catch { deviceId = null; }
+                }
+                var calibrated = App.Current.Settings.VoiceCalibration?.MatchesDevice(deviceId) == true;
+                calibrationStatus.Text = calibrated ? "Calibrated" : string.Empty;
+                calibrate.Content = calibrated ? "Recalibrate" : "Calibrate";
+            }
+            calibrate.Click += (_, _) => VoiceCalibrationWindow.Show(App.Current.Settings.MicrophoneDeviceId, profile =>
+            {
+                var previous = App.Current.Settings.VoiceCalibration;
+                App.Current.Settings.VoiceCalibration = profile;
+                try { App.Current.SettingsStore.Save(App.Current.Settings); }
+                catch
+                {
+                    App.Current.Settings.VoiceCalibration = previous;
+                    throw;
+                }
+                RefreshCalibration();
+            });
+            details.Children.Add(CreateMicrophonePicker(mics, () =>
+            {
+                VoiceCalibrationWindow.CloseCurrent();
+                RefreshCalibration();
+            }));
+            RefreshCalibration();
+            details.Children.Add(calibrationStatus);
+            details.Children.Add(calibrate);
             details.Children.Add(new StackPanel
             {
                 Spacing = 6,
@@ -350,6 +384,7 @@ public sealed partial class LibraryPage
                 App.Current.PersistSettings();
             }
 
+            if (!toggle.IsOn) VoiceCalibrationWindow.CloseCurrent();
             await FillDetailsAsync();
         };
 
@@ -427,7 +462,7 @@ public sealed partial class LibraryPage
         };
     }
 
-    private static FrameworkElement CreateMicrophonePicker(IReadOnlyList<MicrophoneOption> mics)
+    private static FrameworkElement CreateMicrophonePicker(IReadOnlyList<MicrophoneOption> mics, Action? changed = null)
     {
         var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var mic in mics)
@@ -436,7 +471,7 @@ public sealed partial class LibraryPage
         }
 
         var current = App.Current.Settings.MicrophoneDeviceId ?? MicrophoneCatalog.SystemDefaultId;
-        box.SelectedItem = mics.FirstOrDefault(item => item.Id == current) ?? mics[0];
+        box.SelectedItem = mics.FirstOrDefault(item => item.Id == current);
         AutomationProperties.SetName(box, "Microphone");
         box.SelectionChanged += (_, _) =>
         {
@@ -447,6 +482,7 @@ public sealed partial class LibraryPage
 
             App.Current.Settings.MicrophoneDeviceId = option.Id;
             App.Current.PersistSettings();
+            changed?.Invoke();
         };
 
         var picker = new StackPanel { Spacing = 6 };

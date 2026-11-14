@@ -94,11 +94,14 @@
   </ItemGroup>
 
   <!-- Windows App SDK also carries an older ORT. Do not copy it over our matching runtime. -->
-  <Target Name="ExcludeWindowsAppSdkOnnxRuntime" BeforeTargets="AddMicrosoftWindowsAppSDKPayloadFilesFromComponents"
+  <Target Name="ExcludeWindowsAppSdkOnnxRuntime"
+          BeforeTargets="AddMicrosoftWindowsAppSDKPayloadFilesFromComponents;AddMicrosoftWindowsAppSDKPayloadFilesFromMsix"
           DependsOnTargets="GetWindowsAppSDKNativePlatform">
     <ItemGroup>
-      <MicrosoftWindowsAppSDKFilesExcluded Include="@(WindowsAppSdkComponentPackages->'%(Identity)runtimes-framework\win-$(NativePlatform)\native\onnxruntime.dll')" />
-      <MicrosoftWindowsAppSDKFilesExcluded Include="@(WindowsAppSdkComponentPackages->'%(Identity)runtimes-framework\win-$(NativePlatform)\native\onnxruntime_providers_shared.dll')" />
+      <MicrosoftWindowsAppSDKFilesExcluded Include="$(MicrosoftWindowsAppSDKMsixContent)\onnxruntime.dll;$(MicrosoftWindowsAppSDKMsixContent)\onnxruntime_providers_shared.dll"
+                                          Condition="'$(MicrosoftWindowsAppSDKMsixContent)' != ''" />
+      <MicrosoftWindowsAppSDKFilesExcluded Include="@(WindowsAppSdkComponentPackages->'%(FullPath)runtimes-framework\win-$(NativePlatform)\native\onnxruntime.dll')" />
+      <MicrosoftWindowsAppSDKFilesExcluded Include="@(WindowsAppSdkComponentPackages->'%(FullPath)runtimes-framework\win-$(NativePlatform)\native\onnxruntime_providers_shared.dll')" />
     </ItemGroup>
   </Target>
 

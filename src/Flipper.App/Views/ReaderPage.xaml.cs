@@ -104,7 +104,8 @@ public sealed partial class ReaderPage : Page
 
         VoiceLabel.Visibility = Visibility.Visible;
         var epoch = ++_voiceEpoch;
-        var failure = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword);
+        var failure = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword,
+            App.Current.Settings.VoiceCalibration);
         if (epoch != _voiceEpoch)
         {
             _voice.Stop();
