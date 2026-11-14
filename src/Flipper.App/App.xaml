@@ -18,7 +18,20 @@
             <SolidColorBrush x:Key="GoldBrush" Color="{StaticResource GoldColor}" />
             <SolidColorBrush x:Key="GoldSoftBrush" Color="#66B8956A" />
             <SolidColorBrush x:Key="PanelBrush" Color="#F4FFF8EE" />
-            <SolidColorBrush x:Key="MuteBrush" Color="#6B7C86" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#F6EFE3" />
+            <SolidColorBrush x:Key="MuteBrush" Color="#4F6270" />
+
+            <!-- Brand accent for the standard controls (toggles, check boxes, progress, focus). -->
+            <Color x:Key="SystemAccentColor">#23475B</Color>
+            <Color x:Key="SystemAccentColorLight1">#2D5469</Color>
+            <Color x:Key="SystemAccentColorLight2">#4F7D94</Color>
+            <Color x:Key="SystemAccentColorLight3">#86AFC3</Color>
+            <Color x:Key="SystemAccentColorDark1">#1B3A4B</Color>
+            <Color x:Key="SystemAccentColorDark2">#142C39</Color>
+            <Color x:Key="SystemAccentColorDark3">#0E1F28</Color>
+
+            <x:Double x:Key="ControlContentThemeFontSize">16</x:Double>
+
             <Style TargetType="Button" x:Key="QuietButton">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
@@ -29,9 +42,9 @@
                 <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
                 <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="Padding" Value="12,6" />
-                <Setter Property="MinWidth" Value="44" />
-                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="Padding" Value="14,8" />
+                <Setter Property="MinWidth" Value="48" />
+                <Setter Property="MinHeight" Value="48" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
@@ -40,7 +53,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
+                                CornerRadius="8"
                                 Padding="{TemplateBinding Padding}">
                                 <ContentPresenter
                                     Background="Transparent"
@@ -84,6 +97,198 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
+            </Style>
+
+            <!-- One template for every text button. The tint layer takes the foreground colour,
+                 so the same states work on a filled and on an outlined button. -->
+            <Style TargetType="Button" x:Key="SecondaryButton">
+                <Setter Property="Background" Value="{StaticResource CardBrush}" />
+                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="18,10" />
+                <Setter Property="MinWidth" Value="48" />
+                <Setter Property="MinHeight" Value="48" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="FocusVisualMargin" Value="-3" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid
+                                x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="Tint.Opacity" Value="0.09" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="Tint.Opacity" Value="0.18" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Opacity" Value="0.45" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Border
+                                    x:Name="Tint"
+                                    Background="{TemplateBinding Foreground}"
+                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                    Opacity="0" />
+                                <ContentPresenter
+                                    x:Name="Content"
+                                    Padding="{TemplateBinding Padding}"
+                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    Foreground="{TemplateBinding Foreground}"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style TargetType="Button" x:Key="PrimaryButton" BasedOn="{StaticResource SecondaryButton}">
+                <Setter Property="Background" Value="{StaticResource InkBrush}" />
+                <Setter Property="Foreground" Value="{StaticResource CardBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            </Style>
+            <Style TargetType="Button" x:Key="PlainButton" BasedOn="{StaticResource SecondaryButton}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+            <Style TargetType="Button" x:Key="RoundButton" BasedOn="{StaticResource SecondaryButton}">
+                <Setter Property="Background" Value="#F2FFFCF7" />
+                <Setter Property="BorderBrush" Value="{StaticResource GoldSoftBrush}" />
+                <Setter Property="CornerRadius" Value="22" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Width" Value="44" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+            </Style>
+
+            <!-- A radio button drawn as a large row or pill: ink when chosen. -->
+            <Style TargetType="RadioButton" x:Key="NavRadioButton">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="14,8" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="56" />
+                <Setter Property="FontSize" Value="17" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="FocusVisualMargin" Value="-3" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Grid
+                                x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="Tint.Opacity" Value="0.08" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="Tint.Opacity" Value="0.16" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Opacity" Value="0.45" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                    <VisualStateGroup x:Name="CheckStates">
+                                        <VisualState x:Name="Checked">
+                                            <VisualState.Setters>
+                                                <Setter Target="Fill.Opacity" Value="1" />
+                                                <Setter Target="Content.Foreground" Value="{StaticResource CardBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Unchecked" />
+                                        <VisualState x:Name="Indeterminate" />
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Border
+                                    x:Name="Fill"
+                                    Background="{StaticResource InkBrush}"
+                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                    Opacity="0" />
+                                <Border
+                                    x:Name="Tint"
+                                    Background="{StaticResource InkBrush}"
+                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                    Opacity="0" />
+                                <ContentPresenter
+                                    x:Name="Content"
+                                    Padding="{TemplateBinding Padding}"
+                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    Foreground="{TemplateBinding Foreground}"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style TargetType="RadioButton" x:Key="ChoiceRadioButton" BasedOn="{StaticResource NavRadioButton}">
+                <Setter Property="Background" Value="{StaticResource CardBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="8,8" />
+                <Setter Property="MinHeight" Value="52" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+            </Style>
+
+            <Style TargetType="TextBox" x:Key="AppTextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+                <Setter Property="MinHeight" Value="48" />
+                <Setter Property="Padding" Value="14,12,10,12" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
+            <Style TargetType="PasswordBox" x:Key="AppPasswordBox" BasedOn="{StaticResource DefaultPasswordBoxStyle}">
+                <Setter Property="MinHeight" Value="48" />
+                <Setter Property="Padding" Value="14,12,10,12" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
+            <Style TargetType="ComboBox" x:Key="AppComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+                <Setter Property="MinHeight" Value="48" />
+                <Setter Property="Padding" Value="14,0,0,0" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="CornerRadius" Value="8" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>
