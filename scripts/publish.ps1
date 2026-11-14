@@ -104,6 +104,8 @@ function Publish-App([string]$rid) {
     if ($LASTEXITCODE -ne 0) {
         throw "publish failed for $rid"
     }
+    & (Join-Path $PSScriptRoot 'verify-onnx-runtime.ps1') -PublishDirectory $out -RuntimeIdentifier $rid `
+        -AssetsPath (Join-Path $root 'src/Flipper.App/obj/project.assets.json')
     $exe = Join-Path $out 'Carousel.exe'
     if (-not (Test-Path $exe)) {
         throw "Carousel.exe not found for $rid"
