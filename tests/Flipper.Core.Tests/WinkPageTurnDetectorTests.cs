@@ -211,23 +211,42 @@ public sealed class WinkPageTurnDetectorTests
         Observe(reopenAt + 200, Open, Open);
     }
 
-    [Fact]
-    public void NextWink_RequiresOpenEyesAndCooldownBeforeClosure()
+    [Theory]
+    [InlineData(649, 0)]
+    [InlineData(650, -1)]
+    public void NextWink_RequiresTwoHundredMillisecondsOfOpenEyesBeforeClosure(int lastOpenAt, int expectedTurn)
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
         Observe(350, Open, Closed);
         Reopen(450, 1);
-        Observe(750, Open, Open);
-        Observe(950, Open, Open);
-        Observe(1150, Open, Open);
-        Observe(1249, Closed, Open);
-        Observe(1349, Closed, Open);
-        Reopen(1429);
-        Observe(1629, Open, Open);
-        Observe(1630, Closed, Open);
-        Observe(1700, Closed, Open);
-        Reopen(1810, -1);
+        Observe(lastOpenAt, Open, Open);
+        Observe(651, Closed, Open);
+        Observe(851, Closed, Open);
+        Reopen(1051, expectedTurn);
+    }
+
+    [Theory]
+    [InlineData(Open, Closed, 1)]
+    [InlineData(Closed, Open, -1)]
+    public void SuccessiveWinksAtReaderCadence_TurnOnceEach(EyeState secondLeft, EyeState secondRight, int secondDirection)
+    {
+        ObserveOpenForArming();
+        Observe(250, Open, Closed);
+        Observe(296, Open, Closed);
+        Observe(342, Open, Open);
+        Observe(388, Open, Open);
+        Observe(434, Open, Open);
+        Observe(480, Open, Open, 1);
+        Observe(526, Open, Open);
+        Observe(572, Open, Open);
+        Observe(618, secondLeft, secondRight);
+        Observe(664, secondLeft, secondRight);
+        Observe(710, Open, Open);
+        Observe(756, Open, Open);
+        Observe(802, Open, Open);
+        Observe(848, Open, Open, secondDirection);
+        Observe(894, Open, Open);
     }
 
     [Theory]
