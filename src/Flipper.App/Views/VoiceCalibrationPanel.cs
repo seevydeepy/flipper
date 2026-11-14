@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 
 namespace Flipper.App.Views;
 
@@ -16,14 +15,14 @@ internal sealed class VoiceCalibrationPanel : UserControl
     private readonly IReadOnlyList<VoiceSoundProfile> _existing;
     private readonly Action<VoiceSoundProfile> _save;
     private readonly VoiceAudioCapture _capture = new();
-    private readonly TextBlock _microphone = Text();
-    private readonly TextBlock _stage = Text();
-    private readonly TextBlock _instruction = Text("Start when you are ready.");
-    private readonly TextBlock _result = Text();
+    private readonly TextBlock _microphone = Ui.Body();
+    private readonly TextBlock _stage = Ui.Body();
+    private readonly TextBlock _instruction = Ui.Body("Start when you are ready.");
+    private readonly TextBlock _result = Ui.Body();
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 100 };
     private readonly ProgressBar _level = new() { Minimum = 0, Maximum = 100 };
-    private readonly Button _primary = Button("Start calibration");
-    private readonly Button _restart = Button("Restart");
+    private readonly Button _primary = Ui.Button("Start calibration", primary: true);
+    private readonly Button _restart = Ui.Button("Restart");
     private readonly DispatcherTimer _meter = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly object _recordingLock = new();
     private readonly List<float[]> _samples = [];
@@ -54,7 +53,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         AutomationProperties.SetLiveSetting(_result, AutomationLiveSetting.Polite);
         AutomationProperties.SetName(_progress, "Recording progress");
         AutomationProperties.SetName(_level, "Microphone level");
-        var cancel = Button("Cancel");
+        var cancel = Ui.Button("Cancel");
         cancel.Click += (_, _) => close();
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         actions.Children.Add(_primary);
@@ -65,9 +64,9 @@ internal sealed class VoiceCalibrationPanel : UserControl
             Spacing = 16,
             Children =
             {
-                Text($"Command: “{draft.Label}”"),
-                Text("Repeat the same command sound each time. The label only identifies the sound you record."),
-                Text("Use your normal reading position, speaking voice and background sound. Keep the microphone where you use it when playing."),
+                Ui.Body($"Command: “{draft.Label}”"),
+                Ui.Body("Repeat the same command sound each time. The label only identifies the sound you record."),
+                Ui.Body("Use your normal reading position, speaking voice and background sound. Keep the microphone where you use it when playing."),
                 _microphone, _level, _stage, _instruction, _progress, _result, actions
             }
         };
@@ -82,18 +81,6 @@ internal sealed class VoiceCalibrationPanel : UserControl
         _window.Activated += Window_Activated;
         Unloaded += (_, _) => Stop();
         _stage.Text = "Collect three recordings of this command, then check two new recordings.";
-    }
-
-    private static TextBlock Text(string value = "") => new()
-    {
-        Text = value, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["InkBrush"]
-    };
-
-    private static Button Button(string value)
-    {
-        var button = new Button { Content = value, MinHeight = 44, Padding = new Thickness(16, 10, 16, 10) };
-        AutomationProperties.SetName(button, value);
-        return button;
     }
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)

@@ -149,8 +149,6 @@ public sealed partial class MainWindow : Window
     private UIElement BuildToast(Guid id)
     {
         var ink = (Brush)Application.Current.Resources["InkBrush"];
-        var paper = (Brush)Application.Current.Resources["CardBrush"];
-        var gold = (Brush)Application.Current.Resources["GoldBrush"];
         var text = new TextBlock
         {
             Text = "Item Deleted.",
@@ -162,13 +160,9 @@ public sealed partial class MainWindow : Window
         var undo = new Button
         {
             Content = "Undo",
-            MinHeight = 40,
+            Style = Ui.Style("PrimaryButton"),
             MinWidth = 96,
-            FontSize = 16,
-            Padding = new Thickness(16, 6, 16, 6),
-            VerticalAlignment = VerticalAlignment.Center,
-            Background = gold,
-            Foreground = paper
+            VerticalAlignment = VerticalAlignment.Center
         };
         undo.Click += (_, _) => Undo(id);
 

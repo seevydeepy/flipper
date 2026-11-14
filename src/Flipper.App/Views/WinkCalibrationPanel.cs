@@ -3,7 +3,6 @@ using Flipper.Core.Reader;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 
 namespace Flipper.App.Views;
 
@@ -14,14 +13,14 @@ internal sealed class WinkCalibrationPanel : UserControl
     private readonly Action _close;
     private readonly WinkFacePreview _preview = new() { Height = 360, MaxWidth = 480 };
     private readonly WinkCalibrationMeter _meter = new();
-    private readonly TextBlock _step = Text();
-    private readonly TextBlock _instruction = Text();
-    private readonly TextBlock _tracking = Text();
-    private readonly TextBlock _result = Text();
+    private readonly TextBlock _step = Ui.Body();
+    private readonly TextBlock _instruction = Ui.Body();
+    private readonly TextBlock _tracking = Ui.Body();
+    private readonly TextBlock _result = Ui.Body();
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 100 };
-    private readonly Button _primary = Button("Start calibration");
-    private readonly Button _restart = Button("Restart");
-    private readonly Button _cancel = Button("Cancel");
+    private readonly Button _primary = Ui.Button("Start calibration", primary: true);
+    private readonly Button _restart = Ui.Button("Restart");
+    private readonly Button _cancel = Ui.Button("Cancel");
     private readonly object _sessionLock = new();
     private WinkCalibrationSession? _session;
     private string? _sessionCameraId;
@@ -83,7 +82,7 @@ internal sealed class WinkCalibrationPanel : UserControl
             Spacing = 12,
             Children =
             {
-                Text("Use your normal reading position and lighting. Keep the tablet in the position you use for reading."),
+                Ui.Body("Use your normal reading position and lighting. Keep the tablet in the position you use for reading."),
                 feedback, _tracking, _step, _instruction, _progress, _result, actions
             }
         };
@@ -102,18 +101,6 @@ internal sealed class WinkCalibrationPanel : UserControl
         _window.Activated -= Window_Activated;
         lock (_sessionLock) _session = null;
         UpdateCamera();
-    }
-
-    private static TextBlock Text(string value = "") => new()
-    {
-        Text = value, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["InkBrush"]
-    };
-
-    private static Button Button(string value)
-    {
-        var button = new Button { Content = value, MinHeight = 44, Padding = new Thickness(16, 10, 16, 10) };
-        AutomationProperties.SetName(button, value);
-        return button;
     }
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)

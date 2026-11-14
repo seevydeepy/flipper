@@ -14,9 +14,9 @@ internal sealed class WinkCalibrationMeter : UserControl
         Foreground = Brush("InkBrush"), Background = Brush("GoldSoftBrush")
     };
     private readonly TextBlock _value = Text("—", 30);
-    private readonly TextBlock _stage = Text("", 12);
-    private readonly TextBlock _matches = Text("", 12);
-    private readonly TextBlock _status = Text("", 12);
+    private readonly TextBlock _stage = Text("", 14);
+    private readonly TextBlock _matches = Text("", 14);
+    private readonly TextBlock _status = Text("", 14);
 
     public WinkCalibrationMeter()
     {
@@ -26,7 +26,7 @@ internal sealed class WinkCalibrationMeter : UserControl
         _value.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         _value.HorizontalAlignment = HorizontalAlignment.Center;
         _stage.HorizontalAlignment = HorizontalAlignment.Center;
-        var title = Text("Calibration progress", 14);
+        var title = Text("Calibration progress", 16);
         title.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         title.HorizontalAlignment = HorizontalAlignment.Center;
         var gauge = new Grid
