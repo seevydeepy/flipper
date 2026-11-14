@@ -18,6 +18,8 @@ internal sealed class WinkFacePreview : UserControl
 {
     private const int MaximumPreviewSide = 480;
     private const int UpdateIntervalMs = 100;
+    private const int ReframeDelayMs = 800;
+    private const int ReframeIntervalMs = 4000;
     private const int LabelGap = 4;
 
     private readonly DispatcherQueue _dispatcher;
@@ -38,7 +40,15 @@ internal sealed class WinkFacePreview : UserControl
     private int _queued;
     private int _epoch;
 
+    private int _framingEpoch;
+    private (int Width, int Height) _sourceSize;
+    private int _displayRotation;
+    private FrameCrop? _faceCrop;
+    private long _lastReframeAt;
+    private long? _reframeNeededSince;
+
     private readonly record struct EyeOverlay(EyeState State, float? OpenProbability, Vector2? Centre);
+    private readonly record struct FrameCrop(int X, int Y, int Width, int Height);
 
     public WinkFacePreview()
     {
@@ -64,9 +74,7 @@ internal sealed class WinkFacePreview : UserControl
         var queued = false;
         try
         {
-            var rotation = frame.Eyes.RotationQuarterTurns;
-            var (width, height) = WinkFrameRotation.GetSize(frame.Width, frame.Height, rotation);
-            var crop = CropFace(width, height, frame.Eyes.Geometry);
+            var (crop, rotation) = FrameFace(frame, epoch, now);
             var scale = Math.Min(1d, (double)MaximumPreviewSide / Math.Max(crop.Width, crop.Height));
             var previewWidth = Math.Max(1, (int)Math.Round(crop.Width * scale));
             var previewHeight = Math.Max(1, (int)Math.Round(crop.Height * scale));
@@ -131,19 +139,71 @@ internal sealed class WinkFacePreview : UserControl
         _overlays.Visibility = Visibility.Collapsed;
     }
 
-    private static (int X, int Y, int Width, int Height) CropFace(int width, int height, WinkFaceGeometry? geometry)
+    private (FrameCrop Crop, int Rotation) FrameFace(WinkCameraFrame frame, int epoch, long now)
     {
-        if (geometry is not { Width: > 0, Height: > 0 } face) return (0, 0, width, height);
-        var marginX = 0.12 * face.Width;
-        var marginY = 0.12 * face.Height;
-        var left = (int)Math.Floor(Math.Clamp(face.X - marginX, 0, width));
-        var top = (int)Math.Floor(Math.Clamp(face.Y - marginY, 0, height));
-        var right = (int)Math.Ceiling(Math.Clamp((double)face.X + face.Width + marginX, 0, width));
-        var bottom = (int)Math.Ceiling(Math.Clamp((double)face.Y + face.Height + marginY, 0, height));
-        return right > left && bottom > top ? (left, top, right - left, bottom - top) : (0, 0, width, height);
+        var geometry = frame.Eyes.Geometry;
+        var rotation = frame.Eyes.RotationQuarterTurns;
+        // Keep the last confirmed orientation while the estimator searches for a face.
+        if (_framingEpoch != epoch || _sourceSize != (frame.Width, frame.Height)
+            || (geometry.HasValue && _displayRotation != rotation))
+        {
+            _framingEpoch = epoch;
+            _sourceSize = (frame.Width, frame.Height);
+            _displayRotation = rotation;
+            _faceCrop = null;
+            _reframeNeededSince = null;
+        }
+
+        var (width, height) = WinkFrameRotation.GetSize(frame.Width, frame.Height, _displayRotation);
+        if (geometry is not { Width: > 0, Height: > 0 } face)
+        {
+            _reframeNeededSince = null;
+        }
+        else if (_faceCrop is not { } crop)
+        {
+            _faceCrop = CropFace(width, height, face);
+            _lastReframeAt = now;
+        }
+        else if (FitsCrop(face, crop))
+        {
+            _reframeNeededSince = null;
+        }
+        else
+        {
+            _reframeNeededSince ??= now;
+            if (now - _reframeNeededSince.Value >= ReframeDelayMs && now - _lastReframeAt >= ReframeIntervalMs)
+            {
+                _reframeNeededSince = null;
+                var next = CropFace(width, height, face);
+                if (next != crop)
+                {
+                    _faceCrop = next;
+                    _lastReframeAt = now;
+                }
+            }
+        }
+
+        return (_faceCrop ?? new FrameCrop(0, 0, width, height), _displayRotation);
     }
 
-    private static Vector2? MirrorInCrop(float x, float y, (int X, int Y, int Width, int Height) crop)
+    private static bool FitsCrop(WinkFaceGeometry face, FrameCrop crop)
+    {
+        var inset = crop.Width * 0.04;
+        return Math.Max(face.Width, face.Height) >= crop.Width * 0.5
+            && face.X >= crop.X + inset && face.Y >= crop.Y + inset
+            && face.X + face.Width <= crop.X + crop.Width - inset
+            && face.Y + face.Height <= crop.Y + crop.Height - inset;
+    }
+
+    private static FrameCrop CropFace(int width, int height, WinkFaceGeometry face)
+    {
+        var side = (int)Math.Ceiling(Math.Clamp(1.35 * Math.Max(face.Width, face.Height), 1, Math.Min(width, height)));
+        var x = (int)Math.Round(Math.Clamp(face.X + (face.Width - side) / 2d, 0, width - side));
+        var y = (int)Math.Round(Math.Clamp(face.Y + (face.Height - side) / 2d, 0, height - side));
+        return new(x, y, side, side);
+    }
+
+    private static Vector2? MirrorInCrop(float x, float y, FrameCrop crop)
     {
         var position = new Vector2((x - crop.X + 0.5f) / crop.Width, (y - crop.Y + 0.5f) / crop.Height);
         return position is { X: >= 0 and <= 1, Y: >= 0 and <= 1 }
