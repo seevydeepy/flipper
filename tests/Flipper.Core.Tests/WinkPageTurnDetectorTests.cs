@@ -19,13 +19,84 @@ public sealed class WinkPageTurnDetectorTests
         Observe(450, Open, Open);
     }
 
+    [Theory]
+    [InlineData(Open, Closed, 1)]
+    [InlineData(Closed, Open, -1)]
+    public void TwoClosedFramesAtCaptureCadence_TurnOnReopening(EyeState left, EyeState right, int direction)
+    {
+        ObserveOpenAtCaptureCadence();
+        Observe(308, left, right);
+        Observe(385, left, right);
+        Observe(462, Open, Open, direction);
+        Observe(539, Open, Open);
+    }
+
+    [Theory]
+    [InlineData(Unknown, Closed, Closed)]
+    [InlineData(Closed, Unknown, Closed)]
+    [InlineData(Closed, Closed, Unknown)]
+    public void BriefUncertaintyOnWinkingEye_StillTurnsOnReopening(EyeState first, EyeState second, EyeState third)
+    {
+        ObserveOpenAtCaptureCadence();
+        Observe(308, Open, first);
+        Observe(385, Open, second);
+        Observe(462, Open, third);
+        Observe(539, Open, Open, 1);
+    }
+
+    [Fact]
+    public void UnknownFrames_DoNotConfirmClosure()
+    {
+        ObserveOpenAtCaptureCadence();
+        Observe(308, Open, Unknown);
+        Observe(385, Open, Closed);
+        Observe(462, Open, Unknown);
+        Observe(539, Open, Open);
+    }
+
+    [Theory]
+    [InlineData(120, 1)]
+    [InlineData(121, 0)]
+    public void UncertaintyAtReopening_HasALimit(int uncertainMilliseconds, int expectedTurn)
+    {
+        ObserveOpenAtCaptureCadence();
+        Observe(308, Open, Closed);
+        Observe(385, Open, Closed);
+        Observe(462, Open, Unknown);
+        Observe(462 + uncertainMilliseconds, Open, Open, expectedTurn);
+    }
+
+    [Fact]
+    public void ProlongedUncertainty_DoesNotResumeWhenClosureIsDetectedAgain()
+    {
+        ObserveOpenAtCaptureCadence();
+        Observe(308, Open, Closed);
+        Observe(385, Open, Unknown);
+        Observe(462, Open, Unknown);
+        Observe(539, Open, Closed);
+        Observe(616, Open, Closed);
+        Observe(693, Open, Open);
+    }
+
+    [Theory]
+    [InlineData(Unknown, Closed)]
+    [InlineData(Unknown, Unknown)]
+    public void UncertaintyOnOppositeEye_CancelsWink(EyeState left, EyeState right)
+    {
+        ObserveOpenAtCaptureCadence();
+        Observe(308, Open, Closed);
+        Observe(385, Open, Closed);
+        Observe(462, left, right);
+        Observe(539, Open, Open);
+    }
+
     [Fact]
     public void ShortClosure_IsIgnored()
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
         Observe(350, Open, Closed);
-        Observe(429, Open, Open);
+        Observe(369, Open, Open);
     }
 
     [Fact]
@@ -151,6 +222,14 @@ public sealed class WinkPageTurnDetectorTests
     {
         Observe(0, Open, Open);
         Observe(200, Open, Open);
+    }
+
+    private void ObserveOpenAtCaptureCadence()
+    {
+        Observe(0, Open, Open);
+        Observe(77, Open, Open);
+        Observe(154, Open, Open);
+        Observe(231, Open, Open);
     }
 
     private void Observe(int milliseconds, EyeState left, EyeState right, int expectedTurn = 0)
