@@ -33,7 +33,9 @@ public sealed partial class LibraryPage : Page
     private const int PreviewDecodeWidth = 180;
     private const string ScoreDragFormat = "Flipper.ScoreCanonicalPath";
     private const string WordmarkAsset = "carousel-wordmark.png";
-    private const double PlaylistDeleteSize = 32;
+    private const double PlaylistDeleteSize = 44;
+    private const double CompactHeaderWidth = CardSlot * 2;
+    private const double SortBoxWidth = 148;
 
     private readonly LibraryWatcher _watcher = new();
     private readonly AutomaticScoreCatalog _automaticCatalog = new(() => App.Current.Settings.JevImageFallbackEnabled);
@@ -185,8 +187,26 @@ public sealed partial class LibraryPage : Page
             ScoreHeader.Width = width;
         }
 
+        ArrangeScoreHeader(width < CompactHeaderWidth);
         PositionTrashDrop(width);
         PositionPlayDrop();
+    }
+
+    private void ArrangeScoreHeader(bool compact)
+    {
+        if ((Grid.GetRow(SortBox) == 1) == compact)
+        {
+            return;
+        }
+
+        Grid.SetColumnSpan(SearchBox, compact ? 3 : 1);
+        Grid.SetRow(SortBox, compact ? 1 : 0);
+        Grid.SetColumn(SortBox, compact ? 0 : 1);
+        Grid.SetColumnSpan(SortBox, compact ? 2 : 1);
+        SortBox.MinWidth = compact ? 0 : SortBoxWidth;
+        Grid.SetRow(SortDirectionButton, compact ? 1 : 0);
+        ScoreHeader.RowSpacing = compact ? 8 : 0;
+        ScoreHeader.UpdateLayout();
     }
 
     private void PositionTrashDrop(double scoreWidth)
@@ -224,8 +244,9 @@ public sealed partial class LibraryPage : Page
         }
 
         var origin = ScoreContent.TransformToVisual(host).TransformPoint(new Point(0, 0));
-        var searchBottom = SearchBox.TransformToVisual(host)
-            .TransformPoint(new Point(0, SearchBox.ActualHeight)).Y;
+        var lowest = Grid.GetRow(SortBox) == 1 ? (FrameworkElement)SortBox : SearchBox;
+        var searchBottom = lowest.TransformToVisual(host)
+            .TransformPoint(new Point(0, lowest.ActualHeight)).Y;
         var left = origin.X + CardGutter;
         var top = ShadeHolePad + PlayTopClearance;
         var width = Math.Max(0, ScoreContent.Width - (CardGutter * 2));
@@ -452,7 +473,7 @@ public sealed partial class LibraryPage : Page
 
     private async void AddPlaylist_Click(object sender, RoutedEventArgs e)
     {
-        var box = new TextBox { PlaceholderText = "Name" };
+        var box = new TextBox { PlaceholderText = "Name", Style = Ui.Style("AppTextBox") };
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
@@ -460,9 +481,9 @@ public sealed partial class LibraryPage : Page
             Content = box,
             PrimaryButtonText = "Add",
             CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            RequestedTheme = ElementTheme.Light
+            DefaultButton = ContentDialogButton.Primary
         };
+        Ui.Prepare(dialog);
         dialog.PrimaryButtonClick += (_, args) =>
         {
             var playlist = App.Current.TryCreatePlaylist(box.Text ?? string.Empty);
@@ -567,12 +588,12 @@ public sealed partial class LibraryPage : Page
         {
             XamlRoot = XamlRoot,
             Title = "Delete playlist?",
-            Content = playlist.Name,
+            Content = Ui.Body(playlist.Name),
             PrimaryButtonText = "Delete",
             CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            RequestedTheme = ElementTheme.Light
+            DefaultButton = ContentDialogButton.Close
         };
+        Ui.Prepare(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
         {
             return;
@@ -945,10 +966,11 @@ public sealed partial class LibraryPage : Page
         var stored = await Task.Run(() => ScoreCatalog.LoadEntry(root, key));
         if (!_active || root != _snapshot.RootDisplayPath) return;
         var facts = stored?.Facts ?? new ScoreFacts();
-        var title = new TextBox { Header = "Title", Text = facts.Title ?? string.Empty,
+        var fieldStyle = Ui.Style("AppTextBox");
+        var title = new TextBox { Header = "Title", Text = facts.Title ?? string.Empty, Style = fieldStyle,
             PlaceholderText = ScoreFactInference.CleanFileName(entry.DisplayName), MaxLength = 160 };
-        var subtitle = new TextBox { Header = "Subtitle", Text = facts.Subtitle ?? string.Empty, MaxLength = 160 };
-        var composer = new TextBox { Header = "Composer", Text = facts.Composer ?? string.Empty, MaxLength = 80 };
+        var subtitle = new TextBox { Header = "Subtitle", Text = facts.Subtitle ?? string.Empty, Style = fieldStyle, MaxLength = 160 };
+        var composer = new TextBox { Header = "Composer", Text = facts.Composer ?? string.Empty, Style = fieldStyle, MaxLength = 80 };
         var error = CreateJevMessage();
         error.Visibility = Visibility.Collapsed;
         AutomationProperties.SetLiveSetting(error, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
@@ -958,7 +980,12 @@ public sealed partial class LibraryPage : Page
             FontFamily = new FontFamily("Segoe UI Symbol"), Glyph = "\u2728", FontSize = 18
         });
         matchLabel.Children.Add(new TextBlock { Text = "AI", VerticalAlignment = VerticalAlignment.Center });
-        var match = new Button { Content = matchLabel, HorizontalAlignment = HorizontalAlignment.Right };
+        var match = new Button
+        {
+            Content = matchLabel,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Style = Ui.Style("SecondaryButton")
+        };
         AutomationProperties.SetName(match, "Match this score with Jev AI");
         ToolTipService.SetToolTip(match, "Send this score's text and metadata to Jev, plus page images if enabled in Settings. Review suggestions before saving.");
         var matching = new ProgressBar { IsIndeterminate = true, Visibility = Visibility.Collapsed };
@@ -976,9 +1003,9 @@ public sealed partial class LibraryPage : Page
             Content = content,
             PrimaryButtonText = "Save",
             CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            RequestedTheme = ElementTheme.Light
+            DefaultButton = ContentDialogButton.Primary
         };
+        Ui.Prepare(dialog);
         using var matchCancellation = new CancellationTokenSource();
         dialog.Closed += (_, _) => matchCancellation.Cancel();
         match.Click += async (_, _) =>
@@ -2084,9 +2111,9 @@ public sealed partial class LibraryPage : Page
                     item.IsHitTestVisible = false;
                     item.IsSelected = false;
                     item.Foreground = mute;
-                    item.FontFamily = new FontFamily("Felix Titling");
-                    item.FontSize = 10;
-                    item.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
+                    item.ClearValue(TreeViewItem.FontFamilyProperty);
+                    item.FontSize = 13;
+                    item.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
                 }
                 else
                 {
@@ -2692,6 +2719,20 @@ public sealed class FolderMark
     public string? PlaylistId { get; }
     public bool Section { get; }
     public bool Trash { get; }
+
+    public string Glyph => Section ? string.Empty
+        : Trash ? "\uE74D"
+        : Favourites ? "\uE734"
+        : PlaylistId is not null ? "\uE90B"
+        : Key is not null ? "\uE8B7"
+        : "\uE8F1";
+
+    public static string GlyphOf(object? content) => (content as FolderMark)?.Glyph ?? string.Empty;
+
+    public static Visibility GlyphVisibility(object? content) =>
+        GlyphOf(content).Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+    public static string NameOf(object? content) => content?.ToString() ?? string.Empty;
 
     public override string ToString() => Name;
 }

@@ -1,9 +1,11 @@
 using System.Numerics;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.UI.Text;
 
 namespace Flipper.App.Controls;
 
@@ -26,6 +28,18 @@ public sealed class ScrollingText : Canvas
         typeof(bool),
         typeof(ScrollingText),
         new PropertyMetadata(false, OnIsActiveChanged));
+
+    public static readonly DependencyProperty FontSizeProperty = DependencyProperty.Register(
+        nameof(FontSize),
+        typeof(double),
+        typeof(ScrollingText),
+        new PropertyMetadata(14d, OnFontChanged));
+
+    public static readonly DependencyProperty FontWeightProperty = DependencyProperty.Register(
+        nameof(FontWeight),
+        typeof(FontWeight),
+        typeof(ScrollingText),
+        new PropertyMetadata(FontWeights.Normal, OnFontChanged));
 
     private const double StillSlack = 1;
     private const double PixelsPerSecond = 18;
@@ -63,6 +77,18 @@ public sealed class ScrollingText : Canvas
         set => SetValue(IsActiveProperty, value);
     }
 
+    public double FontSize
+    {
+        get => (double)GetValue(FontSizeProperty);
+        set => SetValue(FontSizeProperty, value);
+    }
+
+    public FontWeight FontWeight
+    {
+        get => (FontWeight)GetValue(FontWeightProperty);
+        set => SetValue(FontWeightProperty, value);
+    }
+
     private static TextBlock CreateLabel()
     {
         return new TextBlock
@@ -90,6 +116,19 @@ public sealed class ScrollingText : Canvas
         {
             control._label.Foreground = args.NewValue as Brush;
         }
+    }
+
+    private static void OnFontChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (sender is not ScrollingText control)
+        {
+            return;
+        }
+
+        control._label.FontSize = control.FontSize;
+        control._label.FontWeight = control.FontWeight;
+        control.StopScroll();
+        control.InvalidateMeasure();
     }
 
     private static void OnIsActiveChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)

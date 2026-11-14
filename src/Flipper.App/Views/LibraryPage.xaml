@@ -19,6 +19,8 @@
             <TextBlock
                 x:Name="OfflineLabel"
                 Text="Library offline"
+                FontSize="16"
+                FontWeight="SemiBold"
                 Foreground="{StaticResource InkBrush}"
                 Visibility="Collapsed" />
 
@@ -39,14 +41,107 @@
                     BorderThickness="1"
                     CornerRadius="16" />
 
-                <Image
-                    x:Name="WordmarkImage"
-                    Margin="10,8"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Center"
-                    Stretch="Uniform"
-                    IsHitTestVisible="False"
-                    AutomationProperties.Name="Carousel" />
+                <Grid Grid.RowSpan="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" MinHeight="76" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Image
+                        x:Name="WordmarkImage"
+                        Margin="10,8"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Center"
+                        Stretch="Uniform"
+                        IsHitTestVisible="False"
+                        AutomationProperties.Name="Carousel" />
+                    <Grid Grid.Row="1" Padding="14,22,14,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Button
+                            x:Name="AddPlaylistButton"
+                            Style="{StaticResource SecondaryButton}"
+                            HorizontalAlignment="Stretch"
+                            Margin="0,0,0,12"
+                            Click="AddPlaylist_Click"
+                            AutomationProperties.Name="Add Playlist">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE710;" FontSize="16" Foreground="{StaticResource InkBrush}" />
+                                <TextBlock Text="Add Playlist" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Grid x:Name="PlaylistDeleteHost" Grid.Row="1" Margin="0,0,0,8">
+                            <TreeView
+                                x:Name="FolderTree"
+                                SelectionMode="Single"
+                                ItemInvoked="FolderTree_ItemInvoked"
+                                Expanding="FolderTree_Expanding"
+                                Collapsed="FolderTree_Collapsed"
+                                IsHoldingEnabled="True"
+                                Holding="FolderTree_Holding"
+                                RightTapped="FolderTree_RightTapped"
+                                AllowDrop="True"
+                                DragOver="FolderTree_DragOver"
+                                Drop="FolderTree_Drop">
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem">
+                                        <Setter Property="MinHeight" Value="48" />
+                                        <Setter Property="Padding" Value="8,10" />
+                                        <Setter Property="FontSize" Value="16" />
+                                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
+                                <TreeView.ItemTemplate>
+                                    <DataTemplate x:DataType="TreeViewNode">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock
+                                                Text="{x:Bind local:FolderMark.GlyphOf(Content)}"
+                                                Visibility="{x:Bind local:FolderMark.GlyphVisibility(Content)}"
+                                                FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                                                FontSize="18"
+                                                FontWeight="Normal"
+                                                VerticalAlignment="Center"
+                                                AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock
+                                                Text="{x:Bind local:FolderMark.NameOf(Content)}"
+                                                VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
+                            <Button
+                                x:Name="DeletePlaylistButton"
+                                Style="{StaticResource QuietButton}"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Padding="4"
+                                MinWidth="44"
+                                MinHeight="44"
+                                Visibility="Collapsed"
+                                Click="DeletePlaylist_Click"
+                                AutomationProperties.Name="Delete playlist">
+                                <FontIcon Glyph="&#xE74D;" FontSize="18" />
+                            </Button>
+                        </Grid>
+                        <Button
+                            x:Name="SettingsButton"
+                            Grid.Row="2"
+                            Style="{StaticResource PlainButton}"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            VerticalAlignment="Bottom"
+                            Padding="12,10"
+                            Click="Settings_Click"
+                            AutomationProperties.Name="Settings">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon Glyph="&#xE713;" FontSize="20" Foreground="{StaticResource InkBrush}" />
+                                <TextBlock Text="Settings" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
 
                 <Grid
                     x:Name="ScoreHeaderHost"
@@ -64,78 +159,20 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="SearchBox" PlaceholderText="Search" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged" />
-                        <ComboBox x:Name="SortBox" Grid.Column="1" MinWidth="160" VerticalAlignment="Center" SelectionChanged="SortBox_SelectionChanged">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBox x:Name="SearchBox" Style="{StaticResource AppTextBox}" PlaceholderText="Search" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged" />
+                        <ComboBox x:Name="SortBox" Grid.Column="1" Style="{StaticResource AppComboBox}" MinWidth="148" HorizontalAlignment="Stretch" VerticalAlignment="Center" SelectionChanged="SortBox_SelectionChanged">
                             <ComboBoxItem Content="A–Z" Tag="Name" />
                             <ComboBoxItem Content="Recent" Tag="Recent" />
                             <ComboBoxItem Content="Most played" Tag="MostPlayed" />
                         </ComboBox>
-                        <Button x:Name="SortDirectionButton" Grid.Column="2" VerticalAlignment="Center" Click="SortDirection_Click" AutomationProperties.Name="Reverse sort">
-                            <FontIcon x:Name="SortDirectionIcon" Glyph="&#xE74B;" FontSize="16" />
+                        <Button x:Name="SortDirectionButton" Grid.Column="2" Style="{StaticResource SecondaryButton}" Width="48" Padding="0" VerticalAlignment="Center" Click="SortDirection_Click" AutomationProperties.Name="Reverse sort">
+                            <FontIcon x:Name="SortDirectionIcon" Glyph="&#xE74B;" FontSize="18" Foreground="{StaticResource InkBrush}" />
                         </Button>
                     </Grid>
-                </Grid>
-
-                <Grid Grid.Row="1" Padding="14,22,14,8">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Button
-                        x:Name="AddPlaylistButton"
-                        Content="Add Playlist"
-                        HorizontalAlignment="Stretch"
-                        Margin="0,0,0,12"
-                        Click="AddPlaylist_Click" />
-                    <Grid x:Name="PlaylistDeleteHost" Grid.Row="1" Margin="0,0,0,8">
-                        <TreeView
-                            x:Name="FolderTree"
-                            SelectionMode="Single"
-                            ItemInvoked="FolderTree_ItemInvoked"
-                            Expanding="FolderTree_Expanding"
-                            Collapsed="FolderTree_Collapsed"
-                            IsHoldingEnabled="True"
-                            Holding="FolderTree_Holding"
-                            RightTapped="FolderTree_RightTapped"
-                            AllowDrop="True"
-                            DragOver="FolderTree_DragOver"
-                            Drop="FolderTree_Drop">
-                            <TreeView.ItemContainerStyle>
-                                <Style TargetType="TreeViewItem">
-                                    <Setter Property="MinHeight" Value="48" />
-                                    <Setter Property="Padding" Value="8,10" />
-                                    <Setter Property="VerticalContentAlignment" Value="Center" />
-                                </Style>
-                            </TreeView.ItemContainerStyle>
-                        </TreeView>
-                        <Button
-                            x:Name="DeletePlaylistButton"
-                            Style="{StaticResource QuietButton}"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Top"
-                            Padding="4"
-                            MinWidth="32"
-                            MinHeight="32"
-                            Visibility="Collapsed"
-                            Click="DeletePlaylist_Click"
-                            AutomationProperties.Name="Delete playlist">
-                            <FontIcon Glyph="&#xE74D;" FontSize="16" />
-                        </Button>
-                    </Grid>
-                    <Button
-                        x:Name="SettingsButton"
-                        Grid.Row="2"
-                        Style="{StaticResource QuietButton}"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Bottom"
-                        Padding="8"
-                        MinWidth="40"
-                        MinHeight="40"
-                        Click="Settings_Click"
-                        AutomationProperties.Name="Settings">
-                        <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{StaticResource InkBrush}" />
-                    </Button>
                 </Grid>
 
                 <Grid x:Name="ScoreColumn" Grid.Row="1" Grid.Column="1" SizeChanged="ScoreColumn_SizeChanged">
@@ -195,12 +232,10 @@
                                             <Grid>
                                                 <Image Source="{x:Bind Preview, Mode=OneWay}" Stretch="UniformToFill" />
                                                 <Button
+                                                    Style="{StaticResource RoundButton}"
                                                     HorizontalAlignment="Right"
                                                     VerticalAlignment="Top"
                                                     Margin="4"
-                                                    MinWidth="40"
-                                                    MinHeight="40"
-                                                    Padding="8"
                                                     Click="Favourite_Click"
                                                     Tag="{x:Bind}"
                                                     Visibility="{x:Bind FavouriteVisibility}"
@@ -208,72 +243,56 @@
                                                     <FontIcon
                                                         Glyph="{x:Bind StarGlyph, Mode=OneWay}"
                                                         Foreground="{x:Bind StarBrush, Mode=OneWay}"
-                                                        FontSize="16" />
+                                                        FontSize="20" />
+                                                </Button>
+                                                <Button
+                                                    Style="{StaticResource RoundButton}"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Bottom"
+                                                    Margin="4"
+                                                    Click="EditScore_Click"
+                                                    Tag="{x:Bind}"
+                                                    Visibility="{x:Bind FavouriteVisibility}"
+                                                    AutomationProperties.Name="Edit score details"
+                                                    ToolTipService.ToolTip="Edit score details">
+                                                    <FontIcon Glyph="&#xE70F;" FontSize="18" Foreground="{StaticResource InkBrush}" />
+                                                </Button>
+                                                <Button
+                                                    Style="{StaticResource RoundButton}"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Bottom"
+                                                    Margin="4"
+                                                    Click="Restore_Click"
+                                                    Tag="{x:Bind}"
+                                                    Visibility="{x:Bind RestoreVisibility}"
+                                                    AutomationProperties.Name="Restore">
+                                                    <FontIcon
+                                                        Glyph="&#xE10E;"
+                                                        Foreground="{StaticResource InkBrush}"
+                                                        FontSize="18" />
                                                 </Button>
                                             </Grid>
                                         </Border>
-                                        <Grid Grid.Row="1" ColumnSpacing="4" RowSpacing="2">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                            </Grid.RowDefinitions>
+                                        <StackPanel Grid.Row="1" Spacing="2" Margin="2,0">
                                             <controls:ScrollingText
                                                 Text="{x:Bind Title, Mode=OneWay}"
                                                 IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
-                                                Foreground="{StaticResource InkBrush}"
-                                                VerticalAlignment="Center" />
+                                                FontSize="16"
+                                                FontWeight="SemiBold"
+                                                Foreground="{StaticResource InkBrush}" />
                                             <controls:ScrollingText
-                                                Grid.Row="1"
                                                 Text="{x:Bind Subtitle, Mode=OneWay}"
                                                 IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
+                                                FontSize="14"
                                                 Foreground="{StaticResource MuteBrush}"
-                                                VerticalAlignment="Center"
                                                 Visibility="{x:Bind SubtitleVisibility, Mode=OneWay}" />
                                             <controls:ScrollingText
-                                                Grid.Row="2"
                                                 Text="{x:Bind Composer, Mode=OneWay}"
                                                 IsActive="{x:Bind IsHighlighted, Mode=OneWay}"
+                                                FontSize="14"
                                                 Foreground="{StaticResource MuteBrush}"
-                                                VerticalAlignment="Center"
                                                 Visibility="{x:Bind ComposerVisibility, Mode=OneWay}" />
-                                            <Button
-                                                Grid.Column="1"
-                                                Grid.RowSpan="3"
-                                                Style="{StaticResource QuietButton}"
-                                                Padding="4"
-                                                MinWidth="32"
-                                                MinHeight="32"
-                                                VerticalAlignment="Center"
-                                                Click="EditScore_Click"
-                                                Tag="{x:Bind}"
-                                                Visibility="{x:Bind FavouriteVisibility}"
-                                                AutomationProperties.Name="Edit score details"
-                                                ToolTipService.ToolTip="Edit score details">
-                                                <FontIcon Glyph="&#xE70F;" FontSize="16" />
-                                            </Button>
-                                            <Button
-                                                Grid.Column="1"
-                                                Grid.RowSpan="3"
-                                                Style="{StaticResource QuietButton}"
-                                                Padding="4"
-                                                MinWidth="32"
-                                                MinHeight="32"
-                                                VerticalAlignment="Center"
-                                                Click="Restore_Click"
-                                                Tag="{x:Bind}"
-                                                Visibility="{x:Bind RestoreVisibility}"
-                                                AutomationProperties.Name="Restore">
-                                                <FontIcon
-                                                    Glyph="&#xE10E;"
-                                                    Foreground="{StaticResource InkBrush}"
-                                                    FontSize="16" />
-                                            </Button>
-                                        </Grid>
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </GridView.ItemTemplate>
@@ -285,6 +304,8 @@
             <TextBlock
                 x:Name="ErrorLabel"
                 Grid.Row="2"
+                FontSize="16"
+                FontWeight="SemiBold"
                 Foreground="{StaticResource InkBrush}"
                 Visibility="Collapsed" />
         </Grid>
