@@ -14,9 +14,11 @@ ONNX Runtime 1.27.1
 Source: https://github.com/microsoft/onnxruntime/tree/v1.27.1
 Licence: MIT. ONNXRUNTIME-LICENSE.txt and ONNXRUNTIME-NOTICES.txt are copied
 from Microsoft.ML.OnnxRuntime.Managed into this directory when building and
-publishing. The x64/ARM64 native runtime is already supplied by
-org.k2fsa.sherpa.onnx 1.13.5. Keep the managed version aligned with that runtime
-when updating Sherpa; do not add a second native onnxruntime.dll provider.
+publishing. The x64/ARM64 native runtime and shared provider come from the
+matching Microsoft.ML.OnnxRuntime package and have Microsoft signatures.
+The app excludes Sherpa's unsigned runtime and Windows App SDK's older runtime.
+Keep the managed and native versions aligned and verify speech compatibility
+when updating Sherpa. scripts/verify-onnx-runtime.ps1 checks the published files.
 
 Bundled model SHA-256 checksums:
 face_detection_yunet_2023mar.onnx

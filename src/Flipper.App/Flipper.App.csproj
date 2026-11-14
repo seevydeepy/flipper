@@ -26,6 +26,7 @@
     <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SherpaOnnxVersion>1.13.5</SherpaOnnxVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -72,10 +73,34 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
-    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.5" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="$(SherpaOnnxVersion)" />
+    <!-- Keep Sherpa's speech API, but use Microsoft's signed ONNX Runtime. -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x64" Version="$(SherpaOnnxVersion)"
+                      ExcludeAssets="native" GeneratePathProperty="true" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-arm64" Version="$(SherpaOnnxVersion)"
+                      ExcludeAssets="native" GeneratePathProperty="true" />
     <PackageReference Include="PDFtoImage" Version="5.4.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.27.1" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" ExcludeAssets="build;buildTransitive" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-x64)\runtimes\win-x64\native\sherpa-onnx-c-api.dll"
+             Condition="'$(Platform)' == 'x64'" Link="sherpa-onnx-c-api.dll"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(Pkgorg_k2fsa_sherpa_onnx_runtime_win-arm64)\runtimes\win-arm64\native\sherpa-onnx-c-api.dll"
+             Condition="'$(Platform)' == 'ARM64'" Link="sherpa-onnx-c-api.dll"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Windows App SDK also carries an older ORT. Do not copy it over our matching runtime. -->
+  <Target Name="ExcludeWindowsAppSdkOnnxRuntime" BeforeTargets="AddMicrosoftWindowsAppSDKPayloadFilesFromComponents"
+          DependsOnTargets="GetWindowsAppSDKNativePlatform">
+    <ItemGroup>
+      <MicrosoftWindowsAppSDKFilesExcluded Include="@(WindowsAppSdkComponentPackages->'%(Identity)runtimes-framework\win-$(NativePlatform)\native\onnxruntime.dll')" />
+      <MicrosoftWindowsAppSDKFilesExcluded Include="@(WindowsAppSdkComponentPackages->'%(Identity)runtimes-framework\win-$(NativePlatform)\native\onnxruntime_providers_shared.dll')" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Flipper.Core\Flipper.Core.csproj" />
