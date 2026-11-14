@@ -16,11 +16,19 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<Guid, LiveToast> _toasts = new();
     private MediaPlayer? _cuePlayer;
     private bool _readerUnscaled;
+    public bool IsReaderActive { get; private set; }
 
     public MainWindow()
     {
         InitializeComponent();
         Closed += OnClosed;
+        Activated += (_, args) =>
+        {
+            var active = args.WindowActivationState != WindowActivationState.Deactivated;
+            if (IsReaderActive == active) return;
+            IsReaderActive = active;
+            if (RootFrame.Content is ReaderPage reader) reader.UpdateWinkCapture();
+        };
         var icon = EnsureIconFile();
         if (System.IO.File.Exists(icon))
         {
@@ -268,6 +276,8 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        IsReaderActive = false;
+        if (RootFrame.Content is ReaderPage reader) reader.UpdateWinkCapture();
         foreach (var toast in _toasts.Values)
         {
             toast.Timer.Stop();

@@ -46,6 +46,8 @@ public sealed partial class LibraryPage
         body.Children.Add(CreateSettingsRule());
         body.Children.Add(await CreateVoiceSectionAsync());
         body.Children.Add(CreateSettingsRule());
+        body.Children.Add(CreateWinkSection());
+        body.Children.Add(CreateSettingsRule());
         body.Children.Add(CreateUpdateSection());
 
         ShowSettingsOverlay(CreateSettingsHeader(CloseSettings), body);
@@ -356,6 +358,47 @@ public sealed partial class LibraryPage
         section.Children.Add(details);
         await FillDetailsAsync();
         return section;
+    }
+
+    private static FrameworkElement CreateWinkSection()
+    {
+        var toggle = new ToggleSwitch
+        {
+            IsOn = App.Current.Settings.WinkTurningEnabled,
+            OnContent = "On",
+            OffContent = "Off",
+            MinWidth = 0,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        AutomationProperties.SetName(toggle, "Wink turning");
+        toggle.Toggled += (_, _) =>
+        {
+            App.Current.Settings.WinkTurningEnabled = toggle.IsOn;
+            App.Current.PersistSettings();
+        };
+
+        var label = CreateSettingsLabel("Wink turning");
+        label.VerticalAlignment = VerticalAlignment.Center;
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(label);
+        Grid.SetColumn(toggle, 1);
+        header.Children.Add(toggle);
+        return new StackPanel
+        {
+            Spacing = 6,
+            Children =
+            {
+                header,
+                new TextBlock
+                {
+                    Text = "Use the camera to turn pages. Your right eye: next page. Your left eye: previous page.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = (Brush)Application.Current.Resources["MuteBrush"]
+                }
+            }
+        };
     }
 
     private static FrameworkElement CreateMicrophonePicker(IReadOnlyList<MicrophoneOption> mics)

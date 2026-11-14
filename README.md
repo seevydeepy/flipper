@@ -20,6 +20,13 @@ renaming everything felt like a waste of a perfectly good afternoon.
 - **Voice** — always-on keyword spotting (sherpa-onnx zipformer model bundled,
   runs locally, nothing leaves the machine). Commands: flip, turn page, next,
   back, previous, restart, beginning, finish.
+- **Winks** — optional camera page turns, enabled in Settings under **Wink
+  turning**. Wink your right eye to move forward or your left eye to move back,
+  then reopen both eyes. A deliberate wink of about a quarter to one second
+  works best. Normal blinks are ignored. The camera runs only while the reader
+  is active; images are processed locally and are not saved or sent anywhere.
+  This is off by default and needs an available camera with Windows camera
+  access enabled. If capture is unavailable, the other page controls still work.
 - **Auto-update** — checks GitHub Releases, downloads the new version, installs
   it in place, relaunches. First install comes straight from GitHub too.
 
@@ -73,6 +80,10 @@ Releases are automatic: each push to `main` runs the tests, publishes, tags
   `src/Flipper.App/Voice/NOTICE.txt`
 - PDF rendering: [PDFtoImage](https://github.com/sungaila/PDFtoImage) /
   [PdfPig](https://github.com/UglyToad/PdfPig)
+- Wink detection: [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet),
+  [Open Model Zoo eye-state model](https://github.com/openvinotoolkit/open_model_zoo/tree/master/models/public/open-closed-eye-0001)
+  and [ONNX Runtime](https://github.com/microsoft/onnxruntime) — see
+  `src/Flipper.App/Wink/NOTICE.txt`.
 
 ## License
 

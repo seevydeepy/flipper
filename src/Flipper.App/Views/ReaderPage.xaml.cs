@@ -30,6 +30,9 @@ public sealed partial class ReaderPage : Page
     private bool _voiceOn;
     private bool _showingHeard;
     private bool _cropToInk;
+    private CancellationTokenSource? _winkCts;
+    private Task _winkRun = Task.CompletedTask;
+    private int _winkEpoch;
 
     public ReaderPage()
     {
@@ -91,6 +94,7 @@ public sealed partial class ReaderPage : Page
         }
         _pdf = opened;
         Draw();
+        UpdateWinkCapture();
         if (!App.Current.Settings.VoiceTurningEnabled)
         {
             VoiceLabel.Visibility = Visibility.Collapsed;
@@ -122,6 +126,7 @@ public sealed partial class ReaderPage : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _ready = false;
+        UpdateWinkCapture();
         _loadEpoch++;
         _drawAgain = false;
         _drawCts?.Cancel();
@@ -143,6 +148,37 @@ public sealed partial class ReaderPage : Page
         _pdf?.Dispose();
         _pdf = null;
         App.Current.OpenCanonicalPath = null;
+    }
+
+    public async void UpdateWinkCapture()
+    {
+        var epoch = ++_winkEpoch;
+        _winkCts?.Cancel();
+        WinkLabel.Visibility = Visibility.Collapsed;
+        await _winkRun;
+        if (epoch != _winkEpoch) return;
+
+        _winkCts?.Dispose();
+        _winkCts = null;
+        if (!_ready || _pdf is null || !App.Current.Settings.WinkTurningEnabled
+            || App.Current.Window?.IsReaderActive != true) return;
+
+        _winkCts = new CancellationTokenSource();
+        var token = _winkCts.Token;
+        WinkLabel.Visibility = Visibility.Visible;
+        WinkLabel.Text = "Starting camera…";
+        _winkRun = WinkCameraListener.RunAsync(
+            direction => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (epoch == _winkEpoch && !token.IsCancellationRequested && _ready
+                    && App.Current.Window?.IsReaderActive == true)
+                    Turn(direction);
+            }),
+            status => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (epoch == _winkEpoch && !token.IsCancellationRequested && _ready)
+                    WinkLabel.Text = status;
+            }), token);
     }
 
     private void OnVoiceKeyword(string keyword)

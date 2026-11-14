@@ -29,14 +29,17 @@
             </Image>
             <TextBlock x:Name="RightError" Grid.Column="1" Text="Cannot draw this page" Foreground="{StaticResource InkBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
         </Grid>
-        <TextBlock
-            x:Name="VoiceLabel"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Bottom"
-            Margin="16"
-            Foreground="{StaticResource MuteBrush}"
-            FontSize="16"
-            Visibility="Collapsed" />
+        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="16" Spacing="4" IsHitTestVisible="False">
+            <TextBlock
+                x:Name="VoiceLabel"
+                HorizontalAlignment="Right"
+                Foreground="{StaticResource MuteBrush}"
+                FontSize="16"
+                Visibility="Collapsed" />
+            <TextBlock x:Name="WinkLabel" HorizontalAlignment="Right"
+                       Foreground="{StaticResource MuteBrush}" FontSize="16"
+                       AutomationProperties.LiveSetting="Polite" Visibility="Collapsed" />
+        </StackPanel>
         <Border
             x:Name="TurnLayer"
             Background="Transparent"

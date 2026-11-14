@@ -1,0 +1,26 @@
+YuNet face detection model (face_detection_yunet_2023mar.onnx)
+Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet
+Licence: MIT, see YUNET-LICENSE.txt.
+
+Open Model Zoo eye state model (open_closed_eye.onnx)
+Source: https://storage.openvinotoolkit.org/repositories/open_model_zoo/public/2022.1/open-closed-eye-0001/open_closed_eye.onnx
+Licence: Apache 2.0, see EYE-MODEL-LICENSE.txt.
+
+The YuNet output decoder in WinkEyeEstimator.cs is adapted from OpenCV FaceDetectorYN.
+Source: https://github.com/opencv/opencv/blob/4.x/modules/objdetect/src/face_detect.cpp
+Licence: Apache 2.0, see the licence text in EYE-MODEL-LICENSE.txt.
+
+ONNX Runtime 1.23.2
+Source: https://github.com/microsoft/onnxruntime/tree/v1.23.2
+Licence: MIT. ONNXRUNTIME-LICENSE.txt and ONNXRUNTIME-NOTICES.txt are copied
+from the NuGet package into this directory when building and publishing.
+
+Bundled model SHA-256 checksums:
+face_detection_yunet_2023mar.onnx
+8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+open_closed_eye.onnx
+4daa100034482525a26c9afb9297c16580a531189e66e3d2b2ac7d32becfd593
+
+The eye model's verified output order is [closed, open], despite the reversed
+order in its README. The upstream assets/1.png (open) and assets/2.png (closed)
+were used to verify this with the bundled model and documented preprocessing.

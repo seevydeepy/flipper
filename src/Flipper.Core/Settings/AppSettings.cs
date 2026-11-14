@@ -27,6 +27,7 @@ public sealed class AppSettings
     public bool ShowFavourites { get; set; }
     public bool ShowTrash { get; set; }
     public bool VoiceTurningEnabled { get; set; } = true;
+    public bool WinkTurningEnabled { get; set; }
     public string? MicrophoneDeviceId { get; set; }
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public bool CropToInk { get; set; }
