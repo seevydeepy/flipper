@@ -37,6 +37,17 @@ public sealed class WinkCalibrationSession(string cameraId)
     public bool NeedsMoreSamples { get; private set; }
     public WinkCalibrationFailure LastFailure { get; private set; }
     public WinkCalibrationProfile? Profile { get; private set; }
+    public WinkCalibrationAssessment? Assessment { get; private set; }
+    public int RequiredFreshChecks => 3 * CheckSamples + 1;
+    public int PassedFreshChecks => Phase switch
+    {
+        WinkCalibrationPhase.RightCheck => PhaseSamples,
+        WinkCalibrationPhase.LeftCheck => CheckSamples + PhaseSamples,
+        WinkCalibrationPhase.BlinkCheck => 2 * CheckSamples + PhaseSamples,
+        WinkCalibrationPhase.OpenCheck => 3 * CheckSamples,
+        WinkCalibrationPhase.Ready => RequiredFreshChecks,
+        _ => 0
+    };
 
     public void Pause()
     {
@@ -141,6 +152,7 @@ public sealed class WinkCalibrationSession(string cameraId)
     {
         if (Phase != WinkCalibrationPhase.Fitting || !_fitTaken) return;
         LastFailure = result.Failure;
+        Assessment = result.Assessment;
         if (result.Profile is not { IsValid: true } profile)
         {
             NeedsMoreSamples = true;
@@ -186,6 +198,10 @@ public sealed class WinkCalibrationSession(string cameraId)
         while (_training.Count(value => value.Actual == trial.Actual) > limit)
         {
             _training.RemoveAt(_training.FindIndex(value => value.Actual == trial.Actual));
+        }
+        if (Assessment is { } assessment)
+        {
+            Assessment = WinkCalibration.AssessRepeated(assessment.Candidate, _training);
         }
     }
 

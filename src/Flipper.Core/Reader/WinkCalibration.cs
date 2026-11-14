@@ -16,7 +16,26 @@ public sealed record WinkCalibrationTrial(
 
 public enum WinkCalibrationFailure { None, InsufficientSamples, UnstableTracking, InsufficientEyeRange, NoSeparation }
 
-public sealed record WinkCalibrationResult(WinkCalibrationProfile? Profile, WinkCalibrationFailure Failure);
+public sealed record WinkCalibrationMatchCount(int Matched, int Total, int Required);
+
+public sealed record WinkCalibrationAssessment(
+    WinkCalibrationProfile Candidate,
+    WinkCalibrationMatchCount RightWinks,
+    WinkCalibrationMatchCount LeftWinks,
+    WinkCalibrationMatchCount Blinks,
+    WinkCalibrationMatchCount OpenEyes)
+{
+    public int MatchedCount => RightWinks.Matched + LeftWinks.Matched + Blinks.Matched + OpenEyes.Matched;
+    public int SampleCount => RightWinks.Total + LeftWinks.Total + Blinks.Total + OpenEyes.Total;
+    public double MatchPercentage => SampleCount == 0 ? 0 : 100d * MatchedCount / SampleCount;
+    public bool HasRequiredSamples => RightWinks.Total >= RightWinks.Required && LeftWinks.Total >= LeftWinks.Required
+        && Blinks.Total >= Blinks.Required && OpenEyes.Total >= OpenEyes.Required;
+}
+
+public sealed record WinkCalibrationResult(
+    WinkCalibrationProfile? Profile,
+    WinkCalibrationFailure Failure,
+    WinkCalibrationAssessment? Assessment = null);
 
 public static class WinkCalibration
 {
@@ -89,6 +108,7 @@ public static class WinkCalibration
         var shapes = (from otherEyeMinimum in OtherEyeMinimums
                       from minimumDifference in MinimumDifferences
                       select (OtherEyeMinimum: otherEyeMinimum, MinimumDifference: minimumDifference)).ToArray();
+        WinkCalibrationAssessment? best = null;
         foreach (var closedThreshold in ClosedThresholds)
         {
             foreach (var left in shapes)
@@ -103,18 +123,21 @@ public static class WinkCalibration
                         RightWinkOtherEyeMinimum = right.OtherEyeMinimum,
                         RightWinkMinimumDifference = right.MinimumDifference
                     };
-                    var matches = repeated
-                        ? MatchesRepeated(candidate, trainingTrials, required)
-                        : trainingTrials.All(trial => ReplayMatches(candidate, trial));
-                    if (matches)
+                    var assessment = Assess(candidate, trainingTrials, repeated);
+                    if (assessment.HasRequiredSamples && assessment.MatchedCount == assessment.SampleCount)
                     {
-                        return new(candidate, WinkCalibrationFailure.None);
+                        return new(candidate, WinkCalibrationFailure.None, assessment);
+                    }
+
+                    if (best is null || IsBetterAssessment(assessment, best))
+                    {
+                        best = assessment;
                     }
                 }
             }
         }
 
-        return new(null, WinkCalibrationFailure.NoSeparation);
+        return new(null, WinkCalibrationFailure.NoSeparation, best);
     }
 
     public static bool Matches(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
@@ -123,36 +146,57 @@ public static class WinkCalibration
     public static bool IsIncidentalBlink(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>
         profile.IsValid && IsCompleteTrial(trial) && ReplayIncidentalBlink(profile, trial);
 
-    private static bool MatchesRepeated(
+    public static WinkCalibrationAssessment? AssessRepeated(
+        WinkCalibrationProfile profile,
+        IReadOnlyList<WinkCalibrationTrial> trials) =>
+        profile.IsValid && trials.Count > 0 && trials.All(IsCompleteTrial) ? Assess(profile, trials, repeated: true) : null;
+
+    private static WinkCalibrationAssessment Assess(
         WinkCalibrationProfile profile,
         IReadOnlyList<WinkCalibrationTrial> trials,
-        int required)
+        bool repeated)
     {
-        var left = 0;
-        var right = 0;
+        Span<int> matched = stackalloc int[4];
+        Span<int> totals = stackalloc int[4];
+        matched.Clear();
+        totals.Clear();
         foreach (var trial in trials)
         {
-            if (!ReplayMatches(profile, trial))
+            var matches = ReplayMatches(profile, trial);
+            if (!matches && repeated && ReplayIncidentalBlink(profile, trial))
             {
-                if (!ReplayIncidentalBlink(profile, trial))
-                {
-                    return false;
-                }
-
                 continue;
             }
 
-            if (trial.Actual == WinkCalibrationGesture.LeftWink)
+            var index = (int)trial.Actual;
+            totals[index]++;
+            if (matches)
             {
-                left++;
-            }
-            else if (trial.Actual == WinkCalibrationGesture.RightWink)
-            {
-                right++;
+                matched[index]++;
             }
         }
 
-        return left >= required && right >= required;
+        var required = repeated ? 4 : 2;
+        var right = (int)WinkCalibrationGesture.RightWink;
+        var left = (int)WinkCalibrationGesture.LeftWink;
+        var blink = (int)WinkCalibrationGesture.Blink;
+        var open = (int)WinkCalibrationGesture.Neither;
+        return new(profile, new(matched[right], totals[right], required), new(matched[left], totals[left], required),
+            new(matched[blink], totals[blink], required), new(matched[open], totals[open], 1));
+    }
+
+    private static bool IsBetterAssessment(WinkCalibrationAssessment candidate, WinkCalibrationAssessment best)
+    {
+        var candidateHasWinks = candidate.RightWinks.Matched >= candidate.RightWinks.Required
+            && candidate.LeftWinks.Matched >= candidate.LeftWinks.Required;
+        var bestHasWinks = best.RightWinks.Matched >= best.RightWinks.Required && best.LeftWinks.Matched >= best.LeftWinks.Required;
+        if (candidateHasWinks != bestHasWinks)
+        {
+            return candidateHasWinks;
+        }
+
+        return candidate.MatchPercentage > best.MatchPercentage
+            || (candidate.MatchPercentage == best.MatchPercentage && candidate.MatchedCount > best.MatchedCount);
     }
 
     private static bool ReplayIncidentalBlink(WinkCalibrationProfile profile, WinkCalibrationTrial trial) =>

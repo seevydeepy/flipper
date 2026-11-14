@@ -13,6 +13,7 @@ internal sealed class WinkCalibrationPanel : UserControl
     private readonly Action<WinkCalibrationProfile> _save;
     private readonly Action _close;
     private readonly WinkFacePreview _preview = new() { Height = 360, MaxWidth = 480 };
+    private readonly WinkCalibrationMeter _meter = new();
     private readonly TextBlock _step = Text();
     private readonly TextBlock _instruction = Text();
     private readonly TextBlock _tracking = Text();
@@ -38,7 +39,8 @@ internal sealed class WinkCalibrationPanel : UserControl
     private bool _saveFailed;
 
     private sealed record DisplayState(WinkCalibrationPhase Phase, int Count, int Required, double StillProgress,
-        bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure, int CollectionRound, int CheckRound);
+        bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure, int CollectionRound, int CheckRound,
+        WinkCalibrationAssessment? Assessment, int PassedFreshChecks, int RequiredFreshChecks);
 
     public WinkCalibrationPanel(Window window, Action<WinkCalibrationProfile> save, Action close)
     {
@@ -54,13 +56,35 @@ internal sealed class WinkCalibrationPanel : UserControl
         actions.Children.Add(_primary);
         actions.Children.Add(_restart);
         actions.Children.Add(_cancel);
+        var feedback = new Grid
+        {
+            ColumnSpacing = 16,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(196) }
+            },
+            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto } }
+        };
+        feedback.Children.Add(_preview);
+        Grid.SetColumn(_meter, 1);
+        feedback.Children.Add(_meter);
+        feedback.SizeChanged += (_, args) =>
+        {
+            var stacked = args.NewSize.Width < 480;
+            feedback.ColumnSpacing = stacked ? 0 : 16;
+            feedback.RowSpacing = stacked ? 12 : 0;
+            feedback.ColumnDefinitions[1].Width = new GridLength(stacked ? 0 : 196);
+            Grid.SetColumn(_meter, stacked ? 0 : 1);
+            Grid.SetRow(_meter, stacked ? 1 : 0);
+        };
         Content = new StackPanel
         {
             Spacing = 12,
             Children =
             {
                 Text("Use your normal reading position and lighting. Keep the tablet in the position you use for reading."),
-                _preview, _tracking, _step, _instruction, _progress, _result, actions
+                feedback, _tracking, _step, _instruction, _progress, _result, actions
             }
         };
         _primary.Click += Primary_Click;
@@ -205,11 +229,14 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private static DisplayState? Snapshot(WinkCalibrationSession? session) => session is null ? null
         : new(session.Phase, session.PhaseSamples, session.RequiredSamples, session.StillProgress,
-            session.IsSettling, session.NeedsMoreSamples, session.LastFailure, session.CollectionRound, session.CheckRound);
+            session.IsSettling, session.NeedsMoreSamples, session.LastFailure, session.CollectionRound, session.CheckRound,
+            session.Assessment, session.PassedFreshChecks, session.RequiredFreshChecks);
 
     private void Render(DisplayState? state)
     {
         if (_saved) return;
+        _meter.Update(state?.Assessment, state?.Phase, state?.Failure ?? WinkCalibrationFailure.None,
+            state?.PassedFreshChecks ?? 0, state?.RequiredFreshChecks ?? 0);
         if (state is null)
         {
             _step.Text = "Three stages: open eyes, collect samples, check calibration.";
