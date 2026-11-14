@@ -20,6 +20,15 @@ renaming everything felt like a waste of a perfectly good afternoon.
 - **Voice** — always-on keyword spotting (sherpa-onnx zipformer model bundled,
   runs locally, nothing leaves the machine). Commands: flip, turn page, next,
   back, previous, restart, beginning, finish.
+  **Calibrate** in Settings under **Voice turning** records room sound, playing
+  sound and two samples of your chosen word for each action. Use your normal voice, distance and
+  microphone position. It compares recognition sensitivity and microphone gain,
+  then checks new samples before offering **Save calibration**. This tunes the
+  existing keyword model; it does not train a new accent or speaker model.
+  The profile stays on this device and applies only to the microphone used for
+  calibration, including when selected through **System default**. Recordings
+  stay in memory during calibration and are not saved or uploaded. Failed or
+  cancelled calibration keeps the previous profile.
 - **Winks** — optional camera page turns, enabled in Settings under **Wink
   turning**. Wink your right eye to move forward or your left eye to move back,
   then reopen both eyes. **Calibrate** opens a separate window: follow the
