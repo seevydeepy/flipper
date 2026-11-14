@@ -23,24 +23,32 @@ public sealed class WinkCalibrationSessionTests
         _session.ApplyFit(fit);
 
         Assert.Equal(RightCheck, _session.Phase);
-        Assert.Equal(10, _session.RequiredFreshChecks);
-        Assert.Equal(0, _session.PassedFreshChecks);
+        Assert.Equal(14, _session.FreshAttemptsRequired);
+        Assert.Equal(0, _session.FreshAttemptsCompleted);
         FeedOpen(2300);
         FeedGesture(Closed, Closed);
         Assert.Equal(RightCheck, _session.Phase);
         Assert.Equal(0, _session.PhaseSamples);
-        FeedGestures(RightCheck, LeftCheck, PartlyClosed, Closed, count: 3);
-        Assert.Equal(3, _session.PassedFreshChecks);
-        FeedGestures(LeftCheck, BlinkCheck, Closed, PartlyClosed, count: 3);
-        Assert.Equal(6, _session.PassedFreshChecks);
+        FeedGesture(0.65f, 0.65f);
+        Assert.Equal(1, _session.FreshAttemptsCompleted);
+        Assert.Equal(0, _session.FreshCorrectCount);
+        Assert.Equal(fit.Assessment, _session.Assessment);
+        FeedGestures(RightCheck, LeftCheck, PartlyClosed, Closed, count: 4);
+        Assert.Equal(5, _session.FreshAttemptsCompleted);
+        Assert.Equal(4, _session.FreshCorrectCount);
+        FeedOpen(2300);
+        FeedGesture(0.65f, 0.65f);
+        FeedGestures(LeftCheck, BlinkCheck, Closed, PartlyClosed, count: 4);
+        Assert.Equal(10, _session.FreshAttemptsCompleted);
         FeedGestures(BlinkCheck, OpenCheck, Closed, Closed, count: 3);
         Assert.Equal(OpenCheck, _session.Phase);
-        Assert.Equal(9, _session.PassedFreshChecks);
+        Assert.Equal(13, _session.FreshAttemptsCompleted);
 
         FeedOpen(5000);
 
         Assert.Equal(Ready, _session.Phase);
-        Assert.Equal(10, _session.PassedFreshChecks);
+        Assert.Equal(14, _session.FreshAttemptsCompleted);
+        Assert.Equal(12, _session.FreshCorrectCount);
         Assert.Equal(fit.Profile, _session.Profile);
         Assert.Null(_session.TakeFitRequest());
     }
@@ -52,7 +60,7 @@ public sealed class WinkCalibrationSessionTests
         var fit = Fit(request);
         Assert.NotNull(fit.Profile);
         _session.ApplyFit(fit);
-        FeedGestures(RightCheck, LeftCheck, PartlyClosed, Closed, count: 3);
+        FeedGestures(RightCheck, LeftCheck, PartlyClosed, Closed, count: 5);
         FeedOpen(2300);
         FeedGesture(PartlyClosed, Closed); // A right wink during the left-wink check.
 
@@ -65,6 +73,49 @@ public sealed class WinkCalibrationSessionTests
         Assert.Equal(WinkCalibrationGesture.LeftWink, failedCheck.Actual);
         Assert.Contains(failedCheck.Samples, sample => sample.LeftOpenProbability == PartlyClosed
             && sample.RightOpenProbability == Closed);
+        Assert.Equal(WinkCalibrationFailure.NoSeparation, Fit(refit).Failure);
+    }
+
+    [Fact]
+    public void SecondMissInOneEye_RefitsWithMissesAndStartsAnotherFreshCheck()
+    {
+        var request = CollectTraining();
+        _session.ApplyFit(Fit(request));
+        FeedOpen(2300);
+        FeedGesture(0.65f, 0.65f);
+        Assert.Equal(RightCheck, _session.Phase);
+        Assert.Equal(1, _session.FreshAttemptsCompleted);
+        Assert.Null(_session.TakeFitRequest());
+        FeedGesture(PartlyClosed, Closed);
+        FeedGesture(0.66f, 0.66f);
+
+        Assert.Equal(Fitting, _session.Phase);
+        Assert.Null(_session.Profile);
+        Assert.Equal(0, _session.FreshAttemptsCompleted);
+        var refit = Assert.IsType<WinkCalibrationFitRequest>(_session.TakeFitRequest());
+        Assert.Equal(request.Trials.Count + 2, refit.Trials.Count);
+        Assert.Contains(refit.Trials[^2].Samples, sample => sample.RightOpenProbability == 0.65f);
+        Assert.Contains(refit.Trials[^1].Samples, sample => sample.RightOpenProbability == 0.66f);
+        _session.ApplyFit(Fit(refit));
+        Assert.Equal(RightWinks, _session.Phase);
+        Assert.True(_session.NeedsMoreSamples);
+        Assert.Equal(0, _session.FreshAttemptsCompleted);
+    }
+
+    [Fact]
+    public void TurnDuringFreshBlinkCheck_RejectsTheCandidate()
+    {
+        var request = CollectTraining();
+        _session.ApplyFit(Fit(request));
+        FeedGestures(RightCheck, LeftCheck, PartlyClosed, Closed, count: 5);
+        FeedGestures(LeftCheck, BlinkCheck, Closed, PartlyClosed, count: 5);
+        FeedOpen(2300);
+        FeedGesture(PartlyClosed, Closed);
+
+        Assert.Equal(Fitting, _session.Phase);
+        Assert.Null(_session.Profile);
+        var refit = Assert.IsType<WinkCalibrationFitRequest>(_session.TakeFitRequest());
+        Assert.Equal(WinkCalibrationGesture.Blink, refit.Trials[^1].Actual);
         Assert.Equal(WinkCalibrationFailure.NoSeparation, Fit(refit).Failure);
     }
 

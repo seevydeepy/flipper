@@ -121,11 +121,12 @@ public sealed class WinkCalibrationTests
         duplicate[46] = duplicate[46] with { LeftOpenProbability = 0.44f, RightOpenProbability = 0.1f };
 
         Assert.True(WinkCalibration.Matches(profile, fresh));
-        Assert.False(WinkCalibration.Matches(profile, fresh with { Actual = LeftWink }));
-        Assert.False(WinkCalibration.Matches(profile, fresh with { Actual = Blink }));
-        Assert.False(WinkCalibration.Matches(profile, fresh with { WarmupMs = 2000 }));
-        Assert.False(WinkCalibration.Matches(profile, fresh with { Samples = duplicate }));
-        Assert.False(WinkCalibration.Matches(profile, Trial(RightWink, 8)));
+        Assert.Equal(WinkCalibrationTrialOutcome.UnsafeTurn, WinkCalibration.Evaluate(profile, fresh with { Actual = LeftWink }));
+        Assert.Equal(WinkCalibrationTrialOutcome.UnsafeTurn, WinkCalibration.Evaluate(profile, fresh with { Actual = Blink }));
+        Assert.Equal(WinkCalibrationTrialOutcome.UnsafeTurn, WinkCalibration.Evaluate(profile, fresh with { WarmupMs = 2000 }));
+        Assert.Equal(WinkCalibrationTrialOutcome.UnsafeTurn, WinkCalibration.Evaluate(profile, fresh with { Samples = duplicate }));
+        Assert.Equal(WinkCalibrationTrialOutcome.Miss, WinkCalibration.Evaluate(profile, Trial(RightWink, 8)));
+        Assert.Equal(WinkCalibrationTrialOutcome.Invalid, WinkCalibration.Evaluate(profile, fresh with { Samples = fresh.Samples.Take(33).ToArray() }));
     }
 
     [Fact]
@@ -140,8 +141,8 @@ public sealed class WinkCalibrationTests
             : sample with { TimeMs = sample.TimeMs + 250 }).ToArray();
 
         Assert.True(WinkCalibration.Matches(profile, fresh));
-        Assert.False(WinkCalibration.Matches(profile, fresh with { Samples = lostTracking }));
-        Assert.False(WinkCalibration.Matches(profile, fresh with { Samples = gap }));
+        Assert.Equal(WinkCalibrationTrialOutcome.Invalid, WinkCalibration.Evaluate(profile, fresh with { Samples = lostTracking }));
+        Assert.Equal(WinkCalibrationTrialOutcome.Invalid, WinkCalibration.Evaluate(profile, fresh with { Samples = gap }));
     }
 
     [Fact]
@@ -231,18 +232,52 @@ public sealed class WinkCalibrationTests
     }
 
     [Fact]
-    public void FitRepeated_RejectsWrongAndMissedWinksWithoutHardBlinkEvidence()
+    public void FitRepeated_RejectsUnsafeTurnsEvenWhenWinkRateWouldPass()
     {
         var training = RepeatedTrials();
-        var profile = Assert.IsType<WinkCalibrationProfile>(WinkCalibration.FitRepeated(CameraId, Baseline(), training).Profile);
         var wrongEye = Trial(RightWink, 3, (Closed, 0.46f), (0.1f, 0.48f));
-        var missed = Trial(RightWink, 3, (0.66f, 0.66f), (0.64f, 0.65f));
+        var unsafeBlink = Trial(Blink, 3, (Closed, 0.46f), (0.1f, 0.48f));
+        var unsafeOpen = unsafeBlink with { Actual = Neither };
 
-        foreach (var trial in new[] { wrongEye, missed })
+        foreach (var trial in new[] { wrongEye, unsafeBlink, unsafeOpen })
         {
-            Assert.False(WinkCalibration.IsIncidentalBlink(profile, trial));
-            Assert.Equal(NoSeparation, WinkCalibration.FitRepeated(CameraId, Baseline(), [.. training, trial]).Failure);
+            var result = WinkCalibration.FitRepeated(CameraId, Baseline(), [.. training, trial]);
+            Assert.Equal(NoSeparation, result.Failure);
+            Assert.Null(result.Profile);
+            Assert.False(result.Assessment!.MeetsRepeatedTarget);
         }
+    }
+
+    [Fact]
+    public void FitRepeated_AcceptsFourMatchesOutOfFivePerEyeAndKeepsStrictFit()
+    {
+        var rightMiss = Trial(RightWink, 4, (0.65f, 0.65f), (0.65f, 0.65f));
+        var leftMiss = rightMiss with { Actual = LeftWink };
+        WinkCalibrationTrial[] trials = [.. RepeatedTrials(), rightMiss, leftMiss];
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), trials);
+
+        Assert.Equal(None, result.Failure);
+        Assert.NotNull(result.Profile);
+        var assessment = Assert.IsType<WinkCalibrationAssessment>(result.Assessment);
+        Assert.True(assessment.IsSafe);
+        Assert.True(assessment.MeetsRepeatedTarget);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 5, 4), assessment.RightWinks);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 5, 4), assessment.LeftWinks);
+        Assert.Equal(80, assessment.WinkMatchPercentage);
+        Assert.Equal(NoSeparation, Fit(trials).Failure);
+    }
+
+    [Fact]
+    public void FitRepeated_PrefersAProfileThatRecognisesTheFifthWinkIfAvailable()
+    {
+        var shallow = Trial(RightWink, 4, (0.74f, 0.37f), (0.74f, 0.37f));
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), [.. RepeatedTrials(), shallow]);
+
+        Assert.Equal(None, result.Failure);
+        var profile = Assert.IsType<WinkCalibrationProfile>(result.Profile);
+        Assert.True(WinkCalibration.Matches(profile, shallow));
+        Assert.Equal(100, result.Assessment!.WinkMatchPercentage);
     }
 
     [Fact]
@@ -250,7 +285,8 @@ public sealed class WinkCalibrationTests
     {
         var coincidentalBlink = Trial(RightWink, 4, (Closed, Closed), (Closed, Closed));
         var missed = Trial(RightWink, 5, (0.65f, 0.65f), (0.65f, 0.65f));
-        WinkCalibrationTrial[] trials = [.. RepeatedTrials(), coincidentalBlink, missed];
+        WinkCalibrationTrial[] trials =
+            [.. RepeatedTrials(), coincidentalBlink, missed, Trial(RightWink, 6, (0.67f, 0.67f), (0.67f, 0.67f))];
 
         var result = WinkCalibration.FitRepeated(CameraId, Baseline(), trials);
 
@@ -259,16 +295,18 @@ public sealed class WinkCalibrationTests
         var assessment = Assert.IsType<WinkCalibrationAssessment>(result.Assessment);
         Assert.True(assessment.Candidate.IsValid);
         Assert.True(assessment.HasRequiredSamples);
-        Assert.Equal(new WinkCalibrationMatchCount(4, 5, 4), assessment.RightWinks);
+        Assert.True(assessment.IsSafe);
+        Assert.False(assessment.MeetsRepeatedTarget);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 6, 4), assessment.RightWinks);
         Assert.Equal(new WinkCalibrationMatchCount(4, 4, 4), assessment.LeftWinks);
         Assert.Equal(new WinkCalibrationMatchCount(4, 4, 4), assessment.Blinks);
         Assert.Equal(new WinkCalibrationMatchCount(1, 1, 1), assessment.OpenEyes);
         Assert.Equal(13, assessment.MatchedCount);
-        Assert.Equal(14, assessment.SampleCount);
-        Assert.Equal(92.8571, assessment.MatchPercentage, precision: 4);
+        Assert.Equal(15, assessment.SampleCount);
+        Assert.Equal(86.6667, assessment.MatchPercentage, precision: 4);
 
         var latest = Assert.IsType<WinkCalibrationAssessment>(
-            WinkCalibration.AssessRepeated(assessment.Candidate, trials[..^1]));
+            WinkCalibration.AssessRepeated(assessment.Candidate, trials[..^2]));
         Assert.Equal(100, latest.MatchPercentage);
         Assert.Equal(13, latest.SampleCount);
         Assert.Null(WinkCalibration.AssessRepeated(assessment.Candidate, [missed with { Samples = [] }]));
