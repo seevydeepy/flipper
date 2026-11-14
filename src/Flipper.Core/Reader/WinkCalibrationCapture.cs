@@ -62,7 +62,8 @@ public sealed class WinkCalibrationCapture
 
         var leftDrop = _leftOpenBaseline - sample.LeftOpenProbability!.Value;
         var rightDrop = _rightOpenBaseline - sample.RightOpenProbability!.Value;
-        var bothOpen = Math.Abs(leftDrop) <= BaselineTolerance && Math.Abs(rightDrop) <= BaselineTolerance;
+        // A higher open-eye probability still counts as open when it exceeds the baseline.
+        var bothOpen = leftDrop <= BaselineTolerance && rightDrop <= BaselineTolerance;
         var previousSample = _previousSample;
         _previousSample = sample;
         if (_excursionStartedAt is null)

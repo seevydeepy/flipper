@@ -36,6 +36,7 @@ internal sealed class WinkFacePreview : UserControl
     private byte[] _previewPixels = [];
     private EyeOverlay _left;
     private EyeOverlay _right;
+    private double _ringDiameterFraction;
     private long _lastQueuedAt;
     private int _queued;
     private int _epoch;
@@ -98,6 +99,9 @@ internal sealed class WinkFacePreview : UserControl
 
             var leftEye = new EyeOverlay(EyeState.Unknown, null, null);
             var rightEye = new EyeOverlay(EyeState.Unknown, null, null);
+            // Use eye spacing to cover each full eye while keeping the two rings apart.
+            var ringDiameterFraction = frame.Eyes.EyeDistance is { } eyeDistance && eyeDistance > 0
+                ? 0.82 * eyeDistance / crop.Width : 0.12;
             if (frame.Eyes.Geometry is { } face)
             {
                 leftEye = new(left, frame.Eyes.LeftOpenProbability, MirrorInCrop(face.LeftEyeX, face.LeftEyeY, crop));
@@ -120,6 +124,7 @@ internal sealed class WinkFacePreview : UserControl
                     _bitmap.Invalidate();
                     _left = leftEye;
                     _right = rightEye;
+                    _ringDiameterFraction = ringDiameterFraction;
                     LayoutOverlays();
                 }
                 finally { Interlocked.Exchange(ref _queued, 0); }
@@ -255,7 +260,7 @@ internal sealed class WinkFacePreview : UserControl
         {
             var x = image.X + centre.X * image.Width;
             var y = image.Y + centre.Y * image.Height;
-            var diameter = Math.Clamp(image.Width * 0.12, 16, 40);
+            var diameter = image.Width * _ringDiameterFraction;
             ring.Stroke = colour;
             ring.Width = ring.Height = diameter;
             Canvas.SetLeft(ring, x - diameter / 2);

@@ -20,6 +20,7 @@ internal sealed class WinkCalibrationWindow : Window
         _panel = new WinkCalibrationPanel(this, save, Close);
         Content = new Grid
         {
+            RequestedTheme = ElementTheme.Light,
             Background = (Brush)Application.Current.Resources["PaperBrush"],
             Children =
             {

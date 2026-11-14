@@ -87,7 +87,7 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private static Button Button(string value)
     {
-        var button = new Button { Content = value };
+        var button = new Button { Content = value, MinHeight = 44, Padding = new Thickness(16, 10, 16, 10) };
         AutomationProperties.SetName(button, value);
         return button;
     }
