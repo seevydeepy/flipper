@@ -29,19 +29,19 @@ public static class VoiceSoundCalibration
             return new(null, "Record three clear samples of the same command sound.");
         }
 
+        var others = OtherProfiles(existing, id, deviceId);
         var minimumPeak = recordings.Min(audio => FrameLevels(audio)[^1]);
-        var quietLevels = FrameLevels(quiet);
-        var playingLevels = FrameLevels(background);
-        // Ignore brief peaks in the playing sample but keep sustained background below the offset gate.
-        var ambient = Math.Max(quietLevels[quietLevels.Length * 9 / 10], playingLevels[playingLevels.Length * 3 / 10]);
-        var trigger = Math.Max(MinimumTrigger, Math.Max(ambient * 1.7f, minimumPeak * 0.055f));
+        // Changing the shared threshold would change how existing sounds are split into events.
+        var trigger = others.Length == 0
+            ? MeasureTrigger(quiet, background, minimumPeak)
+            : others.Min(profile => profile.TriggerRms);
         if (trigger > MaximumTrigger || minimumPeak < trigger * 1.5f)
         {
-            return new(null, "The command was too quiet for the background level. Move closer to the microphone and record again.");
+            return new(null, others.Length == 0
+                ? "The command was too quiet for the background level. Move closer to the microphone and record again."
+                : "The command was too quiet for the current microphone calibration. Use a louder sound or move closer and record again.");
         }
 
-        var others = OtherProfiles(existing, id, deviceId);
-        var combinedTrigger = others.Aggregate(trigger, (level, profile) => Math.Min(level, profile.TriggerRms));
         List<VoiceSoundTemplate> templates = [];
         foreach (var audio in recordings)
         {
@@ -49,14 +49,6 @@ public static class VoiceSoundCalibration
             if (template is null)
             {
                 return new(null, "Say the command sound once in each recording and pause before and after it.");
-            }
-            if (combinedTrigger < trigger)
-            {
-                template = SingleEvent(audio, combinedTrigger);
-                if (template is null)
-                {
-                    return new(null, "The background made it hard to separate this sound from the other calibrated commands.");
-                }
             }
             templates.Add(template);
         }
@@ -80,7 +72,7 @@ public static class VoiceSoundCalibration
         var candidate = new VoiceSoundProfile
         {
             Id = id, Label = label, Command = command, MicrophoneDeviceId = deviceId, CreatedUtc = DateTimeOffset.UtcNow,
-            TriggerRms = combinedTrigger,
+            TriggerRms = trigger,
             MatchThreshold = Math.Clamp(observedSpread * 1.6f, MinimumMatchThreshold, MaximumMatchThreshold),
             Templates = templates
         };
@@ -147,6 +139,15 @@ public static class VoiceSoundCalibration
 
     private static bool IsUsableClip(float[] audio) => audio is { Length: >= SampleRate / 5 and <= 20 * SampleRate }
         && VoiceSoundDetector.HasUsableSamples(audio);
+
+    private static float MeasureTrigger(float[] quiet, float[] background, float minimumPeak)
+    {
+        var quietLevels = FrameLevels(quiet);
+        var playingLevels = FrameLevels(background);
+        // Ignore brief peaks in the playing sample but keep sustained background below the offset gate.
+        var ambient = Math.Max(quietLevels[quietLevels.Length * 9 / 10], playingLevels[playingLevels.Length * 3 / 10]);
+        return Math.Max(MinimumTrigger, Math.Max(ambient * 1.7f, minimumPeak * 0.055f));
+    }
 
     private static float[] FrameLevels(float[] audio)
     {
