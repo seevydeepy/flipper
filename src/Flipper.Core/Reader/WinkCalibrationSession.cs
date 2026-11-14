@@ -30,6 +30,8 @@ public sealed class WinkCalibrationSession(string cameraId)
     public WinkCalibrationPhase Phase { get; private set; } = WinkCalibrationPhase.Baseline;
     public int PhaseSamples { get; private set; }
     public int RequiredSamples { get; private set; }
+    public int CollectionRound { get; private set; }
+    public int CheckRound { get; private set; }
     public double StillProgress { get; private set; }
     public bool IsSettling { get; private set; } = true;
     public bool NeedsMoreSamples { get; private set; }
@@ -153,6 +155,8 @@ public sealed class WinkCalibrationSession(string cameraId)
 
     private void Begin(WinkCalibrationPhase phase, int required)
     {
+        if (phase == WinkCalibrationPhase.RightWinks) CollectionRound++;
+        if (phase == WinkCalibrationPhase.RightCheck) CheckRound++;
         Phase = phase;
         PhaseSamples = 0;
         RequiredSamples = required;

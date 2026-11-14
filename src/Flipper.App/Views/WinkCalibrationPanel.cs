@@ -38,7 +38,7 @@ internal sealed class WinkCalibrationPanel : UserControl
     private bool _saveFailed;
 
     private sealed record DisplayState(WinkCalibrationPhase Phase, int Count, int Required, double StillProgress,
-        bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure);
+        bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure, int CollectionRound, int CheckRound);
 
     public WinkCalibrationPanel(Window window, Action<WinkCalibrationProfile> save, Action close)
     {
@@ -49,7 +49,7 @@ internal sealed class WinkCalibrationPanel : UserControl
         _instruction.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         AutomationProperties.SetLiveSetting(_instruction, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         AutomationProperties.SetLiveSetting(_result, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
-        AutomationProperties.SetName(_progress, "Calibration progress");
+        AutomationProperties.SetName(_progress, "Current step progress");
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         actions.Children.Add(_primary);
         actions.Children.Add(_restart);
@@ -205,16 +205,16 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private static DisplayState? Snapshot(WinkCalibrationSession? session) => session is null ? null
         : new(session.Phase, session.PhaseSamples, session.RequiredSamples, session.StillProgress,
-            session.IsSettling, session.NeedsMoreSamples, session.LastFailure);
+            session.IsSettling, session.NeedsMoreSamples, session.LastFailure, session.CollectionRound, session.CheckRound);
 
     private void Render(DisplayState? state)
     {
         if (_saved) return;
         if (state is null)
         {
-            _step.Text = string.Empty;
+            _step.Text = "Three stages: open eyes, collect samples, check calibration.";
             _instruction.Text = "Start when you are ready.";
-            _result.Text = "Repeat each gesture when prompted. Samples are collected automatically.";
+            _result.Text = "Samples are collected automatically. Extra rounds may be needed before the final checks pass.";
             _progress.Value = 0;
             _progress.IsIndeterminate = false;
             _primary.Content = "Start calibration";
@@ -226,7 +226,14 @@ internal sealed class WinkCalibrationPanel : UserControl
         var phase = state.Phase;
         var checking = phase is WinkCalibrationPhase.RightCheck or WinkCalibrationPhase.LeftCheck
             or WinkCalibrationPhase.BlinkCheck or WinkCalibrationPhase.OpenCheck;
-        _step.Text = checking ? "Checking your calibration" : "Collecting your calibration";
+        _step.Text = phase switch
+        {
+            WinkCalibrationPhase.Baseline => "Stage 1 of 3 · Measure open eyes",
+            WinkCalibrationPhase.OpenCheck => $"Stage 3 of 3 · Check round {state.CheckRound} · Final open-eye check",
+            WinkCalibrationPhase.Ready => "All 3 stages complete",
+            _ when checking => $"Stage 3 of 3 · Check calibration · Round {state.CheckRound}",
+            _ => $"Stage 2 of 3 · Collect samples · Round {state.CollectionRound}"
+        };
         _instruction.Text = phase switch
         {
             WinkCalibrationPhase.Baseline or WinkCalibrationPhase.OpenCheck => "Keep both eyes comfortably open.",
@@ -238,19 +245,32 @@ internal sealed class WinkCalibrationPanel : UserControl
         };
         _progress.IsIndeterminate = phase == WinkCalibrationPhase.Fitting;
         _progress.Value = state.Required > 0 ? 100d * state.Count / state.Required : 100 * state.StillProgress;
+        var (gesture, gestureNumber) = phase switch
+        {
+            WinkCalibrationPhase.RightWinks or WinkCalibrationPhase.RightCheck => ("right winks", 1),
+            WinkCalibrationPhase.LeftWinks or WinkCalibrationPhase.LeftCheck => ("left winks", 2),
+            _ => ("blinks", 3)
+        };
+        AutomationProperties.SetName(_progress, state.Required > 0 && phase != WinkCalibrationPhase.Fitting
+            ? $"{gesture} in this round" : "Current step progress");
+        var countText = $"{state.Count} of {state.Required} {gesture} {(checking ? "checked" : "collected")} · Gesture {gestureNumber} of 3.";
         _result.Text = phase switch
         {
             WinkCalibrationPhase.Ready => _saveFailed ? "Could not save calibration. Try again." : "All checks passed.",
-            WinkCalibrationPhase.Fitting => string.Empty,
+            WinkCalibrationPhase.Fitting when state.NeedsMoreSamples => "Using the new samples to refine your calibration.",
+            WinkCalibrationPhase.Fitting => "Assessing this round of samples.",
             _ when state.IsSettling => "Get ready…",
             WinkCalibrationPhase.Baseline or WinkCalibrationPhase.OpenCheck => "Keep your normal reading position.",
-            _ => $"{state.Count} samples collected. Relax both eyes between gestures."
+            _ when checking && state.CheckRound > 1 => $"{countText}\nRechecking the updated calibration.",
+            _ => $"{countText}\nRelax both eyes between gestures."
         };
-        if (state.NeedsMoreSamples && phase is WinkCalibrationPhase.RightWinks or WinkCalibrationPhase.LeftWinks or WinkCalibrationPhase.Blinks)
+        if (!state.IsSettling && state.NeedsMoreSamples
+            && phase is WinkCalibrationPhase.RightWinks or WinkCalibrationPhase.LeftWinks or WinkCalibrationPhase.Blinks)
         {
-            _step.Text = state.Failure == WinkCalibrationFailure.InsufficientEyeRange
+            var reason = state.Failure == WinkCalibrationFailure.InsufficientEyeRange
                 ? "Open and closed samples are too similar. More samples are needed."
                 : "More samples are needed to separate winks from blinks.";
+            _result.Text = $"{countText}\n{reason}";
         }
         _primary.Content = "Save calibration";
         _primary.Visibility = phase == WinkCalibrationPhase.Ready ? Visibility.Visible : Visibility.Collapsed;
@@ -291,7 +311,7 @@ internal sealed class WinkCalibrationPanel : UserControl
             _saved = true;
             _instruction.Text = "Calibration saved";
             _result.Text = string.Empty;
-            _step.Text = string.Empty;
+            _step.Text = "All 3 stages complete";
             _progress.Value = 100;
             _primary.Content = "Done";
             _restart.Visibility = Visibility.Collapsed;
