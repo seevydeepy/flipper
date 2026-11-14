@@ -201,6 +201,12 @@ public sealed class WinkCalibrationTests
         Assert.False(WinkCalibration.IsIncidentalBlink(profile, incidental with { Actual = Blink }));
         Assert.False(WinkCalibration.Matches(profile, incidental));
         Assert.Equal(NoSeparation, Fit(training).Failure);
+
+        var assessment = Assert.IsType<WinkCalibrationAssessment>(result.Assessment);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 4, 4), assessment.RightWinks);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 4, 4), assessment.Blinks);
+        Assert.Equal(13, assessment.SampleCount);
+        Assert.Equal(100, assessment.MatchPercentage);
     }
 
     [Theory]
@@ -218,6 +224,10 @@ public sealed class WinkCalibrationTests
 
         Assert.Equal(NoSeparation, result.Failure);
         Assert.Null(result.Profile);
+        var assessment = Assert.IsType<WinkCalibrationAssessment>(result.Assessment);
+        Assert.Equal(new WinkCalibrationMatchCount(genuineWinks, genuineWinks, 4), assessment.RightWinks);
+        Assert.Equal(100, assessment.MatchPercentage);
+        Assert.False(assessment.HasRequiredSamples);
     }
 
     [Fact]
@@ -233,6 +243,36 @@ public sealed class WinkCalibrationTests
             Assert.False(WinkCalibration.IsIncidentalBlink(profile, trial));
             Assert.Equal(NoSeparation, WinkCalibration.FitRepeated(CameraId, Baseline(), [.. training, trial]).Failure);
         }
+    }
+
+    [Fact]
+    public void FitRepeated_ReportsFailedTrialsWithoutAcceptingTheDiagnosticCandidate()
+    {
+        var coincidentalBlink = Trial(RightWink, 4, (Closed, Closed), (Closed, Closed));
+        var missed = Trial(RightWink, 5, (0.65f, 0.65f), (0.65f, 0.65f));
+        WinkCalibrationTrial[] trials = [.. RepeatedTrials(), coincidentalBlink, missed];
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), trials);
+
+        Assert.Equal(NoSeparation, result.Failure);
+        Assert.Null(result.Profile);
+        var assessment = Assert.IsType<WinkCalibrationAssessment>(result.Assessment);
+        Assert.True(assessment.Candidate.IsValid);
+        Assert.True(assessment.HasRequiredSamples);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 5, 4), assessment.RightWinks);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 4, 4), assessment.LeftWinks);
+        Assert.Equal(new WinkCalibrationMatchCount(4, 4, 4), assessment.Blinks);
+        Assert.Equal(new WinkCalibrationMatchCount(1, 1, 1), assessment.OpenEyes);
+        Assert.Equal(13, assessment.MatchedCount);
+        Assert.Equal(14, assessment.SampleCount);
+        Assert.Equal(92.8571, assessment.MatchPercentage, precision: 4);
+
+        var latest = Assert.IsType<WinkCalibrationAssessment>(
+            WinkCalibration.AssessRepeated(assessment.Candidate, trials[..^1]));
+        Assert.Equal(100, latest.MatchPercentage);
+        Assert.Equal(13, latest.SampleCount);
+        Assert.Null(WinkCalibration.AssessRepeated(assessment.Candidate, [missed with { Samples = [] }]));
+        Assert.Null(WinkCalibration.AssessRepeated(assessment.Candidate with { CameraId = "" }, trials));
     }
 
     [Fact]

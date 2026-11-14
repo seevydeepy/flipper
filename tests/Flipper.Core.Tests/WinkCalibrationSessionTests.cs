@@ -23,18 +23,24 @@ public sealed class WinkCalibrationSessionTests
         _session.ApplyFit(fit);
 
         Assert.Equal(RightCheck, _session.Phase);
+        Assert.Equal(10, _session.RequiredFreshChecks);
+        Assert.Equal(0, _session.PassedFreshChecks);
         FeedOpen(2300);
         FeedGesture(Closed, Closed);
         Assert.Equal(RightCheck, _session.Phase);
         Assert.Equal(0, _session.PhaseSamples);
         FeedGestures(RightCheck, LeftCheck, PartlyClosed, Closed, count: 3);
+        Assert.Equal(3, _session.PassedFreshChecks);
         FeedGestures(LeftCheck, BlinkCheck, Closed, PartlyClosed, count: 3);
+        Assert.Equal(6, _session.PassedFreshChecks);
         FeedGestures(BlinkCheck, OpenCheck, Closed, Closed, count: 3);
         Assert.Equal(OpenCheck, _session.Phase);
+        Assert.Equal(9, _session.PassedFreshChecks);
 
         FeedOpen(5000);
 
         Assert.Equal(Ready, _session.Phase);
+        Assert.Equal(10, _session.PassedFreshChecks);
         Assert.Equal(fit.Profile, _session.Profile);
         Assert.Null(_session.TakeFitRequest());
     }
@@ -73,7 +79,16 @@ public sealed class WinkCalibrationSessionTests
         Assert.Equal(RightWinks, _session.Phase);
         Assert.True(_session.NeedsMoreSamples);
         Assert.Null(_session.Profile);
-        FeedGestures(RightWinks, LeftWinks, PartlyClosed, Closed, count: 3);
+        Assert.Equal(3, _session.Assessment!.RightWinks.Matched);
+        Assert.False(_session.Assessment.HasRequiredSamples);
+        FeedOpen(2300);
+        FeedGesture(PartlyClosed, Closed);
+        Assert.Equal(4, _session.Assessment.RightWinks.Matched);
+        Assert.True(_session.Assessment.HasRequiredSamples);
+        Assert.Equal(100, _session.Assessment.MatchPercentage);
+        Assert.Null(_session.Profile);
+        Assert.Equal(RightWinks, _session.Phase);
+        FeedGestures(RightWinks, LeftWinks, PartlyClosed, Closed, count: 2);
         FeedGestures(LeftWinks, Blinks, Closed, PartlyClosed, count: 3);
         FeedGestures(Blinks, Fitting, Closed, Closed, count: 3);
         var next = Assert.IsType<WinkCalibrationFitRequest>(_session.TakeFitRequest());
