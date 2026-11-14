@@ -22,9 +22,14 @@ renaming everything felt like a waste of a perfectly good afternoon.
   back, previous, restart, beginning, finish.
 - **Winks** — optional camera page turns, enabled in Settings under **Wink
   turning**. Wink your right eye to move forward or your left eye to move back,
-  then reopen both eyes. A deliberate wink of about a quarter to one second
-  works best. Normal blinks are ignored. The camera runs only while the reader
-  is active; images are processed locally and are not saved or sent anywhere.
+  then reopen both eyes. **Calibrate** opens a separate window: follow the
+  repeated wink and blink prompts, then save after the checks pass. Stage,
+  round and sample counts show progress when extra samples are needed.
+  Calibration can allow the other eye to partly close when your winks can
+  still be separated from blinks. Your profile stays on the device across
+  restarts and updates; **Recalibrate** replaces it only after a successful save.
+  The camera runs while the reader or calibration window is active. Images
+  are processed locally and are not saved or sent anywhere.
   This is off by default and needs an available camera with Windows camera
   access enabled. If capture is unavailable, the other page controls still work.
 - **Auto-update** — checks GitHub Releases, downloads the new version, installs

@@ -2,6 +2,8 @@
 
 A local Windows app to collect labelled wink and blink attempts for Flipper.
 It uses the reader's camera service, eye estimator, models and page-turn detector.
+Lab attempts use the default eye thresholds, not the reader's saved personal
+calibration profile. Test a saved profile in Carousel's calibration window and reader.
 The preview is mirrored. Eye names refer to your own left and right eyes.
 
 ## Collect attempts
