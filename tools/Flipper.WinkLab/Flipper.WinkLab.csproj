@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>Flipper.WinkLab</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <ProjectReference Include="../../src/Flipper.Core/Flipper.Core.csproj" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.27.1" GeneratePathProperty="true" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.5" />
+    <Compile Include="../../src/Flipper.App/Services/WinkEyeEstimator.cs" Link="Detection/WinkEyeEstimator.cs" />
+    <Compile Include="../../src/Flipper.App/Services/WinkCameraListener.cs" Link="Detection/WinkCameraListener.cs" />
+    <Content Include="../../src/Flipper.App/Wink/*" Link="Wink/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PkgMicrosoft_ML_OnnxRuntime_Managed)/LICENSE.txt" Link="Wink/ONNXRUNTIME-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PkgMicrosoft_ML_OnnxRuntime_Managed)/ThirdPartyNotices.txt" Link="Wink/ONNXRUNTIME-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -4,6 +4,14 @@ using Microsoft.ML.OnnxRuntime;
 
 namespace Flipper.App.Services;
 
+internal readonly record struct WinkEyeObservation(
+    EyeState Left,
+    EyeState Right,
+    float? LeftOpenProbability,
+    float? RightOpenProbability,
+    float? EyeDistance,
+    string TrackingStatus);
+
 internal sealed class WinkEyeEstimator : IDisposable
 {
     private const int FaceInputSize = 640;
@@ -48,9 +56,15 @@ internal sealed class WinkEyeEstimator : IDisposable
 
     public (EyeState Left, EyeState Right) Observe(byte[] bgra, int width, int height)
     {
+        var eyes = ObserveDetailed(bgra, width, height);
+        return (eyes.Left, eyes.Right);
+    }
+
+    internal WinkEyeObservation ObserveDetailed(byte[] bgra, int width, int height)
+    {
         if (width <= 0 || height <= 0 || (long)width * height > bgra.Length / 4)
         {
-            return (EyeState.Unknown, EyeState.Unknown);
+            return Untracked("invalid_frame");
         }
 
         var scale = (float)FaceInputSize / Math.Max(width, height);
@@ -76,10 +90,10 @@ internal sealed class WinkEyeEstimator : IDisposable
         using var options = new RunOptions();
         using var input = OrtValue.CreateTensorValueFromMemory(_faceInput, FaceShape);
         using var outputs = _faceModel.Run(options, _faceModel.InputNames, [input], FaceOutputs);
-        var face = FindSingleFace(outputs.ToArray());
+        var face = FindSingleFace(outputs.ToArray(), out var faceStatus);
         if (face is not { } detected)
         {
-            return (EyeState.Unknown, EyeState.Unknown);
+            return Untracked(faceStatus);
         }
 
         var leftEye = (detected.LeftEye - offset + new Vector2(0.5f)) * pixelScale - new Vector2(0.5f);
@@ -88,7 +102,7 @@ internal sealed class WinkEyeEstimator : IDisposable
         var eyeDistance = eyeLine.Length();
         if (!float.IsFinite(eyeDistance) || eyeDistance < MinimumEyeDistance)
         {
-            return (EyeState.Unknown, EyeState.Unknown);
+            return Untracked("eyes_too_small", float.IsFinite(eyeDistance) ? eyeDistance : null);
         }
 
         var across = eyeLine * (EyeCropWidthRatio / EyeInputSize);
@@ -97,16 +111,20 @@ internal sealed class WinkEyeEstimator : IDisposable
         var frameMax = new Vector2(width - 1, height - 1);
         if (!CropFits(leftEye, halfExtent, frameMax) || !CropFits(rightEye, halfExtent, frameMax))
         {
-            return (EyeState.Unknown, EyeState.Unknown);
+            return Untracked("eye_crop_outside_frame", eyeDistance);
         }
 
-        return (ClassifyEye(bgra, width, height, leftEye, across, down, options),
-            ClassifyEye(bgra, width, height, rightEye, across, down, options));
+        var left = ClassifyEye(bgra, width, height, leftEye, across, down, options);
+        var right = ClassifyEye(bgra, width, height, rightEye, across, down, options);
+        return new(left.State, right.State, left.OpenProbability, right.OpenProbability, eyeDistance, faceStatus);
     }
+
+    private static WinkEyeObservation Untracked(string status, float? eyeDistance = null) =>
+        new(EyeState.Unknown, EyeState.Unknown, null, null, eyeDistance, status);
 
     // The YuNet grid and landmark decoding follows the OpenCV FaceDetectorYN implementation.
     // Adapted in C# for ONNX Runtime. See Wink/NOTICE.txt for the source and licence.
-    private Face? FindSingleFace(OrtValue[] outputs)
+    private Face? FindSingleFace(OrtValue[] outputs, out string status)
     {
         _faces.Clear();
         for (var layer = 0; layer < FaceStrides.Length; layer++)
@@ -139,6 +157,7 @@ internal sealed class WinkEyeEstimator : IDisposable
 
         if (_faces.Count == 0)
         {
+            status = "no_face";
             return null;
         }
 
@@ -157,10 +176,12 @@ internal sealed class WinkEyeEstimator : IDisposable
         {
             if (index != bestIndex && !(Overlap(best, _faces[index]) > DuplicateFaceOverlap))
             {
+                status = "multiple_faces";
                 return null;
             }
         }
 
+        status = "tracked";
         return best;
     }
 
@@ -177,7 +198,8 @@ internal sealed class WinkEyeEstimator : IDisposable
         centre.X - halfExtent.X >= 0 && centre.Y - halfExtent.Y >= 0 &&
         centre.X + halfExtent.X <= frameMax.X && centre.Y + halfExtent.Y <= frameMax.Y;
 
-    private EyeState ClassifyEye(byte[] bgra, int width, int height, Vector2 centre, Vector2 across, Vector2 down, RunOptions options)
+    private (EyeState State, float OpenProbability) ClassifyEye(byte[] bgra, int width, int height,
+        Vector2 centre, Vector2 across, Vector2 down, RunOptions options)
     {
         var firstPixel = centre - (across + down) * ((EyeInputSize - 1) * 0.5f);
         for (var y = 0; y < EyeInputSize; y++)
@@ -198,12 +220,13 @@ internal sealed class WinkEyeEstimator : IDisposable
         using var outputs = _eyeModel.Run(options, _eyeModel.InputNames, [input], _eyeModel.OutputNames);
         var probabilities = outputs.First().GetTensorDataAsSpan<float>();
         // The bundled model's closed and open sample images give indices 0 and 1 respectively.
+        var openProbability = probabilities[1];
         if (probabilities[0] >= EyeConfidence)
         {
-            return EyeState.Closed;
+            return (EyeState.Closed, openProbability);
         }
 
-        return probabilities[1] >= EyeConfidence ? EyeState.Open : EyeState.Unknown;
+        return (openProbability >= EyeConfidence ? EyeState.Open : EyeState.Unknown, openProbability);
     }
 
     private static void SampleBgr(byte[] bgra, int width, int height, float x, float y, float[] planes, int index, int planeSize)

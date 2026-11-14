@@ -69,6 +69,8 @@ Layout:
 - `src/Flipper.Setup` — the self-contained installer exe
 - `tests/` — xUnit tests plus a couple of Python tests for the score-audit
   scripts
+- [Live wink lab](tools/Flipper.WinkLab/README.md) — collect labelled camera
+  attempts and replay them against the wink detector
 
 Releases are automatic: each push to `main` runs the tests, publishes, tags
 `v<patch-bumped-version>`, and cuts a release with all four assets attached.
