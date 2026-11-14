@@ -10,7 +10,7 @@ public enum EyeState
 public sealed class WinkPageTurnDetector
 {
     private static readonly TimeSpan MinimumOpenTime = TimeSpan.FromMilliseconds(200);
-    private static readonly TimeSpan MinimumWinkTime = TimeSpan.FromMilliseconds(120);
+    private static readonly TimeSpan MinimumWinkTime = TimeSpan.FromMilliseconds(80);
     private static readonly TimeSpan MaximumWinkTime = TimeSpan.FromMilliseconds(1000);
     private static readonly TimeSpan MaximumEyeTransition = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan ReopenConfirmationTime = TimeSpan.FromMilliseconds(100);
