@@ -17,7 +17,8 @@ internal sealed class WinkEyeEstimator : IDisposable
     private const int FaceInputSize = 640;
     private const int EyeInputSize = 32;
     private const float FaceConfidence = 0.8f;
-    private const float EyeConfidence = 0.85f;
+    private const float ClosedEyeConfidence = 0.7f;
+    private const float OpenEyeConfidence = 0.4f;
     private const float DuplicateFaceOverlap = 0.3f;
     private const float MinimumEyeDistance = 24f;
     private const float EyeCropWidthRatio = 0.72f;
@@ -221,12 +222,12 @@ internal sealed class WinkEyeEstimator : IDisposable
         var probabilities = outputs.First().GetTensorDataAsSpan<float>();
         // The bundled model's closed and open sample images give indices 0 and 1 respectively.
         var openProbability = probabilities[1];
-        if (probabilities[0] >= EyeConfidence)
+        if (probabilities[0] >= ClosedEyeConfidence)
         {
             return (EyeState.Closed, openProbability);
         }
 
-        return (openProbability >= EyeConfidence ? EyeState.Open : EyeState.Unknown, openProbability);
+        return (openProbability >= OpenEyeConfidence ? EyeState.Open : EyeState.Unknown, openProbability);
     }
 
     private static void SampleBgr(byte[] bgra, int width, int height, float x, float y, float[] planes, int index, int planeSize)

@@ -13,6 +13,7 @@ public sealed class WinkPageTurnDetector
     private static readonly TimeSpan MinimumWinkTime = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan MaximumWinkTime = TimeSpan.FromMilliseconds(1000);
     private static readonly TimeSpan MaximumEyeTransition = TimeSpan.FromMilliseconds(120);
+    private static readonly TimeSpan ReopenConfirmationTime = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan MaximumSampleGap = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan TurnCooldown = TimeSpan.FromMilliseconds(700);
 
@@ -23,6 +24,7 @@ public sealed class WinkPageTurnDetector
     private int _winkDirection;
     private int _closedSamples;
     private TimeSpan? _uncertainSince;
+    private TimeSpan? _winkReopenedAt;
 
     public int Observe(EyeState leftEye, EyeState rightEye, TimeSpan timestamp)
     {
@@ -52,7 +54,14 @@ public sealed class WinkPageTurnDetector
                 return 0;
             }
 
-            var duration = timestamp - _winkStartedAt;
+            _uncertainSince = null;
+            _winkReopenedAt ??= timestamp;
+            if (timestamp - _winkReopenedAt.Value < ReopenConfirmationTime)
+            {
+                return 0;
+            }
+
+            var duration = _winkReopenedAt.Value - _winkStartedAt;
             // Transition frames can preserve a candidate, but only clear closures confirm it.
             var turn = _closedSamples >= 2 && duration >= MinimumWinkTime && duration <= MaximumWinkTime ? _winkDirection : 0;
             ClearCandidate();
@@ -69,6 +78,7 @@ public sealed class WinkPageTurnDetector
             && lastOpenSample - openSince >= MinimumOpenTime
             && (_lastTurnAt is not { } lastTurn || timestamp - lastTurn >= TurnCooldown);
         _bothOpenSince = null;
+        _winkReopenedAt = null;
 
         var direction = (leftEye, rightEye) switch
         {
@@ -119,5 +129,6 @@ public sealed class WinkPageTurnDetector
         _winkDirection = 0;
         _closedSamples = 0;
         _uncertainSince = null;
+        _winkReopenedAt = null;
     }
 }
