@@ -36,6 +36,42 @@ public sealed class VoiceSoundTests
     }
 
     [Fact]
+    public void AddingAQuieterAliasPreservesRecognitionOfAnExistingSoundWithAQuietTail()
+    {
+        var first = Fit("first", "First", VoiceCommand.Next, FirstSound);
+        var withTail = Recording(FirstSound, lengthMs: 4000);
+        var tailStart = VoiceSoundCalibration.SampleRate * 440 / 1000;
+        for (var i = tailStart; i < withTail.Length; i++)
+        {
+            withTail[i] += 0.004f * MathF.Sin(2 * MathF.PI * 420 * i / VoiceSoundCalibration.SampleRate);
+        }
+        var originalMatch = new VoiceSoundMatch(first.Id, first.Label, first.Command);
+        Assert.Equal(originalMatch, Assert.Single(VoiceSoundRecognizer.Replay(withTail, [first])));
+
+        var quieterSamples = Training(SecondSound).Select(clip => clip.Select(sample => sample * 0.25f).ToArray()).ToArray();
+        var fit = VoiceSoundCalibration.Fit("second", "Second", VoiceCommand.Next, "mic",
+            Silence(), Silence(), quieterSamples, [first]);
+        Assert.True(fit.Profile is not null, fit.Error);
+
+        Assert.Equal(originalMatch, Assert.Single(VoiceSoundRecognizer.Replay(withTail, [first, fit.Profile!])));
+        var quieterMatch = Assert.Single(VoiceSoundRecognizer.Replay(Recording(SecondSound, volume: 0.25f), [first, fit.Profile!]));
+        Assert.Equal("second", quieterMatch.Id);
+    }
+
+    [Fact]
+    public void RecalibratingTheOnlyAliasCanUseAQuieterLevel()
+    {
+        var first = Fit("first", "First", VoiceCommand.Next, FirstSound);
+        var quietSamples = Training(FirstSound).Select(clip => clip.Select(sample => sample * 0.035f).ToArray()).ToArray();
+        var quietSound = Recording(FirstSound, volume: 0.035f);
+        Assert.Empty(VoiceSoundRecognizer.Replay(quietSound, [first]));
+
+        var fit = VoiceSoundCalibration.Fit(first.Id, first.Label, first.Command, "mic", Silence(), Silence(), quietSamples, [first]);
+        Assert.True(fit.Profile is not null, fit.Error);
+        Assert.Single(VoiceSoundRecognizer.Replay(quietSound, [fit.Profile!]));
+    }
+
+    [Fact]
     public void SimilarSoundsOnDifferentActionsAreRejectedDuringFitAndLive()
     {
         var first = Fit("first", "First", VoiceCommand.Next, FirstSound);
