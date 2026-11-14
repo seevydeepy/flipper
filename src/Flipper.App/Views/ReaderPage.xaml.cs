@@ -104,8 +104,8 @@ public sealed partial class ReaderPage : Page
 
         VoiceLabel.Visibility = Visibility.Visible;
         var epoch = ++_voiceEpoch;
-        var failure = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId, OnVoiceKeyword,
-            App.Current.Settings.VoiceCalibration);
+        var failure = await _voice.StartAsync(App.Current.Settings.MicrophoneDeviceId,
+            match => OnVoiceKeyword(match, epoch), App.Current.Settings.VoiceCommands);
         if (epoch != _voiceEpoch)
         {
             _voice.Stop();
@@ -182,20 +182,20 @@ public sealed partial class ReaderPage : Page
             }), token, calibration: App.Current.Settings.WinkCalibration);
     }
 
-    private void OnVoiceKeyword(string keyword)
+    private void OnVoiceKeyword(VoiceSoundMatch match, int epoch)
     {
-        DispatcherQueue.TryEnqueue(() => ApplyVoice(keyword));
+        DispatcherQueue.TryEnqueue(() => { if (epoch == _voiceEpoch) ApplyVoice(match); });
     }
 
-    private void ApplyVoice(string keyword)
+    private void ApplyVoice(VoiceSoundMatch match)
     {
         if (!_ready)
         {
             return;
         }
 
-        var heard = keyword.Replace('_', ' ').ToLowerInvariant();
-        switch (VoiceCommandParser.Parse(keyword))
+        var heard = match.Label;
+        switch (match.Command)
         {
             case VoiceCommand.Next:
                 ShowHeard(heard);

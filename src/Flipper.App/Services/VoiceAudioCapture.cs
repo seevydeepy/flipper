@@ -32,7 +32,7 @@ internal sealed class VoiceAudioCapture : IDisposable
         {
             var created = await AudioGraph.CreateAsync(new AudioGraphSettings(AudioRenderCategory.Speech)
             {
-                EncodingProperties = AudioEncodingProperties.CreatePcm(VoiceCalibration.SampleRate, 1, 16),
+                EncodingProperties = AudioEncodingProperties.CreatePcm(VoiceSoundCalibration.SampleRate, 1, 16),
                 QuantumSizeSelectionMode = QuantumSizeSelectionMode.ClosestToDesired,
                 DesiredSamplesPerQuantum = 320
             });

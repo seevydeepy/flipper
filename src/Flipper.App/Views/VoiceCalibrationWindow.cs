@@ -13,11 +13,12 @@ internal sealed class VoiceCalibrationWindow : Window
     private readonly VoiceCalibrationPanel _panel;
     private readonly MainWindow? _owner;
 
-    private VoiceCalibrationWindow(string? deviceId, Action<VoiceCalibrationProfile> save)
+    private VoiceCalibrationWindow(string? deviceId, VoiceSoundProfile draft,
+        IReadOnlyList<VoiceSoundProfile> existing, Action<VoiceSoundProfile> save)
     {
         Title = "Voice calibration — Carousel";
         _owner = App.Current.Window;
-        _panel = new VoiceCalibrationPanel(this, deviceId, save, Close);
+        _panel = new VoiceCalibrationPanel(this, deviceId, draft, existing, save, Close);
         Content = new Grid
         {
             RequestedTheme = ElementTheme.Light,
@@ -38,7 +39,7 @@ internal sealed class VoiceCalibrationWindow : Window
         {
             _panel.Stop();
             if (_owner is not null) _owner.Closed -= Owner_Closed;
-            _current = null;
+            if (_current == this) _current = null;
         };
         var area = DisplayArea.GetFromWindowId(_owner?.AppWindow.Id ?? AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var scale = (_owner?.Content as FrameworkElement)?.XamlRoot?.RasterizationScale ?? 1;
@@ -48,9 +49,11 @@ internal sealed class VoiceCalibrationWindow : Window
             area.Y + (area.Height - height) / 2, width, height));
     }
 
-    public static void Show(string? deviceId, Action<VoiceCalibrationProfile> save)
+    public static void Show(string? deviceId, VoiceSoundProfile draft,
+        IReadOnlyList<VoiceSoundProfile> existing, Action<VoiceSoundProfile> save)
     {
-        _current ??= new VoiceCalibrationWindow(deviceId, save);
+        CloseCurrent();
+        _current = new VoiceCalibrationWindow(deviceId, draft, existing, save);
         _current.Activate();
     }
 

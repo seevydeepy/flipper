@@ -1,4 +1,5 @@
 using Flipper.App.Services;
+using Flipper.Core.Reader;
 using Flipper.Core.Settings;
 using Flipper.Core.Update;
 using Microsoft.UI.Xaml;
@@ -8,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
+using Windows.Media.Devices;
 using Windows.System;
 using Windows.UI;
 
@@ -25,12 +27,12 @@ public sealed partial class LibraryPage
     private const double SettingsCardPadding = 24;
     private const double SettingsBodyMinHeight = 200;
 
-    private static readonly (string Action, string Words)[] VoiceCommands =
+    private static readonly (VoiceCommand Command, string Action)[] VoiceActions =
     [
-        ("Next page", "flip, turn, next, page"),
-        ("Previous page", "back, previous"),
-        ("First page", "restart, beginning"),
-        ("Back to library", "finish")
+        (VoiceCommand.Next, "Next page"),
+        (VoiceCommand.Back, "Previous page"),
+        (VoiceCommand.Restart, "First page"),
+        (VoiceCommand.Finish, "Back to library")
     ];
 
     private Grid? _settingsOverlay;
@@ -329,51 +331,13 @@ public sealed partial class LibraryPage
                 return;
             }
 
-            var calibrationStatus = CreateSettingsValue(string.Empty);
-            var calibrate = new Button();
-            AutomationProperties.SetName(calibrate, "Calibrate voice turning");
-            void RefreshCalibration()
-            {
-                var deviceId = App.Current.Settings.MicrophoneDeviceId;
-                if (string.IsNullOrWhiteSpace(deviceId))
-                {
-                    try { deviceId = Windows.Media.Devices.MediaDevice.GetDefaultAudioCaptureId(Windows.Media.Devices.AudioDeviceRole.Default); }
-                    catch { deviceId = null; }
-                }
-                var calibrated = App.Current.Settings.VoiceCalibration?.MatchesDevice(deviceId) == true;
-                calibrationStatus.Text = calibrated ? "Calibrated" : string.Empty;
-                calibrate.Content = calibrated ? "Recalibrate" : "Calibrate";
-            }
-            calibrate.Click += (_, _) => VoiceCalibrationWindow.Show(App.Current.Settings.MicrophoneDeviceId, profile =>
-            {
-                var previous = App.Current.Settings.VoiceCalibration;
-                App.Current.Settings.VoiceCalibration = profile;
-                try { App.Current.SettingsStore.Save(App.Current.Settings); }
-                catch
-                {
-                    App.Current.Settings.VoiceCalibration = previous;
-                    throw;
-                }
-                RefreshCalibration();
-            });
+            var commands = CreateVoiceCommandList(mics, out var refreshCommands);
             details.Children.Add(CreateMicrophonePicker(mics, () =>
             {
                 VoiceCalibrationWindow.CloseCurrent();
-                RefreshCalibration();
+                refreshCommands();
             }));
-            RefreshCalibration();
-            details.Children.Add(calibrationStatus);
-            details.Children.Add(calibrate);
-            details.Children.Add(new StackPanel
-            {
-                Spacing = 6,
-                Margin = new Thickness(0, 10, 0, 0),
-                Children =
-                {
-                    CreateSettingsLabel("Voice commands"),
-                    CreateVoiceCommandList()
-                }
-            });
+            details.Children.Add(commands);
         }
 
         toggle.Toggled += async (_, _) =>
@@ -491,28 +455,137 @@ public sealed partial class LibraryPage
         return picker;
     }
 
-    private static FrameworkElement CreateVoiceCommandList()
+    private static FrameworkElement CreateVoiceCommandList(IReadOnlyList<MicrophoneOption> mics, out Action refresh)
     {
-        var list = new Grid { ColumnSpacing = 14, RowSpacing = 4 };
-        list.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        list.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        for (var row = 0; row < VoiceCommands.Length; row++)
+        var settings = App.Current.Settings;
+        var list = new StackPanel { Spacing = 10, Margin = new Thickness(0, 10, 0, 0) };
+        list.Children.Add(CreateSettingsLabel("Voice commands"));
+        list.Children.Add(CreateSettingsValue("Add and calibrate each word or sound separately."));
+        var groups = new List<(VoiceCommand Command, string Action, StackPanel Profiles, TextBox Input)>();
+
+        void RefreshProfiles()
         {
-            list.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var action = new TextBlock
+            var deviceId = settings.MicrophoneDeviceId;
+            if (string.IsNullOrWhiteSpace(deviceId))
             {
-                Text = VoiceCommands[row].Action,
-                Foreground = (Brush)Application.Current.Resources["InkBrush"]
-            };
-            var words = CreateSettingsValue(VoiceCommands[row].Words);
-            Grid.SetRow(action, row);
-            Grid.SetRow(words, row);
-            Grid.SetColumn(words, 1);
-            list.Children.Add(action);
-            list.Children.Add(words);
+                try { deviceId = MediaDevice.GetDefaultAudioCaptureId(AudioDeviceRole.Default); }
+                catch { deviceId = null; }
+            }
+            else if (!mics.Any(mic => mic.Id == deviceId))
+            {
+                deviceId = null;
+            }
+
+            foreach (var (command, action, profiles, input) in groups)
+            {
+                profiles.Children.Clear();
+                foreach (var profile in settings.VoiceCommands.Where(profile => profile.Command == command))
+                {
+                    var recalibrate = new Button { Content = "Recalibrate" };
+                    AutomationProperties.SetName(recalibrate, $"Recalibrate {profile.Label} for {action}");
+                    recalibrate.Click += (_, _) => Calibrate(profile);
+
+                    var error = CreateSettingsValue(string.Empty);
+                    error.Visibility = Visibility.Collapsed;
+                    AutomationProperties.SetLiveSetting(error, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+                    var remove = new Button { Content = "Remove" };
+                    AutomationProperties.SetName(remove, $"Remove {profile.Label} from {action}");
+                    remove.Click += (_, _) =>
+                    {
+                        VoiceCalibrationWindow.CloseCurrent();
+                        try
+                        {
+                            PersistVoiceCommands(settings.VoiceCommands.Where(item => item.Id != profile.Id).ToList());
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            error.Text = "Could not remove the voice command.";
+                            error.Visibility = Visibility.Visible;
+                            return;
+                        }
+                        RefreshProfiles();
+                        input.Focus(FocusState.Programmatic);
+                    };
+
+                    var name = new TextBlock
+                    {
+                        Text = profile.Label,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = (Brush)Application.Current.Resources["InkBrush"]
+                    };
+                    var status = CreateSettingsValue(profile.MatchesDevice(deviceId)
+                        ? "Calibrated" : "Not calibrated for this microphone");
+                    var buttons = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal, Spacing = 8, Children = { recalibrate, remove }
+                    };
+                    profiles.Children.Add(new StackPanel { Spacing = 4, Children = { name, status, buttons, error } });
+                }
+            }
         }
 
+        void Calibrate(VoiceSoundProfile draft, Action? onSaved = null)
+        {
+            VoiceCalibrationWindow.Show(settings.MicrophoneDeviceId, draft, settings.VoiceCommands, profile =>
+            {
+                var commands = settings.VoiceCommands.ToList();
+                var index = commands.FindIndex(item => item.Id == profile.Id);
+                if (index >= 0) commands[index] = profile;
+                else commands.Add(profile);
+                PersistVoiceCommands(commands);
+                onSaved?.Invoke();
+                RefreshProfiles();
+            });
+        }
+
+        foreach (var (command, action) in VoiceActions)
+        {
+            var profiles = new StackPanel { Spacing = 8 };
+            var input = new TextBox { PlaceholderText = "Word or label", MaxLength = 80, MinWidth = 0 };
+            groups.Add((command, action, profiles, input));
+            AutomationProperties.SetName(input, $"Word or label for {action}");
+            var add = new Button { Content = "Add and calibrate", IsEnabled = false };
+            AutomationProperties.SetName(add, $"Add and calibrate a voice command for {action}");
+            input.TextChanged += (_, _) => add.IsEnabled = !string.IsNullOrWhiteSpace(input.Text);
+            add.Click += (_, _) =>
+            {
+                var entered = input.Text;
+                var label = entered.Trim();
+                if (label.Length == 0) return;
+                Calibrate(new VoiceSoundProfile { Command = command, Label = label }, () =>
+                {
+                    if (input.Text == entered) input.Text = string.Empty;
+                });
+            };
+            var newCommand = new Grid { ColumnSpacing = 8 };
+            newCommand.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            newCommand.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            newCommand.Children.Add(input);
+            Grid.SetColumn(add, 1);
+            newCommand.Children.Add(add);
+            list.Children.Add(new StackPanel
+            {
+                Spacing = 6,
+                Children = { CreateSettingsLabel(action), profiles, newCommand }
+            });
+        }
+
+        refresh = RefreshProfiles;
+        refresh();
         return list;
+    }
+
+    private static void PersistVoiceCommands(List<VoiceSoundProfile> commands)
+    {
+        var settings = App.Current.Settings;
+        var previous = settings.VoiceCommands;
+        settings.VoiceCommands = commands;
+        try { App.Current.PersistSettings(); }
+        catch
+        {
+            settings.VoiceCommands = previous;
+            throw;
+        }
     }
 
     private static FrameworkElement CreateUpdateSection()

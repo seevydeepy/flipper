@@ -28,7 +28,7 @@ public sealed class AppSettings
     public bool ShowFavourites { get; set; }
     public bool ShowTrash { get; set; }
     public bool VoiceTurningEnabled { get; set; } = true;
-    public VoiceCalibrationProfile? VoiceCalibration { get; set; }
+    public List<VoiceSoundProfile> VoiceCommands { get; set; } = [];
     public bool WinkTurningEnabled { get; set; }
     public WinkCalibrationProfile? WinkCalibration { get; set; }
     public string? MicrophoneDeviceId { get; set; }
@@ -45,7 +45,11 @@ public sealed class AppSettings
 
     public void Normalize()
     {
-        if (VoiceCalibration is { IsValid: false }) VoiceCalibration = null;
+        VoiceCommands = (VoiceCommands ?? [])
+            .Where(profile => profile is { IsValid: true }
+                && profile.VerificationTemplates.Count == VoiceSoundProfile.VerificationRecordingCount)
+            .DistinctBy(profile => profile.Id, StringComparer.Ordinal)
+            .ToList();
         if (WinkCalibration is { IsValid: false }) WinkCalibration = null;
         Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
         Playlists ??= new List<Playlist>();

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Flipper.Core.Reader;
 
 namespace Flipper.App.Services;
@@ -11,57 +10,68 @@ public sealed class VoiceKeywordListener : IDisposable
     private bool _disposed;
     public float LastRms => _capture.LastRms;
 
-    public async Task<string?> StartAsync(string? deviceId, Action<string> onKeyword, VoiceCalibrationProfile? profile = null)
+    public async Task<string?> StartAsync(string? deviceId, Action<VoiceSoundMatch> onCommand,
+        IReadOnlyList<VoiceSoundProfile> profiles)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         Stop();
         var epoch = _epoch;
-        var pending = new ConcurrentQueue<float[]>();
+        var saved = profiles.Where(profile => profile.IsValid
+            && profile.VerificationTemplates.Count == VoiceSoundProfile.VerificationRecordingCount).ToArray();
+        if (saved.Length == 0) return "Voice off — add and calibrate a command in Settings";
+        var pending = new Queue<float[]>();
+        var queueLock = new object();
+        var gap = false;
         var failure = await _capture.StartAsync(deviceId, samples =>
         {
-            if (pending.Count >= 50) pending.TryDequeue(out _);
-            pending.Enqueue(samples);
+            lock (queueLock)
+            {
+                if (pending.Count >= 50)
+                {
+                    pending.Clear();
+                    gap = true;
+                }
+                pending.Enqueue(samples);
+            }
         });
         if (epoch != _epoch) return "Voice off";
         if (failure is not null) return failure;
-        var calibration = profile?.MatchesDevice(_capture.DeviceId) == true ? profile : null;
-        VoiceRecognizer recognizer;
-        try { recognizer = await Task.Run(() => new VoiceRecognizer(calibration?.PresetIndex ?? 2)); }
-        catch (Exception ex)
+        var active = saved.Where(profile => profile.MatchesDevice(_capture.DeviceId)).ToArray();
+        if (active.Length == 0)
         {
-            if (epoch == _epoch) _capture.Stop();
-            return "Voice off — " + ex.GetBaseException().Message;
+            _capture.Stop();
+            return "Voice off — calibrate a command for this microphone";
         }
-        if (epoch != _epoch) { recognizer.Dispose(); return "Voice off"; }
-        while (pending.TryDequeue(out _)) { }
+        var recognizer = new VoiceSoundRecognizer(active);
+        lock (queueLock) { pending.Clear(); gap = false; }
         var cts = _cts = new CancellationTokenSource();
         _ = Task.Run(async () =>
         {
-            using (recognizer)
-            using (var stream = recognizer.CreateStream())
             using (cts)
             {
-                var nextAllowed = DateTime.MinValue;
                 try
                 {
                     while (!cts.IsCancellationRequested)
                     {
-                        while (!cts.IsCancellationRequested && pending.TryDequeue(out var samples))
+                        float[][] batch;
+                        lock (queueLock)
                         {
-                            VoiceCalibration.ApplyGain(samples, calibration?.Gain ?? 1);
-                            recognizer.Accept(stream, samples, keyword =>
+                            if (gap) { recognizer.Reset(); gap = false; }
+                            batch = pending.ToArray();
+                            pending.Clear();
+                        }
+                        foreach (var samples in batch)
+                        {
+                            if (cts.IsCancellationRequested || epoch != _epoch) break;
+                            foreach (var match in recognizer.Accept(samples))
                             {
-                                var now = DateTime.UtcNow;
-                                if (cts.IsCancellationRequested || epoch != _epoch || now < nextAllowed) return;
-                                nextAllowed = now.AddMilliseconds(900);
-                                onKeyword(keyword);
-                            });
+                                if (!cts.IsCancellationRequested && epoch == _epoch) onCommand(match);
+                            }
                         }
                         await Task.Delay(20, cts.Token).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) { }
-                catch (Exception) { }
             }
         });
         return null;
@@ -73,7 +83,6 @@ public sealed class VoiceKeywordListener : IDisposable
         _capture.Stop();
         try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
         _cts = null;
-        // Each worker owns its native objects until decoding has stopped.
     }
 
     public void Dispose()

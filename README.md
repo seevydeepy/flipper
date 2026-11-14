@@ -2,7 +2,7 @@
 
 Carousel is a Windows app for reading sheet music off a screen without touching
 anything. You point it at a folder of PDFs, it builds a library, and you turn
-pages by voice — say *flip*, *next page*, *back* — while your hands are busy
+pages by voice — use words you choose and calibrate — while your hands are busy
 holding an instrument. Page turns are gesture- and key-driven too, so it works
 fine without a microphone.
 
@@ -17,18 +17,25 @@ renaming everything felt like a waste of a perfectly good afternoon.
   somewhere else doesn't lose any of it.
 - **Reader** — proper page rendering with paper-white theming, ink annotations
   cropping, page-turn gestures and keys.
-- **Voice** — always-on keyword spotting (sherpa-onnx zipformer model bundled,
-  runs locally, nothing leaves the machine). Commands: flip, turn page, next,
-  back, previous, restart, beginning, finish.
-  **Calibrate** in Settings under **Voice turning** records room sound, playing
-  sound and two samples of your chosen word for each action. Use your normal voice, distance and
-  microphone position. It compares recognition sensitivity and microphone gain,
-  then checks new samples before offering **Save calibration**. This tunes the
-  existing keyword model; it does not train a new accent or speaker model.
-  The profile stays on this device and applies only to the microphone used for
-  calibration, including when selected through **System default**. Recordings
-  stay in memory during calibration and are not saved or uploaded. Failed or
-  cancelled calibration keeps the previous profile.
+- **Voice** — local matching against your own recorded command sounds. In
+  Settings under **Voice turning**, add one or more words for **Next page**,
+  **Previous page**, **First page** or **Back to library**. Each word needs its
+  own calibration. Its label is for display; the sound profile selects the
+  action, without a fixed vocabulary or text recognition.
+  **Add and calibrate** collects room sound, playing sound and three recordings
+  of that command. It then checks fresh background sound and two new recordings
+  before offering **Save calibration**. Use your normal voice, distance and
+  microphone position and background conditions when recording the commands.
+  A change in background noise can require recalibration. Commands need a short pause before and after the word;
+  continuous sound can prevent detection. Similar sounds assigned to different
+  actions are rejected during calibration.
+  Each profile contains acoustic features and a match threshold. These stay on
+  this device and apply only to the microphone used for calibration, including
+  when selected through **System default**. Raw recordings stay in memory and
+  are not saved or uploaded. Failed or cancelled calibration keeps the previous
+  profile. The old fixed words and sensitivity-only calibration are replaced;
+  add and calibrate the words you want to use. This learns examples of your
+  commands, not a general speech or accent model.
 - **Winks** — optional camera page turns, enabled in Settings under **Wink
   turning**. Wink your right eye to move forward or your left eye to move back,
   then reopen both eyes. **Calibrate** opens a separate window: follow the
@@ -94,9 +101,6 @@ Releases are automatic: each push to `main` runs the tests, publishes, tags
 
 ## Credits
 
-- Keyword spotting: [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
-  (`kws-zipformer-zh-en-3M-2025-12-20`, int8 encoder/joiner) — see
-  `src/Flipper.App/Voice/NOTICE.txt`
 - PDF rendering: [PDFtoImage](https://github.com/sungaila/PDFtoImage) /
   [PdfPig](https://github.com/UglyToad/PdfPig)
 - Wink detection: [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet),
