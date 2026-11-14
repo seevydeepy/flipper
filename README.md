@@ -25,9 +25,10 @@ renaming everything felt like a waste of a perfectly good afternoon.
   then reopen both eyes. **Calibrate** opens a separate window: follow the
   repeated wink and blink prompts, then save after the checks pass. Stage,
   round and sample counts show progress when extra samples are needed.
-  A circular meter beside the preview shows the scored sample-match rate,
-  its 100% target, and the fresh checks still needed. It measures recorded
-  examples rather than statistical confidence in future gestures.
+  A circular meter beside the preview shows calibration progress, reaching
+  100% when the profile is ready to save. Calibration allows occasional missed
+  winks, but rejects page turns during blink and open-eye checks, wrong-direction
+  turns and extra turns. New gestures check the fitted profile before saving.
   Calibration can allow the other eye to partly close when your winks can
   still be separated from blinks. Your profile stays on the device across
   restarts and updates; **Recalibrate** replaces it only after a successful save.

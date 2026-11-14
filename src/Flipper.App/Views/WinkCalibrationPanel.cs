@@ -40,7 +40,7 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private sealed record DisplayState(WinkCalibrationPhase Phase, int Count, int Required, double StillProgress,
         bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure, int CollectionRound, int CheckRound,
-        WinkCalibrationAssessment? Assessment, int PassedFreshChecks, int RequiredFreshChecks);
+        WinkCalibrationAssessment? Assessment, int FreshAttemptsCompleted, int FreshAttemptsRequired);
 
     public WinkCalibrationPanel(Window window, Action<WinkCalibrationProfile> save, Action close)
     {
@@ -230,13 +230,14 @@ internal sealed class WinkCalibrationPanel : UserControl
     private static DisplayState? Snapshot(WinkCalibrationSession? session) => session is null ? null
         : new(session.Phase, session.PhaseSamples, session.RequiredSamples, session.StillProgress,
             session.IsSettling, session.NeedsMoreSamples, session.LastFailure, session.CollectionRound, session.CheckRound,
-            session.Assessment, session.PassedFreshChecks, session.RequiredFreshChecks);
+            session.Assessment, session.FreshAttemptsCompleted, session.FreshAttemptsRequired);
 
     private void Render(DisplayState? state)
     {
         if (_saved) return;
         _meter.Update(state?.Assessment, state?.Phase, state?.Failure ?? WinkCalibrationFailure.None,
-            state?.PassedFreshChecks ?? 0, state?.RequiredFreshChecks ?? 0);
+            state?.FreshAttemptsCompleted ?? 0, state?.FreshAttemptsRequired ?? 0,
+            state?.StillProgress ?? 0, state?.Count ?? 0, state?.Required ?? 0);
         if (state is null)
         {
             _step.Text = "Three stages: open eyes, collect samples, check calibration.";
@@ -283,7 +284,7 @@ internal sealed class WinkCalibrationPanel : UserControl
         var countText = $"{state.Count} of {state.Required} {gesture} {(checking ? "checked" : "collected")} · Gesture {gestureNumber} of 3.";
         _result.Text = phase switch
         {
-            WinkCalibrationPhase.Ready => _saveFailed ? "Could not save calibration. Try again." : "All checks passed.",
+            WinkCalibrationPhase.Ready => _saveFailed ? "Could not save calibration. Try again." : "Calibration checks complete.",
             WinkCalibrationPhase.Fitting when state.NeedsMoreSamples => "Using the new samples to refine your calibration.",
             WinkCalibrationPhase.Fitting => "Assessing this round of samples.",
             _ when state.IsSettling => "Get ready…",
