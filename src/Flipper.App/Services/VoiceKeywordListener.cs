@@ -33,7 +33,7 @@ public sealed class VoiceKeywordListener : IDisposable
                 }
                 pending.Enqueue(samples);
             }
-        });
+        }, requireSelectedDevice: true);
         if (epoch != _epoch) return "Voice off";
         if (failure is not null) return failure;
         var active = saved.Where(profile => profile.MatchesDevice(_capture.DeviceId)).ToArray();
