@@ -103,6 +103,19 @@ public sealed class WinkCalibrationSessionTests
         Assert.Equal(1, _session.PhaseSamples);
     }
 
+    [Fact]
+    public void RightWinkCollection_AdvancesWhenRightEyeOpensMoreThanDuringBaseline()
+    {
+        Feed(5000, Open, 0.84f);
+        Assert.Equal(RightWinks, _session.Phase);
+        Feed(2300, Open, 1f);
+        Feed(150, PartlyClosed, 0f);
+        Feed(600, Open, 1f);
+
+        Assert.Equal(RightWinks, _session.Phase);
+        Assert.Equal(1, _session.PhaseSamples);
+    }
+
     private WinkCalibrationFitRequest CollectTraining(int incidentalRightPhaseBlinks = 0)
     {
         FeedOpen(5000);

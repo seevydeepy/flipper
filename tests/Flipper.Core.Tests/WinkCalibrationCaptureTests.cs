@@ -41,6 +41,26 @@ public sealed class WinkCalibrationCaptureTests
     }
 
     [Fact]
+    public void Observe_HigherConfidenceOpenEyeCanArmAndConfirmReopening()
+    {
+        var capture = NewCapture(RightWink);
+        for (var time = 0; time <= 300; time += 50)
+        {
+            Assert.Null(capture.Observe(new(time, 0.90f, 1f)));
+        }
+
+        ObserveClosure(capture, 350, 0.53f, 0f);
+        for (var time = 450; time < 650; time += 50)
+        {
+            Assert.Null(capture.Observe(new(time, 0.90f, 1f)));
+        }
+
+        var trial = Assert.IsType<WinkCalibrationTrial>(capture.Observe(new(650, 0.90f, 1f)));
+        Assert.Equal(RightWink, trial.Actual);
+        Assert.Contains(new WinkCalibrationSample(350, 0.53f, 0f), trial.Samples);
+    }
+
+    [Fact]
     public void Observe_DoesNotArmWithLessThanThreeHundredMillisecondsObserved()
     {
         var capture = NewCapture(LeftWink);
