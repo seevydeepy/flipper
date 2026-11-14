@@ -10,10 +10,13 @@ The YuNet output decoder in WinkEyeEstimator.cs is adapted from OpenCV FaceDetec
 Source: https://github.com/opencv/opencv/blob/4.x/modules/objdetect/src/face_detect.cpp
 Licence: Apache 2.0, see the licence text in EYE-MODEL-LICENSE.txt.
 
-ONNX Runtime 1.23.2
-Source: https://github.com/microsoft/onnxruntime/tree/v1.23.2
+ONNX Runtime 1.27.1
+Source: https://github.com/microsoft/onnxruntime/tree/v1.27.1
 Licence: MIT. ONNXRUNTIME-LICENSE.txt and ONNXRUNTIME-NOTICES.txt are copied
-from the NuGet package into this directory when building and publishing.
+from Microsoft.ML.OnnxRuntime.Managed into this directory when building and
+publishing. The x64/ARM64 native runtime is already supplied by
+org.k2fsa.sherpa.onnx 1.13.5. Keep the managed version aligned with that runtime
+when updating Sherpa; do not add a second native onnxruntime.dll provider.
 
 Bundled model SHA-256 checksums:
 face_detection_yunet_2023mar.onnx

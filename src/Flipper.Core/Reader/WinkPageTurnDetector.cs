@@ -45,7 +45,9 @@ public sealed class WinkPageTurnDetector
             }
 
             var duration = timestamp - _winkStartedAt;
-            var turn = duration >= MinimumWinkTime && duration <= MaximumWinkTime ? _winkDirection : 0;
+            // An active candidate means every sample since the start showed the same eye closed.
+            var confirmed = previousSampleAt > _winkStartedAt;
+            var turn = confirmed && duration >= MinimumWinkTime && duration <= MaximumWinkTime ? _winkDirection : 0;
             _winkDirection = 0;
             if (turn != 0)
             {
