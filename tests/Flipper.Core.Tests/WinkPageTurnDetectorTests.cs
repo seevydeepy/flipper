@@ -93,13 +93,37 @@ public sealed class WinkPageTurnDetectorTests
         Reopen(539);
     }
 
-    [Fact]
-    public void ShortClosure_IsIgnored()
+    [Theory]
+    [InlineData(329, 0)]
+    [InlineData(330, 1)]
+    public void MinimumClosureTime_IsRequired(int reopenAt, int expectedTurn)
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
-        Observe(350, Open, Closed);
-        Reopen(369);
+        Observe(300, Open, Closed);
+        Reopen(reopenAt, expectedTurn);
+    }
+
+    [Theory]
+    [InlineData(Open, Closed, 1)]
+    [InlineData(Closed, Open, -1)]
+    public void FastWinkAtHigherCaptureCadence_WaitsForStableReopening(EyeState left, EyeState right, int direction)
+    {
+        ObserveOpenForArming();
+        Observe(250, left, right);
+        Observe(296, left, right);
+        Observe(342, Open, Open);
+        Observe(441, Open, Open);
+        Observe(442, Open, Open, direction);
+    }
+
+    [Fact]
+    public void ShortStaggeredBlink_IsIgnoredAtHigherCaptureCadence()
+    {
+        ObserveOpenForArming();
+        Observe(250, Open, Closed);
+        Observe(296, Closed, Closed);
+        Reopen(342);
     }
 
     [Fact]
