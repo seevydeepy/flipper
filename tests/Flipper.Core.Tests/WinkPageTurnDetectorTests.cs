@@ -24,7 +24,16 @@ public sealed class WinkPageTurnDetectorTests
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
+        Observe(350, Open, Closed);
         Observe(429, Open, Open);
+    }
+
+    [Fact]
+    public void SingleClosedSample_IsIgnoredWhenNextFrameIsDelayed()
+    {
+        ObserveOpenForArming();
+        Observe(250, Open, Closed);
+        Observe(450, Open, Open);
     }
 
     [Theory]
@@ -34,8 +43,10 @@ public sealed class WinkPageTurnDetectorTests
     {
         ObserveOpenForArming();
         Observe(250, firstLeft, firstRight);
+        Observe(350, firstLeft, firstRight);
         Observe(450, Closed, Closed);
         Observe(500, Open, Closed);
+        Observe(600, Open, Closed);
         Observe(700, Open, Open);
     }
 
@@ -44,7 +55,9 @@ public sealed class WinkPageTurnDetectorTests
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
+        Observe(350, Open, Closed);
         Observe(450, Closed, Open);
+        Observe(550, Closed, Open);
         Observe(650, Open, Open);
     }
 
@@ -74,14 +87,17 @@ public sealed class WinkPageTurnDetectorTests
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
+        Observe(350, Open, Closed);
         Observe(450, Open, Open, 1);
         Observe(650, Open, Open);
         Observe(850, Open, Open);
         Observe(1050, Open, Open);
         Observe(1149, Closed, Open);
+        Observe(1249, Closed, Open);
         Observe(1329, Open, Open);
         Observe(1529, Open, Open);
         Observe(1530, Closed, Open);
+        Observe(1600, Closed, Open);
         Observe(1710, Open, Open, -1);
     }
 
@@ -99,6 +115,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(at + 200, Open, Open);
         Observe(at + 400, Open, Open);
         Observe(at + 450, Closed, Open);
+        Observe(at + 550, Closed, Open);
         Observe(at + 650, Open, Open, -1);
     }
 
@@ -110,9 +127,11 @@ public sealed class WinkPageTurnDetectorTests
         Observe(400, Open, Open);
         Observe(599, Open, Open);
         Observe(600, Closed, Open);
+        Observe(700, Closed, Open);
         Observe(800, Open, Open);
         Observe(1000, Open, Open);
         Observe(1050, Closed, Open);
+        Observe(1150, Closed, Open);
         Observe(1250, Open, Open, -1);
     }
 
