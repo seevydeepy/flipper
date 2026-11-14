@@ -257,6 +257,7 @@ public sealed partial class LibraryPage : Page
         _scanEpoch++;
         _scanAgain = false;
         CloseSettings();
+        VoiceCalibrationWindow.CloseCurrent();
         _watcher.Stop();
         _refreshTimer.Stop();
         _searchTimer.Stop();
