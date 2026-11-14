@@ -471,7 +471,7 @@ public sealed partial class LibraryPage
         }
 
         var current = App.Current.Settings.MicrophoneDeviceId ?? MicrophoneCatalog.SystemDefaultId;
-        box.SelectedItem = mics.FirstOrDefault(item => item.Id == current) ?? mics[0];
+        box.SelectedItem = mics.FirstOrDefault(item => item.Id == current);
         AutomationProperties.SetName(box, "Microphone");
         box.SelectionChanged += (_, _) =>
         {
