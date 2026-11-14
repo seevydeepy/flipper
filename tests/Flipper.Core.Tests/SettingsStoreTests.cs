@@ -19,6 +19,7 @@ public sealed class SettingsStoreTests
                 SortReversed = true,
                 UiScalePercent = 150,
                 CropToInk = true,
+                WinkTurningEnabled = true,
                 JevImageFallbackEnabled = true
             });
 
@@ -28,6 +29,7 @@ public sealed class SettingsStoreTests
             Assert.True(loaded.SortReversed);
             Assert.Equal(150, loaded.UiScalePercent);
             Assert.True(loaded.CropToInk);
+            Assert.True(loaded.WinkTurningEnabled);
             Assert.True(loaded.JevImageFallbackEnabled);
             Assert.True(loaded.VoiceTurningEnabled);
         }
@@ -41,6 +43,7 @@ public sealed class SettingsStoreTests
     public void NewSettings_VoiceTurningEnabledDefaultsOn()
     {
         Assert.True(new AppSettings().VoiceTurningEnabled);
+        Assert.False(new AppSettings().WinkTurningEnabled);
     }
 
     [Fact]
@@ -72,6 +75,7 @@ public sealed class SettingsStoreTests
 
             var loaded = new SettingsStore(path).Load();
             Assert.True(loaded.VoiceTurningEnabled);
+            Assert.False(loaded.WinkTurningEnabled);
         }
         finally
         {
