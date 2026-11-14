@@ -15,8 +15,10 @@ public sealed class WinkPageTurnDetectorTests
         ObserveOpenForArming();
         Observe(250, left, right);
         Observe(400, left, right);
-        Observe(430, Open, Open, direction);
-        Observe(450, Open, Open);
+        Observe(430, Open, Open);
+        Observe(529, Open, Open);
+        Observe(530, Open, Open, direction);
+        Observe(550, Open, Open);
     }
 
     [Theory]
@@ -27,8 +29,9 @@ public sealed class WinkPageTurnDetectorTests
         ObserveOpenAtCaptureCadence();
         Observe(308, left, right);
         Observe(385, left, right);
-        Observe(462, Open, Open, direction);
+        Observe(462, Open, Open);
         Observe(539, Open, Open);
+        Observe(616, Open, Open, direction);
     }
 
     [Theory]
@@ -41,7 +44,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(308, Open, first);
         Observe(385, Open, second);
         Observe(462, Open, third);
-        Observe(539, Open, Open, 1);
+        Reopen(539, 1);
     }
 
     [Fact]
@@ -51,7 +54,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(308, Open, Unknown);
         Observe(385, Open, Closed);
         Observe(462, Open, Unknown);
-        Observe(539, Open, Open);
+        Reopen(539);
     }
 
     [Theory]
@@ -63,7 +66,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(308, Open, Closed);
         Observe(385, Open, Closed);
         Observe(462, Open, Unknown);
-        Observe(462 + uncertainMilliseconds, Open, Open, expectedTurn);
+        Reopen(462 + uncertainMilliseconds, expectedTurn);
     }
 
     [Fact]
@@ -75,7 +78,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(462, Open, Unknown);
         Observe(539, Open, Closed);
         Observe(616, Open, Closed);
-        Observe(693, Open, Open);
+        Reopen(693);
     }
 
     [Theory]
@@ -87,7 +90,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(308, Open, Closed);
         Observe(385, Open, Closed);
         Observe(462, left, right);
-        Observe(539, Open, Open);
+        Reopen(539);
     }
 
     [Fact]
@@ -96,7 +99,7 @@ public sealed class WinkPageTurnDetectorTests
         ObserveOpenForArming();
         Observe(250, Open, Closed);
         Observe(350, Open, Closed);
-        Observe(369, Open, Open);
+        Reopen(369);
     }
 
     [Fact]
@@ -104,7 +107,38 @@ public sealed class WinkPageTurnDetectorTests
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
-        Observe(450, Open, Open);
+        Reopen(450);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void BriefOpenReadingsDuringWink_DoNotSplitOrTurnEarly(int closedSamplesBeforeInterruption)
+    {
+        ObserveOpenForArming();
+        Observe(250, Open, Closed);
+        Observe(330, Open, closedSamplesBeforeInterruption == 2 ? Closed : Unknown);
+        Observe(410, Open, Open);
+        Observe(456, Open, Open);
+        Observe(502, Open, Open);
+        Observe(548, Open, Closed);
+        Reopen(594, 1);
+        Observe(750, Open, Open);
+    }
+
+    [Fact]
+    public void StableReopening_DiscardsAnUnconfirmedClosure()
+    {
+        ObserveOpenForArming();
+        Observe(250, Open, Closed);
+        Reopen(450);
+        Observe(575, Open, Closed);
+        Reopen(780);
+
+        Observe(980, Open, Open);
+        Observe(1000, Open, Closed);
+        Observe(1077, Open, Closed);
+        Reopen(1154, 1);
     }
 
     [Theory]
@@ -118,7 +152,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(450, Closed, Closed);
         Observe(500, Open, Closed);
         Observe(600, Open, Closed);
-        Observe(700, Open, Open);
+        Reopen(700);
     }
 
     [Fact]
@@ -129,14 +163,14 @@ public sealed class WinkPageTurnDetectorTests
         Observe(350, Open, Closed);
         Observe(450, Closed, Open);
         Observe(550, Closed, Open);
-        Observe(650, Open, Open);
+        Reopen(650);
     }
 
     [Theory]
     [InlineData(1250, 1)]
     [InlineData(1251, 0)]
     [InlineData(1501, 0)]
-    public void LongClosure_IsLimitedAndNeverRepeats(int reopenAt, int expectedTurn)
+    public void LongClosure_LimitUsesFirstOpenSampleAndTurnNeverRepeats(int reopenAt, int expectedTurn)
     {
         ObserveOpenForArming();
         Observe(250, Open, Closed);
@@ -149,7 +183,7 @@ public sealed class WinkPageTurnDetectorTests
             Observe(1251, Open, Closed);
         }
 
-        Observe(reopenAt, Open, Open, expectedTurn);
+        Reopen(reopenAt, expectedTurn);
         Observe(reopenAt + 200, Open, Open);
     }
 
@@ -159,17 +193,17 @@ public sealed class WinkPageTurnDetectorTests
         ObserveOpenForArming();
         Observe(250, Open, Closed);
         Observe(350, Open, Closed);
-        Observe(450, Open, Open, 1);
-        Observe(650, Open, Open);
-        Observe(850, Open, Open);
-        Observe(1050, Open, Open);
-        Observe(1149, Closed, Open);
+        Reopen(450, 1);
+        Observe(750, Open, Open);
+        Observe(950, Open, Open);
+        Observe(1150, Open, Open);
         Observe(1249, Closed, Open);
-        Observe(1329, Open, Open);
-        Observe(1529, Open, Open);
-        Observe(1530, Closed, Open);
-        Observe(1600, Closed, Open);
-        Observe(1710, Open, Open, -1);
+        Observe(1349, Closed, Open);
+        Reopen(1429);
+        Observe(1629, Open, Open);
+        Observe(1630, Closed, Open);
+        Observe(1700, Closed, Open);
+        Reopen(1810, -1);
     }
 
     [Theory]
@@ -187,7 +221,7 @@ public sealed class WinkPageTurnDetectorTests
         Observe(at + 400, Open, Open);
         Observe(at + 450, Closed, Open);
         Observe(at + 550, Closed, Open);
-        Observe(at + 650, Open, Open, -1);
+        Reopen(at + 650, -1);
     }
 
     [Fact]
@@ -199,11 +233,11 @@ public sealed class WinkPageTurnDetectorTests
         Observe(599, Open, Open);
         Observe(600, Closed, Open);
         Observe(700, Closed, Open);
-        Observe(800, Open, Open);
+        Reopen(800);
         Observe(1000, Open, Open);
         Observe(1050, Closed, Open);
         Observe(1150, Closed, Open);
-        Observe(1250, Open, Open, -1);
+        Reopen(1250, -1);
     }
 
     [Fact]
@@ -215,7 +249,7 @@ public sealed class WinkPageTurnDetectorTests
 
         _detector.Reset();
 
-        Observe(500, Open, Open);
+        Reopen(500);
     }
 
     private void ObserveOpenForArming()
@@ -230,6 +264,12 @@ public sealed class WinkPageTurnDetectorTests
         Observe(77, Open, Open);
         Observe(154, Open, Open);
         Observe(231, Open, Open);
+    }
+
+    private void Reopen(int firstOpenAt, int expectedTurn = 0)
+    {
+        Observe(firstOpenAt, Open, Open);
+        Observe(firstOpenAt + 100, Open, Open, expectedTurn);
     }
 
     private void Observe(int milliseconds, EyeState left, EyeState right, int expectedTurn = 0)
