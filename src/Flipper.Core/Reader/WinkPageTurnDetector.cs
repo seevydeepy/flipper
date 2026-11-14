@@ -10,8 +10,9 @@ public enum EyeState
 public sealed class WinkPageTurnDetector
 {
     private static readonly TimeSpan MinimumOpenTime = TimeSpan.FromMilliseconds(200);
-    private static readonly TimeSpan MinimumWinkTime = TimeSpan.FromMilliseconds(180);
+    private static readonly TimeSpan MinimumWinkTime = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan MaximumWinkTime = TimeSpan.FromMilliseconds(1000);
+    private static readonly TimeSpan MaximumEyeTransition = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan MaximumSampleGap = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan TurnCooldown = TimeSpan.FromMilliseconds(700);
 
@@ -20,6 +21,8 @@ public sealed class WinkPageTurnDetector
     private TimeSpan? _lastTurnAt;
     private TimeSpan _winkStartedAt;
     private int _winkDirection;
+    private int _closedSamples;
+    private TimeSpan? _uncertainSince;
 
     public int Observe(EyeState leftEye, EyeState rightEye, TimeSpan timestamp)
     {
@@ -29,11 +32,16 @@ public sealed class WinkPageTurnDetector
             && (timestamp <= previous || timestamp - previous > MaximumSampleGap))
         {
             _bothOpenSince = null;
-            _winkDirection = 0;
+            ClearCandidate();
             if (_lastTurnAt > timestamp)
             {
                 _lastTurnAt = timestamp;
             }
+        }
+
+        if (_uncertainSince is { } uncertain && timestamp - uncertain > MaximumEyeTransition)
+        {
+            ClearCandidate();
         }
 
         if (leftEye == EyeState.Open && rightEye == EyeState.Open)
@@ -45,10 +53,9 @@ public sealed class WinkPageTurnDetector
             }
 
             var duration = timestamp - _winkStartedAt;
-            // An active candidate means every sample since the start showed the same eye closed.
-            var confirmed = previousSampleAt > _winkStartedAt;
-            var turn = confirmed && duration >= MinimumWinkTime && duration <= MaximumWinkTime ? _winkDirection : 0;
-            _winkDirection = 0;
+            // Transition frames can preserve a candidate, but only clear closures confirm it.
+            var turn = _closedSamples >= 2 && duration >= MinimumWinkTime && duration <= MaximumWinkTime ? _winkDirection : 0;
+            ClearCandidate();
             if (turn != 0)
             {
                 _lastTurnAt = timestamp;
@@ -65,21 +72,35 @@ public sealed class WinkPageTurnDetector
 
         var direction = (leftEye, rightEye) switch
         {
-            (EyeState.Open, EyeState.Closed) => 1,
-            (EyeState.Closed, EyeState.Open) => -1,
+            (EyeState.Open, EyeState.Closed or EyeState.Unknown) => 1,
+            (EyeState.Closed or EyeState.Unknown, EyeState.Open) => -1,
             _ => 0
         };
         if (_winkDirection != 0)
         {
             if (direction != _winkDirection || timestamp - _winkStartedAt > MaximumWinkTime)
             {
-                _winkDirection = 0;
+                ClearCandidate();
             }
         }
         else if (armed && direction != 0)
         {
             _winkDirection = direction;
             _winkStartedAt = timestamp;
+        }
+
+        if (_winkDirection != 0)
+        {
+            var winkEye = _winkDirection == 1 ? rightEye : leftEye;
+            if (winkEye == EyeState.Closed)
+            {
+                _closedSamples++;
+                _uncertainSince = null;
+            }
+            else
+            {
+                _uncertainSince ??= timestamp;
+            }
         }
 
         return 0;
@@ -90,6 +111,13 @@ public sealed class WinkPageTurnDetector
         _lastSampleAt = null;
         _bothOpenSince = null;
         _lastTurnAt = null;
+        ClearCandidate();
+    }
+
+    private void ClearCandidate()
+    {
         _winkDirection = 0;
+        _closedSamples = 0;
+        _uncertainSince = null;
     }
 }

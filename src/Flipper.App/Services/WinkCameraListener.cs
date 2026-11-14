@@ -143,7 +143,8 @@ internal static class WinkCameraListener
                     throw new IOException("Camera stopped supplying readable frames.");
                 }
             }
-            var remaining = TimeSpan.FromMilliseconds(66) - (clock.Elapsed - started);
+            // Sample up to 30 times per second so short winks can provide two clear closed-eye frames.
+            var remaining = TimeSpan.FromMilliseconds(33) - (clock.Elapsed - started);
             if (remaining > TimeSpan.Zero) await Task.Delay(remaining, token);
         }
     }
