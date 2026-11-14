@@ -97,8 +97,14 @@ Layout:
 - [Live wink lab](tools/Flipper.WinkLab/README.md) — collect labelled camera
   attempts and replay them against the wink detector
 
-Releases are automatic: each push to `main` runs the tests, publishes, tags
-`v<patch-bumped-version>`, and cuts a release with all four assets attached.
+Each push to `main` runs the tests, builds the four assets, tags
+`v<patch-bumped-version>`, and creates a **draft** release. Sign the application
+launcher, `Carousel.dll`, `Flipper.Core.dll` and both setup executables with the
+release certificate before uploading the final assets. For a local signed build,
+`publish.ps1` accepts `-SigningCertificateThumbprint` and `-SignToolPath`.
+Run **publish signed release** at the release tag after device checks. It verifies
+the signatures, versions, architectures and official ONNX payload, attests the
+signed assets, then publishes the release. Signing credentials remain local.
 
 ## Credits
 

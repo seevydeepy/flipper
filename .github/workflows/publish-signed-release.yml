@@ -1,0 +1,77 @@
+name: publish signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft release tag with signed assets
+        required: true
+        type: string
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Download draft assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid release tag.' }
+          $release = gh release view $env:RELEASE_TAG --json isDraft,tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $release.isDraft) { throw 'Expected an unpublished draft release.' }
+          $commit = git rev-list -n 1 $env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0 -or $commit.Trim() -ne $env:GITHUB_SHA) {
+            throw 'Run this workflow at the release tag so verification uses the same source.'
+          }
+          gh release download $env:RELEASE_TAG --dir artifacts
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download draft assets.' }
+
+      - name: Restore official runtime reference
+        shell: pwsh
+        run: |
+          dotnet restore src/Flipper.App/Flipper.App.csproj
+          if ($LASTEXITCODE -ne 0) { throw 'Could not restore the pinned runtime reference.' }
+
+      - name: Verify signed packages
+        shell: pwsh
+        run: |
+          ./scripts/verify-release.ps1 -ArtifactsDirectory artifacts -Version $env:RELEASE_TAG.Substring(1) `
+            -AssetsPath src/Flipper.App/obj/project.assets.json -ExpectedCommit $env:GITHUB_SHA `
+            -ExpectedSignerThumbprint E761247832C4FFD770FA9CB64BBE7652EB36E21B
+
+      - name: Attest signed assets
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            artifacts/Carousel-win-x64.zip
+            artifacts/Carousel-win-arm64.zip
+            artifacts/Carousel.Setup-*-win-x64.exe
+            artifacts/Carousel.Setup-*-win-arm64.exe
+
+      - name: Publish verified release
+        shell: pwsh
+        run: |
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified release.' }

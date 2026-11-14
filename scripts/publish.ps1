@@ -1,8 +1,12 @@
 param(
-    [string]$Version
+    [string]$Version,
+    [string]$SigningCertificateThumbprint,
+    [string]$SignToolPath,
+    [string]$TimestampServer = 'http://time.certum.pl'
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'release-signature.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
@@ -66,6 +70,34 @@ function Get-NextVersion {
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Get-NextVersion
 }
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw 'Version must be a numeric major.minor.patch value.'
+}
+
+$sourceRevision = & git rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') {
+    throw 'Could not determine the current Git commit.'
+}
+
+$signer = $null
+if (-not [string]::IsNullOrWhiteSpace($SigningCertificateThumbprint)) {
+    $signer = ConvertTo-SignerThumbprint $SigningCertificateThumbprint
+    if ([string]::IsNullOrWhiteSpace($SignToolPath)) {
+        $SignToolPath = (Get-Command signtool.exe -CommandType Application -ErrorAction Stop).Source
+    }
+    else {
+        $SignToolPath = (Get-Item -LiteralPath $SignToolPath).FullName
+        if (-not (Test-Path -LiteralPath $SignToolPath -PathType Leaf)) {
+            throw 'SignToolPath must point to the SignTool executable.'
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($TimestampServer)) {
+        throw 'TimestampServer is required when signing.'
+    }
+}
+else {
+    Write-Host 'Building unsigned draft assets.'
+}
 
 $appProject = 'src/Flipper.App/Flipper.App.csproj'
 $setupProject = 'src/Flipper.Setup/Flipper.Setup.csproj'
@@ -79,6 +111,7 @@ $appCommon = @(
     '-c', 'Release',
     '--self-contained', 'true',
     "/p:Version=$Version",
+    "/p:SourceRevisionId=$sourceRevision",
     '/p:PublishSingleFile=false',
     '/p:PublishTrimmed=false',
     '/p:PublishReadyToRun=false'
@@ -88,17 +121,51 @@ $setupCommon = @(
     '-c', 'Release',
     '--self-contained', 'true',
     "/p:Version=$Version",
+    "/p:SourceRevisionId=$sourceRevision",
     '/p:PublishSingleFile=true',
     '/p:PublishTrimmed=false',
     '/p:PublishReadyToRun=false',
     '/p:IncludeNativeLibrariesForSelfExtract=true'
 )
 
-function Publish-App([string]$rid) {
-    $out = Join-Path $root "artifacts/$rid"
-    if (Test-Path $out) {
-        Remove-Item $out -Recurse -Force
+function Clear-PublishDirectory([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        return
     }
+
+    $publishRoot = (Resolve-Path -LiteralPath $artifacts).ProviderPath
+    $resolved = (Resolve-Path -LiteralPath $path).ProviderPath
+    $rootPrefix = $publishRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a directory outside the publish root: $resolved"
+    }
+
+    # Refuse junctions and symbolic links in the path to the deletion target.
+    $ancestor = Get-Item -LiteralPath $resolved -Force
+    while ($null -ne $ancestor) {
+        if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to remove a publish directory through a link: $($ancestor.FullName)"
+        }
+        $ancestor = $ancestor.Parent
+    }
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+}
+
+function Sign-ReleaseBinary([string]$path) {
+    if ($null -eq $signer) {
+        return
+    }
+
+    & $SignToolPath sign /fd SHA256 /sha1 $signer /tr $TimestampServer /td SHA256 $path
+    if ($LASTEXITCODE -ne 0) {
+        throw "SignTool failed for $path (exit $LASTEXITCODE)."
+    }
+    Assert-ReleaseSignature $path $signer
+}
+
+function Publish-App([string]$rid) {
+    $out = Join-Path $artifacts $rid
+    Clear-PublishDirectory $out
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     & dotnet publish $appProject @appCommon -r $rid -o $out
     if ($LASTEXITCODE -ne 0) {
@@ -107,32 +174,34 @@ function Publish-App([string]$rid) {
     & (Join-Path $PSScriptRoot 'verify-onnx-runtime.ps1') -PublishDirectory $out -RuntimeIdentifier $rid `
         -AssetsPath (Join-Path $root 'src/Flipper.App/obj/project.assets.json')
     $exe = Join-Path $out 'Carousel.exe'
-    if (-not (Test-Path $exe)) {
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         throw "Carousel.exe not found for $rid"
     }
-    python $stamp $exe $icon
-    $zip = Join-Path $artifacts "Carousel-$rid.zip"
-    if (Test-Path $zip) {
-        Remove-Item $zip -Force
+    & python $stamp $exe $icon
+    if ($LASTEXITCODE -ne 0) {
+        throw "Icon stamping failed for $rid."
     }
+    foreach ($name in 'Carousel.exe', 'Carousel.dll', 'Flipper.Core.dll') {
+        Sign-ReleaseBinary (Join-Path $out $name)
+    }
+    $zip = Join-Path $artifacts "Carousel-$rid.zip"
     Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip -Force
 }
 
 function Publish-Setup([string]$rid) {
-    $out = Join-Path $root "artifacts/setup/$rid"
-    if (Test-Path $out) {
-        Remove-Item $out -Recurse -Force
-    }
+    $out = Join-Path $artifacts "setup/$rid"
+    Clear-PublishDirectory $out
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     & dotnet publish $setupProject @setupCommon -r $rid -o $out
     if ($LASTEXITCODE -ne 0) {
         throw "setup publish failed for $rid"
     }
     $exe = Join-Path $out 'Carousel.Setup.exe'
-    if (-not (Test-Path $exe)) {
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         throw "Carousel.Setup.exe not found for $rid"
     }
-    Copy-Item $exe (Join-Path $artifacts "Carousel.Setup-$Version-$rid.exe") -Force
+    Sign-ReleaseBinary $exe
+    Copy-Item -LiteralPath $exe -Destination (Join-Path $artifacts "Carousel.Setup-$Version-$rid.exe") -Force
 }
 
 Publish-App 'win-x64'

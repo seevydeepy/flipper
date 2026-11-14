@@ -11,8 +11,6 @@ concurrency:
 
 permissions:
   contents: write
-  id-token: write
-  attestations: write
 
 jobs:
   release:
@@ -42,16 +40,7 @@ jobs:
       - name: Publish
         run: pwsh -File scripts/publish.ps1
 
-      - name: Attest
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: |
-            artifacts/Carousel-win-x64.zip
-            artifacts/Carousel-win-arm64.zip
-            artifacts/Carousel.Setup-*-win-x64.exe
-            artifacts/Carousel.Setup-*-win-arm64.exe
-
-      - name: Tag and release
+      - name: Tag and prepare release draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -86,5 +75,5 @@ jobs:
             artifacts/Carousel-win-arm64.zip `
             artifacts/Carousel.Setup-$version-win-x64.exe `
             artifacts/Carousel.Setup-$version-win-arm64.exe `
-            --generate-notes
+            --draft --generate-notes
         shell: pwsh
