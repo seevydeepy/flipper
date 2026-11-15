@@ -107,6 +107,40 @@ internal static class Ui
         return button;
     }
 
+    /// <summary>A short status: an icon and text in the colour of <paramref name="brush"/>.</summary>
+    public static StackPanel Status(string glyph, string text, string brush)
+    {
+        var icon = Icon(glyph, 16);
+        icon.Foreground = Brush(brush);
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children =
+            {
+                icon,
+                new TextBlock
+                {
+                    Text = text,
+                    FontSize = CaptionSize,
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = Brush(brush)
+                }
+            }
+        };
+    }
+
+    /// <summary>A <see cref="Status"/> in a rounded pill.</summary>
+    public static Border Chip(string glyph, string text, string brush, string background) => new()
+    {
+        Background = Brush(background),
+        CornerRadius = new CornerRadius(16),
+        Padding = new Thickness(12, 5, 12, 5),
+        Child = Status(glyph, text, brush)
+    };
+
     public static Border Card(UIElement child) => new()
     {
         Background = Brush("CardBrush"),

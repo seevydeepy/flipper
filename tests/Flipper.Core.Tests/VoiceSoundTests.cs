@@ -146,6 +146,59 @@ public sealed class VoiceSoundTests
     }
 
     [Fact]
+    public void EachTrainingRecordingIsCheckedAsItArrivesSoOnlyABadOneIsRepeated()
+    {
+        Assert.All(Training(FirstSound), sample => Assert.True(CheckSample(sample, []).Passed));
+        Assert.True(VoiceSoundCalibration.CheckBackgroundSample(Silence(5000)).Passed);
+
+        var clipped = Recording(FirstSound);
+        Array.Fill(clipped, 1, 1200, 500);
+        float[] twice = [.. Recording(FirstSound), .. Recording(FirstSound)];
+        foreach (var bad in new[] { Silence(), clipped, twice })
+        {
+            var result = CheckSample(bad, []);
+            Assert.False(result.Passed);
+            Assert.True(result.RetryStep);
+            Assert.False(string.IsNullOrWhiteSpace(result.Error));
+        }
+        Assert.True(VoiceSoundCalibration.CheckBackgroundSample(clipped) is { Passed: false, RetryStep: true });
+
+        // Another word on the same microphone fixes the level, so a much quieter word is refused at once.
+        var existing = Fit("existing", "Existing", VoiceCommand.Back, SecondSound);
+        var quiet = Recording(FirstSound, volume: 0.05f);
+        Assert.True(CheckSample(quiet, []).Passed);
+        Assert.True(CheckSample(quiet, [existing]) is { Passed: false, RetryStep: true });
+
+        static VoiceSoundCheckResult CheckSample(float[] audio, IReadOnlyList<VoiceSoundProfile> others) =>
+            VoiceSoundCalibration.CheckCommandSample("tone", "mic", Silence(), Silence(), audio, others);
+    }
+
+    [Fact]
+    public void FreshChecksRepeatOnlyRecordingsThatAreNotAFairTestOfTheWord()
+    {
+        var profile = Fit("next", "Beep", VoiceCommand.Next, FirstSound);
+        var clipped = Recording(FirstSound);
+        Array.Fill(clipped, 1, 1200, 500);
+        float[] twice = [.. Recording(FirstSound), .. Recording(FirstSound)];
+        foreach (var unfair in new[] { Silence(), clipped, twice })
+        {
+            Assert.True(VoiceSoundCalibration.Check(profile, unfair, true, []) is { Passed: false, RetryStep: true });
+        }
+
+        // One clear sound that fails, or background that triggers the word, needs the word recorded again.
+        Assert.True(VoiceSoundCalibration.Check(profile, Recording(SecondSound), true, []) is { Passed: false, RetryStep: false });
+        // Calibration can learn this quieter word, so missing it is a fair failure, not silence to repeat.
+        Assert.True(VoiceSoundCalibration.Check(profile, Recording(FirstSound, volume: 0.035f), true, []) is { Passed: false, RetryStep: false });
+        Assert.True(VoiceSoundCalibration.Check(profile, Recording(FirstSound), false, []) is { Passed: false, RetryStep: false });
+
+        var other = Fit("other", "Other word", VoiceCommand.Back, SecondSound);
+        var wrongAction = VoiceSoundCalibration.Check(profile, Recording(SecondSound), true, [other]);
+        Assert.False(wrongAction.Passed);
+        Assert.False(wrongAction.RetryStep);
+        Assert.Contains("Other word", wrongAction.Error);
+    }
+
+    [Fact]
     public void RecognitionIsIndependentOfChunkBoundariesAndUsesSampleTimeForCooldown()
     {
         var profile = Fit("next", "Beep", VoiceCommand.Next, FirstSound);

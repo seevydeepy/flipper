@@ -39,6 +39,10 @@ public sealed partial class LibraryPage
         (VoiceCommand.Finish, "Back to library")
     ];
 
+    private const string VoiceReadyGlyph = "\uE930";
+    private const string VoiceAttentionGlyph = "\uE7BA";
+    private const string VoiceEmptyGlyph = "\uE946";
+
     private Grid? _settingsOverlay;
 
     private sealed record SettingsSection(string Title, string Glyph, Func<FrameworkElement> Build);
@@ -465,7 +469,7 @@ public sealed partial class LibraryPage
                 Ui.Caption("Add and calibrate each word or sound separately.")
             }
         });
-        var groups = new List<(VoiceCommand Command, string Action, StackPanel Profiles, TextBox Input)>();
+        var groups = new List<(VoiceCommand Command, string Action, StackPanel Profiles, TextBox Input, Border Status)>();
 
         void RefreshProfiles()
         {
@@ -480,14 +484,22 @@ public sealed partial class LibraryPage
                 deviceId = null;
             }
 
-            foreach (var (command, action, profiles, input) in groups)
+            foreach (var (command, action, profiles, input, actionStatus) in groups)
             {
                 profiles.Children.Clear();
-                foreach (var profile in settings.VoiceCommands.Where(profile => profile.Command == command))
+                var words = settings.VoiceCommands.Where(profile => profile.Command == command).ToList();
+                actionStatus.Child = words.Any(profile => profile.MatchesDevice(deviceId))
+                    ? Ui.Chip(VoiceReadyGlyph, "Ready", "SuccessBrush", "SuccessSoftBrush")
+                    : words.Count > 0
+                        ? Ui.Chip(VoiceAttentionGlyph, "Not calibrated", "WarningBrush", "WarningSoftBrush")
+                        : Ui.Chip(VoiceEmptyGlyph, "No word yet", "MuteBrush", "SurfaceBrush");
+                foreach (var profile in words)
                 {
-                    var recalibrate = Ui.Button("Recalibrate");
-                    AutomationProperties.SetName(recalibrate, $"Recalibrate {profile.Label} for {action}");
-                    recalibrate.Click += (_, _) => Calibrate(profile);
+                    var ready = profile.MatchesDevice(deviceId);
+                    var verb = ready ? "Recalibrate" : "Calibrate";
+                    var recalibrate = Ui.Button(verb, primary: !ready);
+                    AutomationProperties.SetName(recalibrate, $"{verb} {profile.Label} for {action}");
+                    recalibrate.Click += (_, _) => Calibrate(profile, action);
 
                     var error = Ui.Caption();
                     error.Visibility = Visibility.Collapsed;
@@ -513,9 +525,10 @@ public sealed partial class LibraryPage
 
                     var name = Ui.Body(profile.Label);
                     name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-                    var status = Ui.Caption(profile.MatchesDevice(deviceId)
-                        ? "Calibrated" : "Not calibrated for this microphone");
-                    var text = new StackPanel { Spacing = 2, Children = { name, status } };
+                    var status = ready
+                        ? Ui.Status(VoiceReadyGlyph, "Ready", "SuccessBrush")
+                        : Ui.Status(VoiceAttentionGlyph, "Not calibrated for this microphone", "WarningBrush");
+                    var text = new StackPanel { Spacing = 4, Children = { name, status } };
                     var buttons = new StackPanel
                     {
                         Orientation = Orientation.Horizontal, Spacing = 8, Children = { recalibrate, remove }
@@ -533,9 +546,9 @@ public sealed partial class LibraryPage
             }
         }
 
-        void Calibrate(VoiceSoundProfile draft, Action? onSaved = null)
+        void Calibrate(VoiceSoundProfile draft, string action, Action? onSaved = null)
         {
-            VoiceCalibrationWindow.Show(settings.MicrophoneDeviceId, draft, settings.VoiceCommands, profile =>
+            VoiceCalibrationWindow.Show(settings.MicrophoneDeviceId, draft, action, settings.VoiceCommands, profile =>
             {
                 var commands = settings.VoiceCommands.ToList();
                 var index = commands.FindIndex(item => item.Id == profile.Id);
@@ -557,26 +570,47 @@ public sealed partial class LibraryPage
                 MaxLength = 80,
                 MinWidth = 0
             };
-            groups.Add((command, action, profiles, input));
+            var actionStatus = new Border { VerticalAlignment = VerticalAlignment.Center };
+            groups.Add((command, action, profiles, input, actionStatus));
             AutomationProperties.SetName(input, $"Word or label for {action}");
             var add = Ui.Button("Add and calibrate");
             add.IsEnabled = false;
             AutomationProperties.SetName(add, $"Add and calibrate a voice command for {action}");
             input.TextChanged += (_, _) => add.IsEnabled = !string.IsNullOrWhiteSpace(input.Text);
-            add.Click += (_, _) =>
+            void AddWord()
             {
                 var entered = input.Text;
                 var label = entered.Trim();
                 if (label.Length == 0) return;
-                Calibrate(new VoiceSoundProfile { Command = command, Label = label }, () =>
+                Calibrate(new VoiceSoundProfile { Command = command, Label = label }, action, () =>
                 {
                     if (input.Text == entered) input.Text = string.Empty;
                 });
+            }
+            add.Click += (_, _) => AddWord();
+            input.KeyDown += (_, args) =>
+            {
+                if (args.Key != VirtualKey.Enter) return;
+                args.Handled = true;
+                AddWord();
+            };
+            var heading = Ui.Label(action);
+            heading.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(actionStatus, 1);
+            var header = new Grid
+            {
+                ColumnSpacing = 12,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                },
+                Children = { heading, actionStatus }
             };
             list.Children.Add(Ui.Card(new StackPanel
             {
                 Spacing = 12,
-                Children = { Ui.Label(action), profiles, Ui.Split(input, add, 420) }
+                Children = { header, profiles, Ui.Split(input, add, 420) }
             }));
         }
 
