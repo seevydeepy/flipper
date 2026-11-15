@@ -249,6 +249,21 @@ public sealed class WinkCalibrationTests
     }
 
     [Fact]
+    public void FitRepeated_LeavesOutOneUnscorableWinkThatBlocksEveryCandidate()
+    {
+        var full = Trial(RightWink, 2, (0.45f, Closed), (0.44f, 0.11f));
+        var unscorable = full with { Samples = full.Samples.Take(26).ToArray() }; // Ends before the eyes reopen.
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), [.. RepeatedTrials(), unscorable]);
+
+        Assert.Equal(None, result.Failure);
+        Assert.NotNull(result.Profile);
+        var dropped = Assert.Single(result.Dropped!);
+        Assert.Same(unscorable, dropped);
+        Assert.Equal(WinkCalibrationTrialOutcome.Invalid, WinkCalibration.Evaluate(result.Profile, unscorable));
+    }
+
+    [Fact]
     public void FitRepeated_AcceptsFourMatchesOutOfFivePerEyeAndKeepsStrictFit()
     {
         var rightMiss = Trial(RightWink, 4, (0.65f, 0.65f), (0.65f, 0.65f));
