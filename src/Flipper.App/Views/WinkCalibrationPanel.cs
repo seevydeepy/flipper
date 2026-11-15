@@ -373,7 +373,7 @@ internal sealed class WinkCalibrationPanel : UserControl
         {
             return state.CheckRound == 1
                 ? (BannerTone.Success, "Your samples are good. Now the final checks.")
-                : (BannerTone.Success, "Calibration updated. The final checks start again.");
+                : (BannerTone.Warning, "A check did not pass, so Carousel updated your calibration. The final checks start again.");
         }
         if (state.CollectionRound > last.CollectionRound && state.CollectionRound > 1)
         {
