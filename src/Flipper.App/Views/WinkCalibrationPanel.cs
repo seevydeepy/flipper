@@ -80,7 +80,8 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private sealed record DisplayState(WinkCalibrationPhase Phase, int Count, int Required, double StillProgress,
         bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure, int CollectionRound, int CheckRound,
-        WinkCalibrationAssessment? Assessment, int FreshAttemptsCompleted, int FreshAttemptsRequired, int FreshCorrect);
+        WinkCalibrationAssessment? Assessment, int FreshAttemptsCompleted, int FreshAttemptsRequired, int FreshCorrect,
+        int Rejected, IReadOnlyList<WinkCalibrationPhase> Gestures);
 
     public WinkCalibrationPanel(Window window, Action<WinkCalibrationProfile> save, Action close)
     {
@@ -338,7 +339,8 @@ internal sealed class WinkCalibrationPanel : UserControl
     private static DisplayState? Snapshot(WinkCalibrationSession? session) => session is null ? null
         : new(session.Phase, session.PhaseSamples, session.RequiredSamples, session.StillProgress,
             session.IsSettling, session.NeedsMoreSamples, session.LastFailure, session.CollectionRound, session.CheckRound,
-            session.Assessment, session.FreshAttemptsCompleted, session.FreshAttemptsRequired, session.FreshCorrectCount);
+            session.Assessment, session.FreshAttemptsCompleted, session.FreshAttemptsRequired, session.FreshCorrectCount,
+            session.RejectedAttempts, session.CollectionGestures);
 
     private void SetTracking(string text)
     {
@@ -367,7 +369,17 @@ internal sealed class WinkCalibrationPanel : UserControl
     /// <summary>Compares two snapshots and describes what the user just achieved, or why the calibration changed course.</summary>
     private static (BannerTone Tone, string Text)? Describe(DisplayState last, DisplayState state)
     {
-        var failedCheck = IsCheck(last.Phase) && !IsCheck(state.Phase) && state.Phase != Ready;
+        var failedCheck = IsCheck(last.Phase) && !IsCheck(state.Phase) && state.Phase is not (Ready or Stopped);
+        if (state.Phase == Stopped) return null;
+        if (state.Rejected > last.Rejected && state.Phase == last.Phase)
+        {
+            return state.Phase switch
+            {
+                RightWinks or RightCheck => (BannerTone.Warning, "That was your left eye. Wink your right eye."),
+                LeftWinks or LeftCheck => (BannerTone.Warning, "That was your right eye. Wink your left eye."),
+                _ => (BannerTone.Warning, "That was a wink. Blink both eyes.")
+            };
+        }
         if (state.CheckRound > last.CheckRound)
         {
             return state.CheckRound == 1
@@ -379,22 +391,24 @@ internal sealed class WinkCalibrationPanel : UserControl
             var reason = state.Failure == WinkCalibrationFailure.InsufficientEyeRange
                 ? "Open and closed samples are too similar. More samples are needed."
                 : "More samples are needed to separate winks from blinks.";
+            var gestures = state.Gestures.Select(gesture => Gesture(gesture).Plural).ToArray();
+            var list = gestures.Length == 1 ? gestures[0]
+                : string.Join(", ", gestures[..^1]) + " and " + gestures[^1];
             return (BannerTone.Warning, (failedCheck ? "A check did not pass. " : string.Empty)
-                + $"{reason} Round {state.CollectionRound} collects {state.Required} more of each gesture.");
+                + $"{reason} Round {state.CollectionRound} collects {state.Required} more {list}.");
         }
         if (state.Phase == Fitting && last.Phase != Fitting)
         {
             return failedCheck
                 ? (BannerTone.Warning, "A check did not pass, so Carousel is updating your calibration.")
-                : (BannerTone.Success, "Blinks collected.");
+                : IsCollection(last.Phase) ? (BannerTone.Success, Collected(last.Phase)) : null;
         }
         if (state.Phase != last.Phase)
         {
+            if (IsCollection(last.Phase) && IsCollection(state.Phase)) return (BannerTone.Success, Collected(last.Phase));
             return (last.Phase, state.Phase) switch
             {
                 (Baseline, _) => (BannerTone.Success, "Open eyes measured."),
-                (RightWinks, LeftWinks) => (BannerTone.Success, "Right winks collected."),
-                (LeftWinks, Blinks) => (BannerTone.Success, "Left winks collected."),
                 (RightCheck, LeftCheck) => (BannerTone.Success, "Right wink checks passed."),
                 (LeftCheck, BlinkCheck) => (BannerTone.Success, "Left wink checks passed."),
                 (BlinkCheck, OpenCheck) => (BannerTone.Success, "Blink checks passed."),
@@ -410,6 +424,14 @@ internal sealed class WinkCalibrationPanel : UserControl
             : (BannerTone.Warning, $"That {name.ToLowerInvariant()} was not recognised. One miss is allowed, so the check continues.");
     }
 
+    private static bool IsCollection(WinkCalibrationPhase phase) => phase is RightWinks or LeftWinks or Blinks;
+
+    private static string Collected(WinkCalibrationPhase phase)
+    {
+        var plural = Gesture(phase).Plural;
+        return char.ToUpperInvariant(plural[0]) + plural[1..] + " collected.";
+    }
+
     private void Render(DisplayState? state)
     {
         if (!_saved)
@@ -417,6 +439,7 @@ internal sealed class WinkCalibrationPanel : UserControl
             if (_last is { } last && state is not null)
             {
                 if (Describe(last, state) is { } message) _message = message;
+                if (state.Phase == Stopped) _message = null;
                 if (last.Phase != state.Phase || last.CollectionRound != state.CollectionRound || last.CheckRound != state.CheckRound)
                 {
                     _outcomes.Clear();
@@ -454,6 +477,7 @@ internal sealed class WinkCalibrationPanel : UserControl
         var stage = _saved || state?.Phase == Ready ? StageNames.Length
             : state is null ? -1
             : state.Phase == Baseline ? 0
+            : state.Phase == Stopped ? (state.CheckRound > 0 ? 2 : 1)
             : IsCheck(state.Phase) ? 2 : 1;
         for (var index = 0; index < StageNames.Length; index++)
         {
@@ -462,7 +486,8 @@ internal sealed class WinkCalibrationPanel : UserControl
                 index < stage ? "Done"
                 : !current ? string.Empty
                 : index == 0 ? "Now"
-                : state!.Phase == Fitting ? "Checking"
+                : state!.Phase == Stopped ? "Stopped"
+                : state.Phase == Fitting ? "Checking"
                 : $"Round {(index == 1 ? state.CollectionRound : state.CheckRound)}");
         }
     }
@@ -494,12 +519,14 @@ internal sealed class WinkCalibrationPanel : UserControl
                 Fitting => (WorkingGlyph, "Checking your samples…", state.NeedsMoreSamples
                     ? "Using the new samples to refine your calibration."
                     : "Assessing this round of samples."),
+                Stopped => (WarningGlyph, "Calibration stopped", StoppedText(state.Failure)),
                 _ => (DoneGlyph, "Your calibration is ready to save.", "Calibration checks complete.")
             };
         var finished = _saved || state?.Phase == Ready;
+        var stopped = !_saved && state?.Phase == Stopped;
         _icon.Text = glyph;
-        _icon.Foreground = Ui.Brush(finished ? "SuccessBrush" : "InkBrush");
-        _iconBubble.Background = Ui.Brush(finished ? "SuccessSoftBrush" : "SurfaceBrush");
+        _icon.Foreground = Ui.Brush(finished ? "SuccessBrush" : stopped ? "WarningBrush" : "InkBrush");
+        _iconBubble.Background = Ui.Brush(finished ? "SuccessSoftBrush" : stopped ? "WarningSoftBrush" : "SurfaceBrush");
         _instruction.Text = instruction;
         _detail.Text = detail;
         if (_shownInstruction != instruction)
@@ -514,12 +541,12 @@ internal sealed class WinkCalibrationPanel : UserControl
         // The gestures of this stage, in order: done, current or still to come.
         _gestures.Children.Clear();
         _gestures.Visibility = Visibility.Collapsed;
-        if (_saved || state is null || state.Phase is Baseline or Ready) return;
-        WinkCalibrationPhase[] steps = IsCheck(state.Phase)
+        if (_saved || state is null || state.Phase is Baseline or Ready or Stopped) return;
+        IReadOnlyList<WinkCalibrationPhase> steps = IsCheck(state.Phase)
             ? [RightCheck, LeftCheck, BlinkCheck, OpenCheck]
-            : [RightWinks, LeftWinks, Blinks];
-        var current = state.Phase == Fitting ? steps.Length : Array.IndexOf(steps, state.Phase);
-        for (var index = 0; index < steps.Length; index++)
+            : state.Gestures;
+        var current = state.Phase == Fitting ? steps.Count : steps.ToList().IndexOf(state.Phase);
+        for (var index = 0; index < steps.Count; index++)
         {
             var name = steps[index] == OpenCheck ? "Open eyes" : Gesture(steps[index]).Name;
             _gestures.Children.Add(GesturePill(name, index < current ? StageState.Done
@@ -530,7 +557,7 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private void RenderActivity(DisplayState? state)
     {
-        var running = state is not null && state.Phase != Ready && !_saved;
+        var running = state is not null && state.Phase is not (Ready or Stopped) && !_saved;
         var problem = !Waiting.Contains(_tracking) && _tracking != FaceFound;
         var counting = running && IsGesture(state!.Phase);
         var count = !counting ? null : $"{state!.Count} of {state.Required} {Gesture(state.Phase).Plural} "
@@ -590,7 +617,7 @@ internal sealed class WinkCalibrationPanel : UserControl
 
     private void RenderButtons(DisplayState? state)
     {
-        var running = state is not null && state.Phase != Ready && !_saved;
+        var running = state is not null && state.Phase is not (Ready or Stopped) && !_saved;
         _pause.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         _primary.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         _pauseIcon.Text = _pausedByUser ? PlayGlyph : PauseGlyph;
@@ -598,11 +625,12 @@ internal sealed class WinkCalibrationPanel : UserControl
         _pause.Background = _pausedByUser ? _resumeBrush : _pauseBrush;
         AutomationProperties.SetName(_pause, _pauseLabel.Text);
 
-        var label = _saved ? "Done" : state?.Phase == Ready ? "Save calibration" : "Start calibration";
+        var label = _saved ? "Done" : state?.Phase == Ready ? "Save calibration"
+            : state?.Phase == Stopped ? "Start again" : "Start calibration";
         _primary.Content = label;
         AutomationProperties.SetName(_primary, label);
         _primary.IsEnabled = _saved || state?.Phase == Ready || (_cameraReady && _faceTracked);
-        _restart.Visibility = state is null || _saved ? Visibility.Collapsed : Visibility.Visible;
+        _restart.Visibility = state is null || _saved || state.Phase == Stopped ? Visibility.Collapsed : Visibility.Visible;
         _restart.IsEnabled = _cameraReady && _faceTracked;
         _cancel.Visibility = _saved ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -650,6 +678,20 @@ internal sealed class WinkCalibrationPanel : UserControl
         ];
         if (_recalibrating) lines.Add("Your current calibration stays until you save a new one.");
         return string.Join("\n", lines.Select(line => "• " + line));
+    }
+
+    private string StoppedText(WinkCalibrationFailure failure)
+    {
+        var tip = failure switch
+        {
+            WinkCalibrationFailure.InsufficientEyeRange =>
+                "Your open and closed eyes looked too similar to the camera. Use brighter light on your face, and close your eyes firmly.",
+            WinkCalibrationFailure.UnstableTracking =>
+                "The camera lost your face too often. Keep your whole face in the camera view, in good light.",
+            _ => "Your winks and blinks looked too similar. Close one eye firmly and keep the other eye open."
+        };
+        return tip + (_recalibrating ? " Your current calibration is kept." : string.Empty)
+            + "\nPress Start again to try with new samples.";
     }
 
     private void StartSession()

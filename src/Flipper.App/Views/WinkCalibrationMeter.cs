@@ -64,6 +64,7 @@ internal sealed class WinkCalibrationMeter : UserControl
             null => "Not started",
             WinkCalibrationPhase.Baseline => "Stage 1 of 3",
             WinkCalibrationPhase.Ready => "Ready to save",
+            WinkCalibrationPhase.Stopped => "Stopped",
             _ when IsChecking(phase) => "Stage 3 of 3",
             _ => "Stage 2 of 3"
         };
