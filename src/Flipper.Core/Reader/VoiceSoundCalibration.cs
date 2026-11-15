@@ -17,6 +17,7 @@ public static class VoiceSoundCalibration
     internal const float MaximumTrigger = 0.5f;
     internal const float MaximumMatchThreshold = 1.6f;
     private const float MinimumMatchThreshold = 0.42f;
+    private const float AmbientMargin = 1.7f;
     private const string Distorted = "The sound was too loud and was distorted. Move back from the microphone a little, then try again.";
     private const string NotHeard = "No word was heard. Say it at your normal volume, close to the microphone, then try again.";
     private const string MoreThanOnce = "More than one sound was heard. Say the word once, then stay quiet until the recording ends.";
@@ -185,7 +186,11 @@ public static class VoiceSoundCalibration
         // Only a single complete sound is a fair test of the profile. Anything else is repeated.
         if (eventCount == 0)
         {
-            return new(false, NotHeard, RetryStep: true);
+            // Nothing above the background level that set the trigger counts as silence. A louder sound that the
+            // trigger misses is a fair test: the word must then be learned at the volume the user really uses.
+            return FrameLevels(audio)[^1] < candidate.TriggerRms / AmbientMargin
+                ? new(false, NotHeard, RetryStep: true)
+                : new(false, "The word was too quiet to be recognised. Say it at the volume you use when playing.");
         }
         if (eventCount > 1)
         {
@@ -229,7 +234,7 @@ public static class VoiceSoundCalibration
         var playingLevels = FrameLevels(background);
         // Ignore brief peaks in the playing sample but keep sustained background below the offset gate.
         var ambient = Math.Max(quietLevels[quietLevels.Length * 9 / 10], playingLevels[playingLevels.Length * 3 / 10]);
-        return Math.Max(MinimumTrigger, Math.Max(ambient * 1.7f, minimumPeak * 0.055f));
+        return Math.Max(MinimumTrigger, Math.Max(ambient * AmbientMargin, minimumPeak * 0.055f));
     }
 
     private static float[] FrameLevels(float[] audio)
