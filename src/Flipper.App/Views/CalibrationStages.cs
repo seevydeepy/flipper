@@ -10,7 +10,7 @@ namespace Flipper.App.Views;
 internal enum StageState { Todo, Current, Done }
 
 /// <summary>A row of numbered stages joined by a line. Done stages show a tick.</summary>
-internal sealed class VoiceCalibrationStages : UserControl
+internal sealed class CalibrationStages : UserControl
 {
     private const string TickGlyph = "\uE73E";
     private const double CircleSize = 40;
@@ -20,7 +20,7 @@ internal sealed class VoiceCalibrationStages : UserControl
     private sealed record Stage(Border Circle, TextBlock Mark, TextBlock Title, TextBlock Detail,
         Border Before, Border After);
 
-    public VoiceCalibrationStages(IReadOnlyList<string> names)
+    public CalibrationStages(IReadOnlyList<string> names)
     {
         var grid = new Grid();
         _stages = new Stage[names.Count];
