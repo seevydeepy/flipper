@@ -114,6 +114,37 @@ public sealed class PlaylistLibraryTests
     }
 
     [Fact]
+    public void Hydrate_SharedPlaylistsWithoutLegacySettings_DoesNotRewriteFile()
+    {
+        using var root = new TempDir();
+        PlaylistLibrary.Save(root.Path, [new Playlist { Id = "p1", Name = "Concert" }]);
+        var path = Path.Combine(root.Path, PlaylistLibrary.FileName);
+        var written = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, written);
+        var settings = new AppSettings { LibraryPath = root.Path };
+
+        Assert.False(PlaylistLibrary.Hydrate(settings));
+
+        Assert.Equal("Concert", Assert.Single(settings.Playlists).Name);
+        Assert.Equal(written, File.GetLastWriteTimeUtc(path));
+    }
+
+    [Fact]
+    public void Cache_DiscardedRead_IsAvailableOnNextRefresh()
+    {
+        using var root = new TempDir();
+        PlaylistLibrary.Save(root.Path, [new Playlist { Id = "p1", Name = "Concert" }]);
+        var settings = new AppSettings { LibraryPath = root.Path };
+        var cache = new PlaylistLibraryCache();
+
+        Assert.NotNull(cache.LoadIfChanged(root.Path));
+        Assert.Empty(settings.Playlists);
+        Assert.True(cache.TryRefresh(settings));
+        Assert.Equal("Concert", Assert.Single(settings.Playlists).Name);
+        Assert.False(cache.TryRefresh(settings));
+    }
+
+    [Fact]
     public void BindToRoot_DoesNotCarryPlaylistsFromThePreviousLibrary()
     {
         using var previous = new TempDir();

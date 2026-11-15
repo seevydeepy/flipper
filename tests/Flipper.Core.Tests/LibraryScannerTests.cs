@@ -22,6 +22,26 @@ public sealed class LibraryScannerTests
     }
 
     [Fact]
+    public void Scan_RefreshesSizeAndTimestampAfterPdfChanges()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, "Score.pdf");
+        File.WriteAllBytes(path, [1, 2, 3]);
+        var firstWrite = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, firstWrite);
+        var first = Assert.Single(LibraryScanner.Scan(root.Path).Scores);
+        Assert.Equal(3, first.Length);
+        Assert.Equal(firstWrite, first.LastWriteUtc);
+
+        File.WriteAllBytes(path, [1, 2, 3, 4, 5]);
+        var nextWrite = firstWrite.AddMinutes(1);
+        File.SetLastWriteTimeUtc(path, nextWrite);
+        var next = Assert.Single(LibraryScanner.Scan(root.Path).Scores);
+        Assert.Equal(5, next.Length);
+        Assert.Equal(nextWrite, next.LastWriteUtc);
+    }
+
+    [Fact]
     public void Scan_AppliesCatalogSubtitle()
     {
         using var root = new TempDir();
