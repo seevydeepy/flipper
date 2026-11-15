@@ -187,6 +187,8 @@ public sealed class VoiceSoundTests
 
         // One clear sound that fails, or background that triggers the word, needs the word recorded again.
         Assert.True(VoiceSoundCalibration.Check(profile, Recording(SecondSound), true, []) is { Passed: false, RetryStep: false });
+        // Calibration can learn this quieter word, so missing it is a fair failure, not silence to repeat.
+        Assert.True(VoiceSoundCalibration.Check(profile, Recording(FirstSound, volume: 0.035f), true, []) is { Passed: false, RetryStep: false });
         Assert.True(VoiceSoundCalibration.Check(profile, Recording(FirstSound), false, []) is { Passed: false, RetryStep: false });
 
         var other = Fit("other", "Other word", VoiceCommand.Back, SecondSound);
