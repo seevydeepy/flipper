@@ -80,11 +80,17 @@ gh attestation verify Carousel.Setup-1.x.x-win-x64.exe -R seevydeepy/flipper
 
 .NET 9 SDK (`global.json` pins the minimum). Python is needed for the icon
 stamping scripts that `publish.ps1` uses; plain building and testing isn't.
+Publishing downloads pinned Microsoft Visual C++ redistributable packages and
+copies the required x64 or ARM64 runtime DLLs beside `Carousel.exe`. The package
+URLs and SHA-256 hashes are in `scripts/vc-runtime.json`; no separate runtime
+installation is needed on the user's PC. These Microsoft files retain their
+original signatures and are covered by Microsoft's redistribution terms.
 
 ```text
 dotnet test Flipper.sln -c Release
 dotnet run --project src/Flipper.App/Flipper.App.csproj
 pwsh -File scripts/publish.ps1          # builds zips + setups into artifacts/
+pwsh -File tests/Test-RuntimePackaging.ps1 -ArtifactsDirectory artifacts -AssetsPath src/Flipper.App/obj/project.assets.json
 ```
 
 Layout:
@@ -103,8 +109,14 @@ launcher, `Carousel.dll`, `Flipper.Core.dll` and both setup executables with the
 release certificate before uploading the final assets. For a local signed build,
 `publish.ps1` accepts `-SigningCertificateThumbprint` and `-SignToolPath`.
 Run **publish signed release** at the release tag after device checks. It verifies
-the signatures, versions, architectures and official ONNX payload, attests the
+the signatures, versions, architectures, official ONNX and Visual C++ payloads,
+and the wink libraries' native dependencies, attests the
 signed assets, then publishes the release. Signing credentials remain local.
+The dependency check reads both normal and delayed imports without using the
+build machine's installed runtimes. Keep `scripts/vc-runtime.json` current with
+Microsoft's servicing releases: app-local DLLs are updated through Carousel
+releases. Only release CRT files from the listed packages may be bundled; see
+[Microsoft's redistribution list](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution).
 
 ## Credits
 

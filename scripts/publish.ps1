@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'release-signature.ps1')
+. (Join-Path $PSScriptRoot 'vc-runtime.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
@@ -171,6 +172,7 @@ function Publish-App([string]$rid) {
     if ($LASTEXITCODE -ne 0) {
         throw "publish failed for $rid"
     }
+    Copy-VcRuntimeFiles $out $rid (Join-Path $artifacts 'vc-runtime-cache')
     & (Join-Path $PSScriptRoot 'verify-onnx-runtime.ps1') -PublishDirectory $out -RuntimeIdentifier $rid `
         -AssetsPath (Join-Path $root 'src/Flipper.App/obj/project.assets.json')
     $exe = Join-Path $out 'Carousel.exe'

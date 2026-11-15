@@ -19,6 +19,13 @@ matching Microsoft.ML.OnnxRuntime package and have Microsoft signatures.
 The app excludes Windows App SDK's older runtime. Keep the managed and native
 versions aligned. scripts/verify-onnx-runtime.ps1 checks the published files.
 
+Microsoft Visual C++ Runtime 14.51.36247.0
+Copyright Microsoft Corporation. All rights reserved.
+The required release CRT DLLs are distributed unmodified beside Carousel.exe.
+Source packages and SHA-256 hashes: scripts/vc-runtime.json in the source tree.
+Redistribution terms: https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution
+These Microsoft runtime files are not covered by Carousel's MIT licence.
+
 Bundled model SHA-256 checksums:
 face_detection_yunet_2023mar.onnx
 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4

@@ -1,0 +1,28 @@
+{
+  "version": "14.51.36247.0",
+  "catalog": "https://download.visualstudio.microsoft.com/download/pr/e5f740e0-92f9-49d7-ab3b-5d17b84108fd/5a0474ac0d50b9805144617bc0e9fd93c18a7a80a1a82ec690e9bf6b8a25ccc8/VisualStudio.vsman",
+  "redistribution": "https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution",
+  "packages": {
+    "win-x64": {
+      "url": "https://download.visualstudio.microsoft.com/download/pr/3984a6ef-2ffc-4c07-962e-bf9e9b862819/24a1c8dba0376d9b008ac2ba430d13c06664fc6f163511fd7866485030e289af/Microsoft.VC.14.51.CRT.Redist.X64.base.vsix",
+      "sha256": "24a1c8dba0376d9b008ac2ba430d13c06664fc6f163511fd7866485030e289af",
+      "directory": "Contents/VC/Redist/MSVC/14.51.36231/x64/Microsoft.VC145.CRT",
+      "files": {
+        "msvcp140.dll": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca",
+        "msvcp140_1.dll": "206c931bf90fdad8816de3b5e2ef80b2bcaa9406c89ecc05fe6fddffe251e982",
+        "vcruntime140.dll": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7",
+        "vcruntime140_1.dll": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
+      }
+    },
+    "win-arm64": {
+      "url": "https://download.visualstudio.microsoft.com/download/pr/3984a6ef-2ffc-4c07-962e-bf9e9b862819/4090d939c83e50ba36a3023bd46c7ea622082fadd88a42bd0a9bba445ff710c8/Microsoft.VC.14.51.CRT.Redist.ARM64.base.vsix",
+      "sha256": "4090d939c83e50ba36a3023bd46c7ea622082fadd88a42bd0a9bba445ff710c8",
+      "directory": "Contents/VC/Redist/MSVC/14.51.36231/arm64/Microsoft.VC145.CRT",
+      "files": {
+        "msvcp140.dll": "167ceac85c2d726c4cd9e39b8881fafdc6de1520c0e67c4f6b271235f9d2a6c5",
+        "msvcp140_1.dll": "c7713c2061b29d24de4874923522ada0815cfca80d09265c181e81d16c7c42d6",
+        "vcruntime140.dll": "3c56f4167e2b3d8e6338497731e6aae8cd7ec46bd6789f9423a8d9cf9a630310"
+      }
+    }
+  }
+}
