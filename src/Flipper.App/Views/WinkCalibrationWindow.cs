@@ -50,7 +50,7 @@ internal sealed class WinkCalibrationWindow : Window
         var area = DisplayArea.GetFromWindowId(_owner?.AppWindow.Id ?? AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var scale = (_owner?.Content as FrameworkElement)?.XamlRoot?.RasterizationScale ?? 1;
         var width = Math.Min((int)(660 * scale), area.Width);
-        var height = Math.Min((int)(900 * scale), area.Height);
+        var height = Math.Min((int)(960 * scale), area.Height);
         AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2,
             area.Y + (area.Height - height) / 2, width, height));
     }

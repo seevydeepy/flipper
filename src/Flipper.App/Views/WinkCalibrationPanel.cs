@@ -43,12 +43,11 @@ internal sealed class WinkCalibrationPanel : UserControl
     private readonly TextBlock _instruction = Ui.Body();
     private readonly TextBlock _detail = Ui.Body();
     private readonly StackPanel _gestures = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-    private readonly StackPanel _status = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+    private readonly StackPanel _status = new() { Orientation = Orientation.Horizontal, Spacing = 8, MinHeight = 24 };
     private readonly TextBlock _statusIcon = Ui.Icon(WarningGlyph, 18);
     private readonly TextBlock _statusText = Ui.Label(string.Empty);
     private readonly ProgressBar _timer = new() { Minimum = 0, Maximum = 100, MinHeight = 8 };
     private readonly StackPanel _dots = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-    private readonly TextBlock _count = Ui.Caption();
     private readonly CalibrationBanner _banner = new();
     private readonly Button _primary = Ui.Button("Start calibration", primary: true);
     private readonly Button _restart = Ui.Button("Restart");
@@ -131,7 +130,7 @@ internal sealed class WinkCalibrationPanel : UserControl
         var card = Ui.Card(new StackPanel
         {
             Spacing = 16,
-            Children = { prompt, _gestures, _status, _timer, new StackPanel { Spacing = 6, Children = { _dots, _count } } }
+            Children = { prompt, _gestures, _dots, _timer, _status }
         });
 
         _trackingPill = new Border
@@ -533,21 +532,26 @@ internal sealed class WinkCalibrationPanel : UserControl
     {
         var running = state is not null && state.Phase != Ready && !_saved;
         var problem = !Waiting.Contains(_tracking) && _tracking != FaceFound;
+        var counting = running && IsGesture(state!.Phase);
+        var count = !counting ? null : $"{state!.Count} of {state.Required} {Gesture(state.Phase).Plural} "
+            + (IsCheck(state.Phase) ? "checked" : "collected");
         string? status = null;
-        var warning = false;
+        var (warning, paused) = (false, false);
         if (!running)
         {
             // Before the start, say why Start calibration is not available yet.
             if (state is null && !_saved && _tracking != FaceFound) (status, warning) = (_tracking, problem);
         }
-        else if (_pausedByUser) status = "Paused";
+        else if (_pausedByUser) (status, paused) = ("Paused", true);
         else if (!_faceTracked) (status, warning) = (_tracking, problem);
-        else if (state!.Phase == Fitting) status = null;
+        else if (state!.Phase == Fitting) status = string.Empty;
         else if (state.IsSettling) status = "Get ready…";
-        else if (state.Phase is Baseline or OpenCheck) status = "Keep your normal reading position.";
+        else status = count ?? "Keep your normal reading position.";
 
+        // While calibration runs, the status line keeps its place, so the camera view below does not move.
         _status.Visibility = status is null ? Visibility.Collapsed : Visibility.Visible;
         _statusText.Text = status ?? string.Empty;
+        _statusIcon.Visibility = warning || paused ? Visibility.Visible : Visibility.Collapsed;
         _statusIcon.Text = warning ? WarningGlyph : InfoGlyph;
         _statusIcon.Foreground = Ui.Brush(warning ? "WarningBrush" : "InkBrush");
 
@@ -556,14 +560,11 @@ internal sealed class WinkCalibrationPanel : UserControl
         _timer.IsIndeterminate = state?.Phase == Fitting;
         _timer.Value = 100 * (state?.StillProgress ?? 0);
 
-        var counting = running && IsGesture(state!.Phase);
-        _dots.Visibility = _count.Visibility = counting ? Visibility.Visible : Visibility.Collapsed;
+        _dots.Visibility = counting ? Visibility.Visible : Visibility.Collapsed;
         _dots.Children.Clear();
         if (!counting) return;
-        var (_, plural) = Gesture(state!.Phase);
-        _count.Text = $"{state.Count} of {state.Required} {plural} {(IsCheck(state.Phase) ? "checked" : "collected")}";
-        AutomationProperties.SetName(_dots, _count.Text);
-        for (var index = 0; index < state.Required; index++)
+        AutomationProperties.SetName(_dots, count);
+        for (var index = 0; index < state!.Required; index++)
         {
             var filled = index < _outcomes.Count;
             var brush = Ui.Brush(!filled ? "GoldBrush" : _outcomes[index] ? "SuccessBrush" : "WarningBrush");
