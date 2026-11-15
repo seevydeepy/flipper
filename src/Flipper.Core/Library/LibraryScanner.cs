@@ -80,12 +80,17 @@ public static class LibraryScanner
         {
             foreach (var file in info.EnumerateFiles())
             {
+                if (!file.Extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 FileInfo stable;
                 try
                 {
-                    // Touch the attributes now; a file deleted between
-                    // enumeration and stat is skipped, not fatal.
-                    stable = new FileInfo(file.FullName);
+                    // Enumeration already supplies size and modification time.
+                    // Recreating FileInfo causes an extra request per file on SMB.
+                    stable = file;
                     _ = stable.Length;
                     _ = stable.LastWriteTimeUtc;
                 }
@@ -97,11 +102,6 @@ public static class LibraryScanner
                 catch (IOException)
                 {
                     skipped.Add(new ScanSkipped(file.FullName, "unreadable"));
-                    continue;
-                }
-
-                if (!stable.Extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
-                {
                     continue;
                 }
 

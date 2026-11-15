@@ -16,15 +16,23 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBlock
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <ProgressRing x:Name="LibraryLoadingRing" Width="24" Height="24" IsActive="False" Visibility="Collapsed"
+                              AutomationProperties.Name="Loading library" />
+                <TextBlock x:Name="LibraryLoadingLabel" Text="Loading library…" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{StaticResource InkBrush}" VerticalAlignment="Center" Visibility="Collapsed"
+                           AutomationProperties.LiveSetting="Polite" />
+                <TextBlock
                 x:Name="OfflineLabel"
                 Text="Library offline"
                 FontSize="16"
                 FontWeight="SemiBold"
                 Foreground="{StaticResource InkBrush}"
                 Visibility="Collapsed" />
+            </StackPanel>
 
-            <Grid Grid.Row="1" ColumnSpacing="16">
+            <ContentControl x:Name="LibraryControls" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+            <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="240" />
                     <ColumnDefinition Width="*" />
@@ -300,6 +308,8 @@
                     </Grid>
                 </Grid>
             </Grid>
+
+            </ContentControl>
 
             <TextBlock
                 x:Name="ErrorLabel"

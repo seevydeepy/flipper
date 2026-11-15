@@ -3,6 +3,8 @@ using Flipper.Core.Settings;
 
 namespace Flipper.Core.Library;
 
+public sealed record PlaylistLibraryChange(string Path, long Length, DateTime LastWriteUtc, List<Playlist> Playlists);
+
 public sealed class PlaylistLibraryCache
 {
     private string? _path;
@@ -11,16 +13,24 @@ public sealed class PlaylistLibraryCache
 
     public bool TryRefresh(AppSettings settings)
     {
-        var root = settings.LibraryPath;
+        var change = LoadIfChanged(settings.LibraryPath);
+        if (change is null) return false;
+        Apply(settings, change);
+        return true;
+    }
+
+    // Returns a detached value so callers can read on a worker and apply on the UI thread.
+    public PlaylistLibraryChange? LoadIfChanged(string? root)
+    {
         if (string.IsNullOrWhiteSpace(root))
         {
-            return false;
+            return null;
         }
 
         var path = Path.Combine(root, PlaylistLibrary.FileName);
         if (!File.Exists(path))
         {
-            return false;
+            return null;
         }
 
         var info = new FileInfo(path);
@@ -29,13 +39,20 @@ public sealed class PlaylistLibraryCache
             && _length == info.Length
             && _lastWriteUtc == info.LastWriteTimeUtc)
         {
-            return false;
+            return null;
         }
 
-        settings.Playlists = PlaylistLibrary.Load(root);
+        var playlists = PlaylistLibrary.Load(root);
+        return new PlaylistLibraryChange(info.FullName, info.Length, info.LastWriteTimeUtc, playlists);
+    }
+
+    public void Apply(AppSettings settings, PlaylistLibraryChange change)
+    {
+        settings.Playlists = change.Playlists;
         settings.Normalize();
-        Remember(info);
-        return true;
+        _path = change.Path;
+        _length = change.Length;
+        _lastWriteUtc = change.LastWriteUtc;
     }
 
     public void Remember(string? root)
@@ -158,8 +175,7 @@ public static class PlaylistLibrary
             settings.SelectedPlaylistId = null;
         }
 
-        Save(settings.LibraryPath, merged);
-        return fromSettings.Count > 0;
+        return fromSettings.Count > 0 && Save(settings.LibraryPath, merged);
     }
 
     public static bool BindToRoot(AppSettings settings, string path)

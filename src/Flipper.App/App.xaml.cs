@@ -16,14 +16,23 @@ public partial class App : Application
     public PendingScoreDeletes PendingDeletes { get; } = new();
     public string? OpenCanonicalPath { get; set; }
     public LibrarySnapshot? LastSnapshot { get; set; }
+    private Task? _libraryInitialization;
 
     public App()
     {
         InitializeComponent();
         Settings = SettingsStore.Load();
+        Settings.SearchQuery = string.Empty;
+    }
+
+    // The library page waits for this with its controls disabled. The window
+    // can paint and respond while Windows connects to a network library.
+    public Task InitializeLibraryAsync() => _libraryInitialization ??= Task.Run(InitializeLibrary);
+
+    private void InitializeLibrary()
+    {
         var playlistsMoved = PlaylistLibrary.Hydrate(Settings);
         MaybeRewriteCollectionFolder();
-        PersistPlaylists();
         if (playlistsMoved)
         {
             PersistSettings();

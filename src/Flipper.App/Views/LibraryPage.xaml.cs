@@ -42,6 +42,7 @@ public sealed partial class LibraryPage : Page
     private readonly ResettableCollection<ScoreCard> _cards = new();
     private readonly ScoreCatalogCache _catalogCache = new();
     private readonly PlaylistLibraryCache _playlistCache = new();
+    private readonly SemaphoreSlim _previewSlots = new(2);
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _searchTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
@@ -56,6 +57,7 @@ public sealed partial class LibraryPage : Page
     private int _scanEpoch;
     private string? _scanPath;
     private string? _watchedPath;
+    private string? _loadedPath;
     private string? _selectedFolder;
     private string? _selectedPlaylistId;
     private string? _armedPlaylistId;
@@ -115,13 +117,13 @@ public sealed partial class LibraryPage : Page
     {
         _active = false;
         _automaticCatalog.Pause();
-        PersistSearchIfChanged();
+        RememberSearch();
         _restoreScroll = FindScrollViewer(ScoreGrid)?.VerticalOffset;
         _scrollRestoreTries = 0;
         _openingCanonical = null;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         _active = true;
         _automaticCatalog.Resume();
@@ -132,6 +134,20 @@ public sealed partial class LibraryPage : Page
         }
 
         _hydrating = true;
+        LibraryControls.IsEnabled = false;
+        SetLibraryLoading(!string.IsNullOrWhiteSpace(App.Current.Settings.LibraryPath));
+        try
+        {
+            await App.Current.InitializeLibraryAsync();
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        finally
+        {
+            LibraryControls.IsEnabled = true;
+        }
+        if (!_active) return;
+
         RestoreGridChrome();
         DispatcherQueue.TryEnqueue(() =>
         {
@@ -273,7 +289,7 @@ public sealed partial class LibraryPage : Page
     {
         _active = false;
         _automaticCatalog.Pause();
-        PersistSearchIfChanged();
+        RememberSearch();
         ExitAssignment();
         _scanEpoch++;
         _scanAgain = false;
@@ -284,6 +300,7 @@ public sealed partial class LibraryPage : Page
         _searchTimer.Stop();
         _catalogTimer.Stop();
         _refreshQueued = false;
+        SetLibraryLoading(false);
     }
 
     private void OnWatcherChanged()
@@ -1787,7 +1804,7 @@ public sealed partial class LibraryPage : Page
         }
 
         _openingCanonical = card.Entry.CanonicalPath;
-        PersistSearchIfChanged();
+        RememberSearch();
         ErrorLabel.Visibility = Visibility.Collapsed;
         var livePath = File.Exists(card.Entry.DisplayFullPath) ? card.Entry.DisplayFullPath : null;
         var cachePath = App.Current.Cache.TryOpen(
@@ -1827,7 +1844,19 @@ public sealed partial class LibraryPage : Page
     {
         _refreshQueued = false;
         _scanPath = libraryPath;
+        if (!string.Equals(_loadedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
+        {
+            SetLibraryLoading(!string.IsNullOrWhiteSpace(libraryPath));
+        }
         _ = ScanLoopAsync();
+    }
+
+    private void SetLibraryLoading(bool loading)
+    {
+        LibraryLoadingRing.IsActive = loading;
+        LibraryLoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        LibraryLoadingLabel.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        if (loading) OfflineLabel.Visibility = Visibility.Collapsed;
     }
 
     private async Task ScanLoopAsync()
@@ -1848,13 +1877,19 @@ public sealed partial class LibraryPage : Page
                 var epoch = ++_scanEpoch;
                 var app = App.Current;
                 LibrarySnapshot next;
+                PlaylistLibraryChange? playlists = null;
                 try
                 {
-                    next = await Task.Run(() => BuildSnapshot(app, path));
+                    (next, playlists) = await Task.Run(() =>
+                    {
+                        var snapshot = BuildSnapshot(app, path);
+                        var updatedPlaylists = snapshot.RootReachable ? _playlistCache.LoadIfChanged(path) : null;
+                        return (snapshot, updatedPlaylists);
+                    });
                 }
                 catch (Exception)
                 {
-                    continue;
+                    next = new LibrarySnapshot(path ?? string.Empty, Array.Empty<ScoreEntry>(), false);
                 }
 
                 if (epoch != _scanEpoch)
@@ -1864,14 +1899,14 @@ public sealed partial class LibraryPage : Page
 
                 if (DispatcherQueue.HasThreadAccess)
                 {
-                    ApplySnapshotIfCurrent(next, path, epoch);
+                    ApplySnapshotIfCurrent(next, path, epoch, playlists);
                 }
                 else
                 {
                     var applied = new TaskCompletionSource();
                     if (!DispatcherQueue.TryEnqueue(() =>
                     {
-                        ApplySnapshotIfCurrent(next, path, epoch);
+                        ApplySnapshotIfCurrent(next, path, epoch, playlists);
                         applied.SetResult();
                     }))
                     {
@@ -1886,17 +1921,23 @@ public sealed partial class LibraryPage : Page
         finally
         {
             _scanBusy = false;
+            SetLibraryLoading(false);
         }
     }
 
-    private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch)
+    private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch, PlaylistLibraryChange? playlists)
     {
-        if (!_active || epoch != _scanEpoch)
+        if (!_active || epoch != _scanEpoch
+            || !string.Equals(path, _scanPath, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        ApplySnapshot(next, path);
+        if (playlists is not null)
+        {
+            _playlistCache.Apply(App.Current.Settings, playlists);
+        }
+        ApplySnapshot(next, path, playlistsChanged: playlists is not null);
     }
 
     private LibrarySnapshot BuildSnapshot(App app, string? libraryPath)
@@ -1916,8 +1957,9 @@ public sealed partial class LibraryPage : Page
         return _automaticCatalog.ApplyOverlay(canonical);
     }
 
-    private void ApplySnapshot(LibrarySnapshot next, string? libraryPath)
+    private void ApplySnapshot(LibrarySnapshot next, string? libraryPath, bool playlistsChanged = false)
     {
+        _loadedPath = libraryPath;
         _automaticCatalog.SetRoot(libraryPath);
         if (string.IsNullOrWhiteSpace(libraryPath))
         {
@@ -1947,7 +1989,6 @@ public sealed partial class LibraryPage : Page
             _watchedPath = libraryPath;
         }
 
-        var playlistsChanged = _playlistCache.TryRefresh(App.Current.Settings);
         if (next.RootReachable)
         {
             _automaticCatalog.Schedule(libraryPath, next);
@@ -2308,7 +2349,7 @@ public sealed partial class LibraryPage : Page
         }
     }
 
-    private void PersistSearchIfChanged()
+    private void RememberSearch()
     {
         var query = SearchBox.Text ?? string.Empty;
         if (string.Equals(App.Current.Settings.SearchQuery, query, StringComparison.Ordinal))
@@ -2317,7 +2358,6 @@ public sealed partial class LibraryPage : Page
         }
 
         App.Current.Settings.SearchQuery = query;
-        App.Current.PersistSettings();
     }
 
     private void RestoreGridScroll()
@@ -2391,7 +2431,7 @@ public sealed partial class LibraryPage : Page
     private void ApplyFilter()
     {
         SkinTrashDrop();
-        PersistSearchIfChanged();
+        RememberSearch();
         var selected = _showFavourites || _showTrash || _selectedPlaylistId is not null ? null : CurrentFolderKey();
         IReadOnlySet<string>? playlistPaths = null;
         if (!_showTrash && _selectedPlaylistId is not null)
@@ -2502,7 +2542,7 @@ public sealed partial class LibraryPage : Page
 
     private async Task LoadPreviewAsync(ScoreCard card, int epoch)
     {
-        if (card.PreviewEpoch != epoch)
+        if (!_active || card.PreviewEpoch != epoch)
         {
             return;
         }
@@ -2510,18 +2550,24 @@ public sealed partial class LibraryPage : Page
         var thumb = ThumbnailStore.PathFor(card.Entry.CanonicalPath, card.Entry.Length, card.Entry.LastWriteUtc);
         if (!File.Exists(thumb))
         {
-            var sourcePath = card.Entry.DisplayFullPath;
-            var created = await Task.Run(() =>
-                File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, 360));
-            if (!created || card.PreviewEpoch != epoch)
+            await _previewSlots.WaitAsync();
+            try
             {
-                return;
+                if (!_active || card.PreviewEpoch != epoch) return;
+                var sourcePath = card.Entry.DisplayFullPath;
+                var created = await Task.Run(() => File.Exists(thumb)
+                    || (File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, 360)));
+                if (!created || !_active || card.PreviewEpoch != epoch) return;
+            }
+            finally
+            {
+                _previewSlots.Release();
             }
         }
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (card.PreviewEpoch != epoch)
+            if (!_active || card.PreviewEpoch != epoch)
             {
                 return;
             }
