@@ -3,11 +3,17 @@ using Flipper.Core.Reader;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace Flipper.App.Views;
 
 internal sealed class WinkCalibrationPanel : UserControl
 {
+    private const string PauseGlyph = "\uE769";
+    private const string PlayGlyph = "\uE768";
+    private readonly SolidColorBrush _pauseBrush = new(Color.FromArgb(255, 0xFF, 0xC2, 0x1A));
+    private readonly SolidColorBrush _resumeBrush = new(Color.FromArgb(255, 0x3F, 0xD4, 0x7A));
     private readonly Window _window;
     private readonly Action<WinkCalibrationProfile> _save;
     private readonly Action _close;
@@ -21,6 +27,10 @@ internal sealed class WinkCalibrationPanel : UserControl
     private readonly Button _primary = Ui.Button("Start calibration", primary: true);
     private readonly Button _restart = Ui.Button("Restart");
     private readonly Button _cancel = Ui.Button("Cancel");
+    private readonly Button _pause;
+    private readonly TextBlock _pauseIcon = Ui.Icon(PauseGlyph, 36);
+    private readonly TextBlock _pauseLabel = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Border _footer;
     private readonly object _sessionLock = new();
     private WinkCalibrationSession? _session;
     private string? _sessionCameraId;
@@ -36,6 +46,7 @@ internal sealed class WinkCalibrationPanel : UserControl
     private bool _faceTracked;
     private bool _saved;
     private bool _saveFailed;
+    private bool _pausedByUser;
 
     private sealed record DisplayState(WinkCalibrationPhase Phase, int Count, int Required, double StillProgress,
         bool IsSettling, bool NeedsMoreSamples, WinkCalibrationFailure Failure, int CollectionRound, int CheckRound,
@@ -55,6 +66,24 @@ internal sealed class WinkCalibrationPanel : UserControl
         actions.Children.Add(_primary);
         actions.Children.Add(_restart);
         actions.Children.Add(_cancel);
+        _pause = new Button
+        {
+            Style = Ui.Style("SecondaryButton"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinHeight = 96,
+            FontSize = 28,
+            CornerRadius = new CornerRadius(16),
+            BorderThickness = new Thickness(2),
+            BorderBrush = Ui.Brush("InkBrush"),
+            Foreground = Ui.Brush("InkBrush"),
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 16,
+                Children = { _pauseIcon, _pauseLabel }
+            }
+        };
+        _footer = new Border { Padding = new Thickness(24, 12, 24, 24), MaxWidth = 760, Child = _pause };
         var feedback = new Grid
         {
             ColumnSpacing = 16,
@@ -89,11 +118,15 @@ internal sealed class WinkCalibrationPanel : UserControl
         _primary.Click += Primary_Click;
         _restart.Click += (_, _) => StartSession();
         _cancel.Click += (_, _) => _close();
+        _pause.Click += Pause_Click;
         _window.Activated += Window_Activated;
         Loaded += (_, _) => { _loaded = true; UpdateCamera(); };
         Unloaded += (_, _) => Stop();
         Render(null);
     }
+
+    /// <summary>The pause button row. The window keeps it below the scrolled content, so it is always visible.</summary>
+    public FrameworkElement Footer => _footer;
 
     public void Stop()
     {
@@ -169,7 +202,7 @@ internal sealed class WinkCalibrationPanel : UserControl
         {
             if (_session is not null && _sessionCameraId != frame.CameraId) _session = null;
             session = _session;
-            session?.Observe(new(frame.Timestamp.TotalMilliseconds, frame.Eyes.LeftOpenProbability,
+            if (!_pausedByUser) session?.Observe(new(frame.Timestamp.TotalMilliseconds, frame.Eyes.LeftOpenProbability,
                 frame.Eyes.RightOpenProbability, tracked, frame.Eyes.RotationQuarterTurns));
             fit = session?.TakeFitRequest();
             profile = session?.Profile ?? App.Current.Settings.WinkCalibration;
@@ -225,6 +258,11 @@ internal sealed class WinkCalibrationPanel : UserControl
         _meter.Update(state?.Assessment, state?.Phase, state?.Failure ?? WinkCalibrationFailure.None,
             state?.FreshAttemptsCompleted ?? 0, state?.FreshAttemptsRequired ?? 0,
             state?.StillProgress ?? 0, state?.Count ?? 0, state?.Required ?? 0);
+        _footer.Visibility = state is { Phase: not WinkCalibrationPhase.Ready } ? Visibility.Visible : Visibility.Collapsed;
+        _pauseIcon.Text = _pausedByUser ? PlayGlyph : PauseGlyph;
+        _pauseLabel.Text = _pausedByUser ? "Resume" : "Pause";
+        _pause.Background = _pausedByUser ? _resumeBrush : _pauseBrush;
+        AutomationProperties.SetName(_pause, _pauseLabel.Text);
         if (state is null)
         {
             _step.Text = "Three stages: open eyes, collect samples, check calibration.";
@@ -239,6 +277,7 @@ internal sealed class WinkCalibrationPanel : UserControl
             return;
         }
         var phase = state.Phase;
+        var settling = state.IsSettling && !_pausedByUser;
         var checking = phase is WinkCalibrationPhase.RightCheck or WinkCalibrationPhase.LeftCheck
             or WinkCalibrationPhase.BlinkCheck or WinkCalibrationPhase.OpenCheck;
         _step.Text = phase switch
@@ -274,12 +313,12 @@ internal sealed class WinkCalibrationPanel : UserControl
             WinkCalibrationPhase.Ready => _saveFailed ? "Could not save calibration. Try again." : "Calibration checks complete.",
             WinkCalibrationPhase.Fitting when state.NeedsMoreSamples => "Using the new samples to refine your calibration.",
             WinkCalibrationPhase.Fitting => "Assessing this round of samples.",
-            _ when state.IsSettling => "Get ready…",
+            _ when settling => "Get ready…",
             WinkCalibrationPhase.Baseline or WinkCalibrationPhase.OpenCheck => "Keep your normal reading position.",
             _ when checking && state.CheckRound > 1 => $"{countText}\nRechecking the updated calibration.",
             _ => $"{countText}\nRelax both eyes between gestures."
         };
-        if (!state.IsSettling && state.NeedsMoreSamples
+        if (!settling && state.NeedsMoreSamples
             && phase is WinkCalibrationPhase.RightWinks or WinkCalibrationPhase.LeftWinks or WinkCalibrationPhase.Blinks)
         {
             var reason = state.Failure == WinkCalibrationFailure.InsufficientEyeRange
@@ -308,8 +347,21 @@ internal sealed class WinkCalibrationPanel : UserControl
         _saveFailed = false;
         lock (_sessionLock)
         {
+            _pausedByUser = false;
             _sessionCameraId = _cameraId;
             _session = new WinkCalibrationSession(_cameraId);
+            Render(Snapshot(_session));
+        }
+    }
+
+    private void Pause_Click(object sender, RoutedEventArgs e)
+    {
+        lock (_sessionLock)
+        {
+            if (_session is null || _session.Phase == WinkCalibrationPhase.Ready) return;
+            _pausedByUser = !_pausedByUser;
+            // Drop a half-finished gesture; resuming starts with the usual short settle.
+            if (_pausedByUser) _session.Pause();
             Render(Snapshot(_session));
         }
     }
@@ -331,6 +383,7 @@ internal sealed class WinkCalibrationPanel : UserControl
             _primary.Content = "Done";
             _restart.Visibility = Visibility.Collapsed;
             _cancel.Visibility = Visibility.Collapsed;
+            _footer.Visibility = Visibility.Collapsed;
             UpdateCamera();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)

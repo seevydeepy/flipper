@@ -18,10 +18,16 @@ internal sealed class WinkCalibrationWindow : Window
         Title = "Wink calibration — Carousel";
         _owner = App.Current.Window;
         _panel = new WinkCalibrationPanel(this, save, Close);
+        Grid.SetRow(_panel.Footer, 1);
         Content = new Grid
         {
             RequestedTheme = ElementTheme.Light,
             Background = (Brush)Application.Current.Resources["PaperBrush"],
+            RowDefinitions =
+            {
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto }
+            },
             Children =
             {
                 new ScrollViewer
@@ -30,7 +36,8 @@ internal sealed class WinkCalibrationWindow : Window
                     HorizontalScrollMode = ScrollMode.Disabled,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     Content = new Border { Padding = new Thickness(24), MaxWidth = 760, Child = _panel }
-                }
+                },
+                _panel.Footer
             }
         };
         if (_owner is not null) _owner.Closed += Owner_Closed;
@@ -43,7 +50,7 @@ internal sealed class WinkCalibrationWindow : Window
         var area = DisplayArea.GetFromWindowId(_owner?.AppWindow.Id ?? AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var scale = (_owner?.Content as FrameworkElement)?.XamlRoot?.RasterizationScale ?? 1;
         var width = Math.Min((int)(660 * scale), area.Width);
-        var height = Math.Min((int)(780 * scale), area.Height);
+        var height = Math.Min((int)(900 * scale), area.Height);
         AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2,
             area.Y + (area.Height - height) / 2, width, height));
     }
