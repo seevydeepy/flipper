@@ -441,7 +441,7 @@ public sealed partial class LibraryPage
                     App.Current.Settings.WinkCalibration = previous;
                     throw;
                 }
-                RefreshStatus();
+                _ = FindCameraAsync();
             });
         };
         RefreshStatus();
