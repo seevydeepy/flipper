@@ -40,6 +40,9 @@ jobs:
       - name: Publish
         run: pwsh -File scripts/publish.ps1
 
+      - name: Test native runtime packaging
+        run: ./tests/Test-RuntimePackaging.ps1 -ArtifactsDirectory artifacts -AssetsPath src/Flipper.App/obj/project.assets.json
+
       - name: Tag and prepare release draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
