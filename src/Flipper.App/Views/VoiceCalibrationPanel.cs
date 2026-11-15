@@ -17,13 +17,10 @@ internal sealed class VoiceCalibrationPanel : UserControl
     private const string QuietGlyph = "\uE74F";
     private const string MusicGlyph = "\uE8D6";
     private const string DoneGlyph = "\uE930";
-    private const string WarningGlyph = "\uE7BA";
-    private const string InfoGlyph = "\uE946";
     private const string RecordGlyph = "\uE7C8";
 
     private enum Sound { Quiet, Playing, Word }
     private enum Phase { Intro, Ready, Countdown, Recording, Checking, Passed, Saved }
-    private enum Tone { Success, Warning, Info }
 
     private sealed record Step(int Stage, Sound Sound, int Number, int Count, int Seconds)
     {
@@ -46,7 +43,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
     private readonly Action<VoiceSoundProfile> _save;
     private readonly Action _close;
     private readonly VoiceAudioCapture _capture = new();
-    private readonly VoiceCalibrationStages _stages = new(StageNames);
+    private readonly CalibrationStages _stages = new(StageNames);
     private readonly TextBlock _stepCount = Ui.Label(string.Empty);
     private readonly ProgressBar _overall = new() { Minimum = 0, Maximum = 100, MinHeight = 8 };
     private readonly StackPanel _progressRow;
@@ -61,9 +58,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
     private readonly StackPanel _microphone;
     private readonly TextBlock _microphoneName = Ui.Caption();
     private readonly ProgressBar _level = new() { Minimum = 0, Maximum = 100, MinHeight = 8 };
-    private readonly Border _feedback;
-    private readonly TextBlock _feedbackIcon = Ui.Icon(InfoGlyph, 20);
-    private readonly TextBlock _feedbackText = Ui.Body();
+    private readonly CalibrationBanner _banner = new();
     private readonly Button _primary = Ui.Button("Start calibration", primary: true);
     private readonly Button _restart = Ui.Button("Restart");
     private readonly Button _cancel = Ui.Button("Cancel");
@@ -77,9 +72,8 @@ internal sealed class VoiceCalibrationPanel : UserControl
     private VoiceSoundProfile? _candidate;
     private CancellationTokenSource? _operation;
     private string? _deviceId;
-    private (Tone Tone, string Text)? _message;
+    private (BannerTone Tone, string Text)? _message;
     private Phase _phase = Phase.Intro;
-    private string? _shownMessage;
     private string? _shownInstruction;
     private int _index;
     private int _countdown;
@@ -103,7 +97,6 @@ internal sealed class VoiceCalibrationPanel : UserControl
         _instruction.FontSize = 24;
         _instruction.FontWeight = FontWeights.SemiBold;
         AutomationProperties.SetLiveSetting(_instruction, AutomationLiveSetting.Polite);
-        AutomationProperties.SetLiveSetting(_feedbackText, AutomationLiveSetting.Polite);
         AutomationProperties.SetName(_timer, "Recording time");
         AutomationProperties.SetName(_level, "Microphone level");
 
@@ -152,27 +145,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         _microphone = new StackPanel { Spacing = 8, Children = { Ui.Rule(), _microphoneName, _level } };
         var card = Ui.Card(new StackPanel { Spacing = 16, Children = { prompt, _activity, _microphone } });
 
-        _feedbackIcon.VerticalAlignment = VerticalAlignment.Top;
-        _feedbackIcon.Margin = new Thickness(0, 1, 0, 0);
-        Grid.SetColumn(_feedbackText, 1);
-        _feedback = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(16, 12, 16, 12),
-            Child = new Grid
-            {
-                ColumnSpacing = 12,
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition { Width = GridLength.Auto },
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
-                },
-                Children = { _feedbackIcon, _feedbackText }
-            }
-        };
-
-        Content = new StackPanel { Spacing = 20, Children = { header, _stages, _progressRow, card, _feedback } };
+        Content = new StackPanel { Spacing = 20, Children = { header, _stages, _progressRow, card, _banner } };
 
         _primary.MinHeight = _restart.MinHeight = _cancel.MinHeight = 64;
         _primary.FontSize = 20;
@@ -239,7 +212,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         {
             _phase = Phase.Ready;
             _retry = true;
-            Show(Tone.Info, "Recording stopped because the window was not active. Your other steps are kept.");
+            Show(BannerTone.Info, "Recording stopped because the window was not active. Your other steps are kept.");
         }
         else if (starting)
         {
@@ -260,7 +233,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
             _phase = Phase.Ready;
             _retry = true;
         }
-        Show(Tone.Warning, failure);
+        Show(BannerTone.Warning, failure);
         Render();
     }
 
@@ -290,7 +263,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         ClearProgress();
         if (!_microphoneReady) _deviceId = null;
         _phase = Phase.Ready;
-        Show(Tone.Info, "Calibration restarted from step 1.");
+        Show(BannerTone.Info, "Calibration restarted from step 1.");
         Render();
         FocusPrimary();
         if (!_microphoneReady && _active) _ = RunAsync(ResumeAsync);
@@ -312,7 +285,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
                 lock (_recordingLock) _recording = null;
                 if (_phase != Phase.Intro) _phase = Phase.Ready;
                 _retry = _phase == Phase.Ready;
-                Show(Tone.Warning, "Calibration could not complete: " + ex.GetBaseException().Message);
+                Show(BannerTone.Warning, "Calibration could not complete: " + ex.GetBaseException().Message);
             }
         }
         finally
@@ -331,11 +304,11 @@ internal sealed class VoiceCalibrationPanel : UserControl
 
     private async Task StartAsync(CancellationToken token)
     {
-        Show(Tone.Info, "Starting microphone…");
+        Show(BannerTone.Info, "Starting microphone…");
         Render();
         if (await StartMicrophoneAsync(token) is { } failure)
         {
-            Show(Tone.Warning, failure);
+            Show(BannerTone.Warning, failure);
             return;
         }
         ClearProgress();
@@ -345,7 +318,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
 
     private async Task ResumeAsync(CancellationToken token)
     {
-        if (await StartMicrophoneAsync(token) is { } failure) Show(Tone.Warning, failure);
+        if (await StartMicrophoneAsync(token) is { } failure) Show(BannerTone.Warning, failure);
     }
 
     private async Task<string?> StartMicrophoneAsync(CancellationToken token)
@@ -375,7 +348,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         var step = Steps[_index];
         if (await StartMicrophoneAsync(token) is { } failure)
         {
-            Show(Tone.Warning, failure);
+            Show(BannerTone.Warning, failure);
             return;
         }
 
@@ -408,7 +381,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         if (audio.Length < step.Seconds * VoiceSoundCalibration.SampleRate * .8)
         {
             _retry = true;
-            Show(Tone.Warning, "Too little microphone audio was received. Try again.");
+            Show(BannerTone.Warning, "Too little microphone audio was received. Try again.");
             return;
         }
 
@@ -454,14 +427,14 @@ internal sealed class VoiceCalibrationPanel : UserControl
             _retry = outcome.RetryStep;
             if (outcome.RetryStep)
             {
-                Show(Tone.Warning, outcome.Error);
+                Show(BannerTone.Warning, outcome.Error);
                 return;
             }
             // A usable recording failed, so the word is learned again. The room and playing sound are kept.
             _samples.Clear();
             _candidate = null;
             _index = FirstWordStep;
-            Show(Tone.Warning, $"{outcome.Error}\nRecord “{_draft.Label}” again, from recording 1 of {Steps[_index].Count}.");
+            Show(BannerTone.Warning, $"{outcome.Error}\nRecord “{_draft.Label}” again, from recording 1 of {Steps[_index].Count}.");
             return;
         }
 
@@ -492,7 +465,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         }
 
         _index++;
-        Show(Tone.Success, step switch
+        Show(BannerTone.Success, step switch
         {
             { Test: false, Sound: Sound.Quiet } => "Room sound recorded.",
             { Test: false, Sound: Sound.Playing } => "Playing sound recorded.",
@@ -520,7 +493,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         }
         catch
         {
-            Show(Tone.Warning, "Could not save calibration. Try saving again.");
+            Show(BannerTone.Warning, "Could not save calibration. Try saving again.");
         }
         Render();
         FocusPrimary();
@@ -559,7 +532,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         _retry = false;
     }
 
-    private void Show(Tone tone, string? text) => _message = text is null ? null : (tone, text);
+    private void Show(BannerTone tone, string? text) => _message = text is null ? null : (tone, text);
 
     private void FocusPrimary()
     {
@@ -645,26 +618,7 @@ internal sealed class VoiceCalibrationPanel : UserControl
         _timer.IsIndeterminate = _phase == Phase.Checking;
         _microphone.Visibility = _microphoneReady ? Visibility.Visible : Visibility.Collapsed;
 
-        _feedback.Visibility = _message is null ? Visibility.Collapsed : Visibility.Visible;
-        if (_message is { } message)
-        {
-            var (strong, soft, icon) = message.Tone switch
-            {
-                Tone.Success => ("SuccessBrush", "SuccessSoftBrush", DoneGlyph),
-                Tone.Warning => ("WarningBrush", "WarningSoftBrush", WarningGlyph),
-                _ => ("InkBrush", "SurfaceBrush", InfoGlyph)
-            };
-            _feedback.Background = Ui.Brush(soft);
-            _feedback.BorderBrush = Ui.Brush(strong);
-            _feedbackIcon.Text = icon;
-            _feedbackIcon.Foreground = Ui.Brush(strong);
-            _feedbackText.Text = message.Text;
-        }
-        if (_shownMessage != _message?.Text)
-        {
-            _shownMessage = _message?.Text;
-            if (_shownMessage is not null) Announce(_feedbackText);
-        }
+        _banner.Show(_message?.Tone ?? BannerTone.Info, _message?.Text);
 
         var primary = _phase switch
         {

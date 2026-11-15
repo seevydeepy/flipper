@@ -48,8 +48,13 @@ renaming everything felt like a waste of a perfectly good afternoon.
   commands, not a general speech or accent model.
 - **Winks** — optional camera page turns, enabled in Settings under **Wink
   turning**. Wink your right eye to move forward or your left eye to move back,
-  then reopen both eyes. **Calibrate** opens a separate window: follow the
-  repeated wink and blink prompts, then save after the checks pass. Use the
+  then reopen both eyes. Settings shows **Ready**, **Not calibrated**, **Not
+  calibrated for this camera** or **No camera found**. **Calibrate** opens a
+  separate window with three stages: open eyes, collect samples and final
+  checks. Winks and blinks are counted automatically; each one fills a dot, and
+  a message confirms each passed step. When the samples cannot yet separate
+  winks from blinks, or a check does not pass, the window says why and starts
+  an extra round. Save after all checks pass. Use the
   large **Pause** button below the prompts to take a break at any point, and
   **Resume** to continue from the same step. Stage,
   round and sample counts show progress when extra samples are needed.
