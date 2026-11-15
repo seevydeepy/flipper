@@ -13,16 +13,22 @@ internal sealed class VoiceCalibrationWindow : Window
     private readonly VoiceCalibrationPanel _panel;
     private readonly MainWindow? _owner;
 
-    private VoiceCalibrationWindow(string? deviceId, VoiceSoundProfile draft,
+    private VoiceCalibrationWindow(string? deviceId, VoiceSoundProfile draft, string action,
         IReadOnlyList<VoiceSoundProfile> existing, Action<VoiceSoundProfile> save)
     {
         Title = "Voice calibration — Carousel";
         _owner = App.Current.Window;
-        _panel = new VoiceCalibrationPanel(this, deviceId, draft, existing, save, Close);
+        _panel = new VoiceCalibrationPanel(this, deviceId, draft, action, existing, save, Close);
+        Grid.SetRow(_panel.Footer, 1);
         Content = new Grid
         {
             RequestedTheme = ElementTheme.Light,
             Background = (Brush)Application.Current.Resources["PaperBrush"],
+            RowDefinitions =
+            {
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto }
+            },
             Children =
             {
                 new ScrollViewer
@@ -30,8 +36,9 @@ internal sealed class VoiceCalibrationWindow : Window
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                     HorizontalScrollMode = ScrollMode.Disabled,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    Content = new Border { Padding = new Thickness(24), MaxWidth = 760, Child = _panel }
-                }
+                    Content = new Border { Padding = new Thickness(24, 24, 24, 12), MaxWidth = 760, Child = _panel }
+                },
+                _panel.Footer
             }
         };
         if (_owner is not null) _owner.Closed += Owner_Closed;
@@ -43,17 +50,17 @@ internal sealed class VoiceCalibrationWindow : Window
         };
         var area = DisplayArea.GetFromWindowId(_owner?.AppWindow.Id ?? AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var scale = (_owner?.Content as FrameworkElement)?.XamlRoot?.RasterizationScale ?? 1;
-        var width = Math.Min((int)(660 * scale), area.Width);
-        var height = Math.Min((int)(740 * scale), area.Height);
+        var width = Math.Min((int)(700 * scale), area.Width);
+        var height = Math.Min((int)(860 * scale), area.Height);
         AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2,
             area.Y + (area.Height - height) / 2, width, height));
     }
 
-    public static void Show(string? deviceId, VoiceSoundProfile draft,
+    public static void Show(string? deviceId, VoiceSoundProfile draft, string action,
         IReadOnlyList<VoiceSoundProfile> existing, Action<VoiceSoundProfile> save)
     {
         CloseCurrent();
-        _current = new VoiceCalibrationWindow(deviceId, draft, existing, save);
+        _current = new VoiceCalibrationWindow(deviceId, draft, action, existing, save);
         _current.Activate();
     }
 

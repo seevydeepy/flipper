@@ -22,9 +22,19 @@ renaming everything felt like a waste of a perfectly good afternoon.
   **Previous page**, **First page** or **Back to library**. Each word needs its
   own calibration. Its label is for display; the sound profile selects the
   action, without a fixed vocabulary or text recognition.
-  **Add and calibrate** collects room sound, playing sound and three recordings
-  of that command. It then checks fresh background sound and two new recordings
-  before offering **Save calibration**. Use your normal voice, distance and
+  Each action shows **Ready**, **Not calibrated** or **No word yet**, and each
+  word shows whether it is ready for the selected microphone.
+  **Add and calibrate** opens a window with four stages: **Quiet room**,
+  **Playing**, **Your word** (three recordings) and **Test** (fresh quiet and
+  playing sound, then the word twice). The stage row and step count show where
+  you are. Press **Record** for each of the nine steps; each step confirms when
+  it passes. If a recording is not usable (no sound, two sounds or distorted
+  audio), **Try again** repeats only that step. If a usable recording fails, for
+  example the word is not recognised or the background is mistaken for it, the
+  three word recordings are made again and the room and playing sound are kept.
+  Switching to another window stops the current recording and the microphone;
+  finished steps are kept. **Save calibration** is offered after all tests
+  pass. Use your normal voice, distance and
   microphone position and background conditions when recording the commands.
   A change in background noise can require recalibration. Commands need a short pause before and after the word;
   continuous sound can prevent detection. Similar sounds assigned to different

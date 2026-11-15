@@ -20,6 +20,12 @@
             <SolidColorBrush x:Key="PanelBrush" Color="#F4FFF8EE" />
             <SolidColorBrush x:Key="SurfaceBrush" Color="#F6EFE3" />
             <SolidColorBrush x:Key="MuteBrush" Color="#4F6270" />
+            <!-- Status colours. Each strong colour has at least 4.5:1 contrast on its soft colour and on CardBrush. -->
+            <SolidColorBrush x:Key="SuccessBrush" Color="#2F6B3B" />
+            <SolidColorBrush x:Key="SuccessSoftBrush" Color="#E4F1E4" />
+            <SolidColorBrush x:Key="WarningBrush" Color="#8A5A00" />
+            <SolidColorBrush x:Key="WarningSoftBrush" Color="#FBF0D9" />
+            <SolidColorBrush x:Key="RecordBrush" Color="#B3261E" />
 
             <!-- Brand accent for the standard controls (toggles, check boxes, progress, focus). -->
             <Color x:Key="SystemAccentColor">#23475B</Color>
