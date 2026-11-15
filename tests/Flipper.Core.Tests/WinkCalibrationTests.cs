@@ -249,6 +249,43 @@ public sealed class WinkCalibrationTests
     }
 
     [Fact]
+    public void FitRepeated_LeavesOutOneUnscorableWinkThatBlocksEveryCandidate()
+    {
+        var full = Trial(RightWink, 2, (0.45f, Closed), (0.44f, 0.11f));
+        var unscorable = full with { Samples = full.Samples.Take(26).ToArray() }; // Ends before the eyes reopen.
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), [.. RepeatedTrials(), unscorable]);
+
+        Assert.Equal(None, result.Failure);
+        Assert.NotNull(result.Profile);
+        var dropped = Assert.Single(result.Dropped!);
+        Assert.Same(unscorable, dropped);
+        Assert.Equal(WinkCalibrationTrialOutcome.Invalid, WinkCalibration.Evaluate(result.Profile, unscorable));
+    }
+
+    [Fact]
+    public void FitRepeated_NeverReturnsAProfileThatTurnsAPageOnALeftOutBlink()
+    {
+        var unevenBlink = Trial(Blink, 2, (0.55f, 0.35f), (0.55f, 0.35f)); // Too shallow to score as a blink.
+        var shallowRightWink = Trial(RightWink, 2, (0.58f, 0.37f), (0.58f, 0.37f));
+        WinkCalibrationTrial[] trials =
+        [
+            .. Enumerable.Range(0, 5).Select(offset => Trial(RightWink, offset, (0.45f, Closed), (0.45f, Closed))),
+            shallowRightWink,
+            .. Enumerable.Range(0, 4).Select(offset => Trial(LeftWink, offset, (Closed, 0.46f), (0.11f, 0.45f))),
+            .. Enumerable.Range(0, 4).Select(offset => Trial(Blink, offset, (Closed, Closed), (Closed, Closed))),
+            unevenBlink,
+            new(Neither, Baseline(), 0)
+        ];
+
+        var result = WinkCalibration.FitRepeated(CameraId, Baseline(), trials);
+
+        Assert.NotNull(result.Profile);
+        Assert.Same(unevenBlink, Assert.Single(result.Dropped!));
+        Assert.NotEqual(WinkCalibrationTrialOutcome.UnsafeTurn, WinkCalibration.Evaluate(result.Profile, unevenBlink));
+    }
+
+    [Fact]
     public void FitRepeated_AcceptsFourMatchesOutOfFivePerEyeAndKeepsStrictFit()
     {
         var rightMiss = Trial(RightWink, 4, (0.65f, 0.65f), (0.65f, 0.65f));

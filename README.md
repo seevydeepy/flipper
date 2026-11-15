@@ -54,7 +54,13 @@ renaming everything felt like a waste of a perfectly good afternoon.
   checks. Winks and blinks are counted automatically; each one fills a dot, and
   a message confirms each passed step. When the samples cannot yet separate
   winks from blinks, or a check does not pass, the window says why and starts
-  an extra round. Save after all checks pass. Use the
+  an extra round that asks only for the gestures that need more samples. A
+  wink of the wrong eye, or a one-eye closure when a blink is asked for, is
+  not counted, and the window says what to do instead; the fourth such
+  gesture in a row is counted. A sample that cannot
+  be scored and blocks every fit is left out. After three extra rounds the
+  calibration stops with a tip, keeps the previous calibration, and offers
+  **Start again** with new samples. Save after all checks pass. Use the
   large **Pause** button below the prompts to take a break at any point, and
   **Resume** to continue from the same step. Stage,
   round and sample counts show progress when extra samples are needed.
