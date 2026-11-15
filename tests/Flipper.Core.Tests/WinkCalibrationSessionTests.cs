@@ -97,19 +97,35 @@ public sealed class WinkCalibrationSessionTests
     }
 
     [Fact]
-    public void LeftOutTrials_AreNotUsedInLaterFits()
+    public void WinkCheck_ComparesEachEyeWithItsOwnOpenLevel()
     {
-        var request = CollectTraining();
-        var fit = Fit(request);
-        var leftOut = request.Trials[1];
-        _session.ApplyFit(fit with { Dropped = [leftOut] });
-        FeedOpen(2300);
-        FeedGesture(0.65f, 0.65f);
-        FeedGesture(0.66f, 0.66f);
+        const float rightOpen = 0.35f; // This eye reads low even when open.
+        Feed(5000, Open, rightOpen);
+        Assert.Equal(RightWinks, _session.Phase);
+        Feed(2300, Open, rightOpen);
+        Feed(150, 0.25f, 0.05f); // The left eye drops further in raw terms, but the right eye closes more of its range.
+        Feed(600, Open, rightOpen);
 
-        var refit = Assert.IsType<WinkCalibrationFitRequest>(_session.TakeFitRequest());
-        Assert.Equal(request.Trials.Count + 1, refit.Trials.Count);
-        Assert.DoesNotContain(refit.Trials, trial => ReferenceEquals(trial, leftOut));
+        Assert.Equal(1, _session.PhaseSamples);
+        Assert.Equal(0, _session.RejectedAttempts);
+    }
+
+    [Fact]
+    public void RepeatedRejections_CountTheFourthGestureSoNoStepCanBlockForever()
+    {
+        FeedOpen(5000);
+        FeedOpen(2300);
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            FeedGesture(Closed, PartlyClosed);
+            Assert.Equal(attempt, _session.RejectedAttempts);
+            Assert.Equal(0, _session.PhaseSamples);
+        }
+
+        FeedGesture(Closed, PartlyClosed);
+
+        Assert.Equal(3, _session.RejectedAttempts);
+        Assert.Equal(1, _session.PhaseSamples);
     }
 
     [Fact]
