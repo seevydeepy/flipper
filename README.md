@@ -39,7 +39,9 @@ renaming everything felt like a waste of a perfectly good afternoon.
 - **Winks** — optional camera page turns, enabled in Settings under **Wink
   turning**. Wink your right eye to move forward or your left eye to move back,
   then reopen both eyes. **Calibrate** opens a separate window: follow the
-  repeated wink and blink prompts, then save after the checks pass. Stage,
+  repeated wink and blink prompts, then save after the checks pass. Use the
+  large **Pause** button below the prompts to take a break at any point, and
+  **Resume** to continue from the same step. Stage,
   round and sample counts show progress when extra samples are needed.
   A circular meter beside the preview shows calibration progress, reaching
   100% when the profile is ready to save. Calibration allows occasional missed
