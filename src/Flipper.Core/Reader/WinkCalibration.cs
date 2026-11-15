@@ -43,10 +43,12 @@ public sealed record WinkCalibrationAssessment(
         && Blinks.Matched == Blinks.Total && OpenEyes.Matched == OpenEyes.Total;
 }
 
+/// <param name="Dropped">Training trials left out of a successful repeated fit, because each one alone blocked it.</param>
 public sealed record WinkCalibrationResult(
     WinkCalibrationProfile? Profile,
     WinkCalibrationFailure Failure,
-    WinkCalibrationAssessment? Assessment = null);
+    WinkCalibrationAssessment? Assessment = null,
+    IReadOnlyList<WinkCalibrationTrial>? Dropped = null);
 
 public static class WinkCalibration
 {
@@ -56,6 +58,7 @@ public static class WinkCalibration
     public const int FreshBlinkAttempts = 3;
     public const int FreshCheckTotal = 2 * FreshWinkAttempts + FreshBlinkAttempts + 1;
     private const double BlinkFloor = 0.12;
+    private const int MaximumDroppedTrials = 2;
     private static readonly TimeSpan MaximumSampleGap = TimeSpan.FromMilliseconds(250);
     private const double MinimumFinalOpenMs = 100;
     private static readonly double[] ClosedThresholds = [0.25, 0.35, 0.45];
@@ -80,6 +83,31 @@ public static class WinkCalibration
         IReadOnlyList<WinkCalibrationTrial> trainingTrials,
         bool repeated)
     {
+        var result = Search(cameraId, openSamples, trainingTrials, repeated, out var blocker);
+        if (!repeated || result.Profile is not null) return result;
+
+        // One unusable sample must not block every candidate for the rest of the calibration. A blocker is left out
+        // only when it is the single failure of a candidate that otherwise meets the target. Fresh checks still follow.
+        var dropped = new List<WinkCalibrationTrial>();
+        var remaining = trainingTrials;
+        while (blocker is { } trial && dropped.Count < MaximumDroppedTrials)
+        {
+            dropped.Add(trial);
+            remaining = remaining.Where(value => !ReferenceEquals(value, trial)).ToArray();
+            var retry = Search(cameraId, openSamples, remaining, repeated, out blocker);
+            if (retry.Profile is not null) return retry with { Dropped = dropped };
+        }
+        return result;
+    }
+
+    private static WinkCalibrationResult Search(
+        string cameraId,
+        IReadOnlyList<WinkCalibrationSample> openSamples,
+        IReadOnlyList<WinkCalibrationTrial> trainingTrials,
+        bool repeated,
+        out WinkCalibrationTrial? blocker)
+    {
+        blocker = null;
         var required = repeated ? MinimumMatchedWinks : 2;
         var baseline = openSamples.Where(IsUsable).ToArray();
         if (string.IsNullOrWhiteSpace(cameraId) || baseline.Length < 20
@@ -126,6 +154,7 @@ public static class WinkCalibration
                       select (OtherEyeMinimum: otherEyeMinimum, MinimumDifference: minimumDifference)).ToArray();
         WinkCalibrationAssessment? best = null;
         WinkCalibrationAssessment? bestAccepted = null;
+        var failures = new List<(int Index, WinkCalibrationTrialOutcome Outcome)>();
         foreach (var closedThreshold in ClosedThresholds)
         {
             foreach (var left in shapes)
@@ -140,7 +169,15 @@ public static class WinkCalibration
                         RightWinkOtherEyeMinimum = right.OtherEyeMinimum,
                         RightWinkMinimumDifference = right.MinimumDifference
                     };
-                    var assessment = Assess(candidate, trainingTrials, repeated);
+                    failures.Clear();
+                    var assessment = Assess(candidate, trainingTrials, repeated, failures);
+                    if (repeated && blocker is null && failures is [var failure]
+                        && IsDroppable(trainingTrials[failure.Index], failure.Outcome)
+                        && Without(assessment, trainingTrials[failure.Index].Actual).MeetsRepeatedTarget)
+                    {
+                        blocker = trainingTrials[failure.Index];
+                    }
+
                     var completeMatch = assessment.HasRequiredSamples && assessment.MatchedCount == assessment.SampleCount;
                     var meetsTarget = repeated ? assessment.MeetsRepeatedTarget : completeMatch;
                     if (meetsTarget && completeMatch)
@@ -180,18 +217,41 @@ public static class WinkCalibration
         IReadOnlyList<WinkCalibrationTrial> trials) =>
         profile.IsValid && trials.Count > 0 && trials.All(IsCompleteTrial) ? Assess(profile, trials, repeated: true) : null;
 
+    /// <summary>
+    /// A wink or blink sample that turned no page but could not be scored (for example, the eyes did not reopen
+    /// fully, or a blink was too shallow) can be left out. A sample that turned a page is evidence against the
+    /// candidate and is never left out, and neither is an open-eye sample.
+    /// </summary>
+    private static bool IsDroppable(WinkCalibrationTrial trial, WinkCalibrationTrialOutcome outcome) =>
+        trial.Actual is WinkCalibrationGesture.RightWink or WinkCalibrationGesture.LeftWink or WinkCalibrationGesture.Blink
+        && outcome == WinkCalibrationTrialOutcome.Invalid;
+
+    private static WinkCalibrationAssessment Without(WinkCalibrationAssessment assessment, WinkCalibrationGesture gesture)
+    {
+        static WinkCalibrationMatchCount Less(WinkCalibrationMatchCount count) => count with { Total = count.Total - 1 };
+        return assessment with
+        {
+            IsSafe = true,
+            RightWinks = gesture == WinkCalibrationGesture.RightWink ? Less(assessment.RightWinks) : assessment.RightWinks,
+            LeftWinks = gesture == WinkCalibrationGesture.LeftWink ? Less(assessment.LeftWinks) : assessment.LeftWinks,
+            Blinks = gesture == WinkCalibrationGesture.Blink ? Less(assessment.Blinks) : assessment.Blinks
+        };
+    }
+
     private static WinkCalibrationAssessment Assess(
         WinkCalibrationProfile profile,
         IReadOnlyList<WinkCalibrationTrial> trials,
-        bool repeated)
+        bool repeated,
+        List<(int Index, WinkCalibrationTrialOutcome Outcome)>? failures = null)
     {
         Span<int> matched = stackalloc int[4];
         Span<int> totals = stackalloc int[4];
         matched.Clear();
         totals.Clear();
         var safe = true;
-        foreach (var trial in trials)
+        for (var trialIndex = 0; trialIndex < trials.Count; trialIndex++)
         {
+            var trial = trials[trialIndex];
             var outcome = Replay(profile, trial);
             if (repeated && (outcome is WinkCalibrationTrialOutcome.Miss or WinkCalibrationTrialOutcome.Invalid)
                 && ReplayIncidentalBlink(profile, trial))
@@ -208,6 +268,7 @@ public static class WinkCalibration
             else if (outcome != WinkCalibrationTrialOutcome.Miss)
             {
                 safe = false;
+                failures?.Add((trialIndex, outcome));
             }
         }
 

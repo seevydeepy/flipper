@@ -2,7 +2,7 @@ namespace Flipper.Core.Reader;
 
 public enum WinkCalibrationPhase
 {
-    Baseline, RightWinks, LeftWinks, Blinks, Fitting, RightCheck, LeftCheck, BlinkCheck, OpenCheck, Ready
+    Baseline, RightWinks, LeftWinks, Blinks, Fitting, RightCheck, LeftCheck, BlinkCheck, OpenCheck, Ready, Stopped
 }
 
 public sealed record WinkCalibrationFitRequest(string CameraId,
@@ -15,6 +15,9 @@ public sealed class WinkCalibrationSession(string cameraId)
     private const int ExtraSamples = 3;
     private const int RetainedSamples = 12;
     private const double StillTimeMs = 2500;
+    public const int MaximumExtraRounds = 3;
+    private static readonly WinkCalibrationPhase[] AllGestures =
+        [WinkCalibrationPhase.RightWinks, WinkCalibrationPhase.LeftWinks, WinkCalibrationPhase.Blinks];
     private readonly List<WinkCalibrationSample> _still = [];
     private readonly List<WinkCalibrationTrial> _training = [];
     private readonly List<WinkCalibrationTrial> _freshMisses = [];
@@ -25,9 +28,15 @@ public sealed class WinkCalibrationSession(string cameraId)
     private double? _readyAt;
     private WinkCalibrationSample? _previous;
     private bool _fitTaken;
-    private bool _extraRound;
+    private WinkCalibrationPhase[] _roundGestures = AllGestures;
+    private int _roundSamples = InitialSamples;
+    private int _extraRounds;
 
     public WinkCalibrationPhase Phase { get; private set; } = WinkCalibrationPhase.Baseline;
+    /// <summary>The gestures that the current collection round asks for, in order.</summary>
+    public IReadOnlyList<WinkCalibrationPhase> CollectionGestures => _roundGestures;
+    /// <summary>The number of gestures that were not counted because they were clearly not the gesture asked for.</summary>
+    public int RejectedAttempts { get; private set; }
     public int PhaseSamples { get; private set; }
     public int RequiredSamples { get; private set; }
     public int CollectionRound { get; private set; }
@@ -54,7 +63,7 @@ public sealed class WinkCalibrationSession(string cameraId)
 
     public void Observe(WinkCalibrationSample sample)
     {
-        if (Phase is WinkCalibrationPhase.Fitting or WinkCalibrationPhase.Ready) return;
+        if (Phase is WinkCalibrationPhase.Fitting or WinkCalibrationPhase.Ready or WinkCalibrationPhase.Stopped) return;
         if (!sample.IsTracked || !WinkProbabilityClassifier.HasProbabilities(sample.LeftOpenProbability, sample.RightOpenProbability)
             || !double.IsFinite(sample.TimeMs))
         {
@@ -82,7 +91,7 @@ public sealed class WinkCalibrationSession(string cameraId)
                 _leftOpen = Median(samples.Select(value => (double)value.LeftOpenProbability!.Value));
                 _rightOpen = Median(samples.Select(value => (double)value.RightOpenProbability!.Value));
                 AddTraining(trial);
-                Begin(WinkCalibrationPhase.RightWinks, InitialSamples);
+                StartCollection(AllGestures, InitialSamples);
             }
             else if (WinkCalibration.Matches(Profile!, trial))
             {
@@ -99,6 +108,12 @@ public sealed class WinkCalibrationSession(string cameraId)
         }
 
         if (_capture?.Observe(sample) is not { } completed) return;
+        // A wink of the wrong eye is a mistake, not evidence. Counting it would block every fit.
+        if (_capture.IsWrongGesture(completed))
+        {
+            RejectedAttempts++;
+            return;
+        }
         if (Phase is WinkCalibrationPhase.RightCheck or WinkCalibrationPhase.LeftCheck or WinkCalibrationPhase.BlinkCheck)
         {
             var outcome = WinkCalibration.Evaluate(Profile!, completed);
@@ -126,15 +141,17 @@ public sealed class WinkCalibrationSession(string cameraId)
         if (++PhaseSamples < RequiredSamples) return;
         switch (Phase)
         {
-            case WinkCalibrationPhase.RightWinks:
-                Begin(WinkCalibrationPhase.LeftWinks, _extraRound ? ExtraSamples : InitialSamples);
-                break;
-            case WinkCalibrationPhase.LeftWinks:
-                Begin(WinkCalibrationPhase.Blinks, _extraRound ? ExtraSamples : InitialSamples);
-                break;
-            case WinkCalibrationPhase.Blinks:
-                Phase = WinkCalibrationPhase.Fitting;
-                _fitTaken = false;
+            case WinkCalibrationPhase.RightWinks or WinkCalibrationPhase.LeftWinks or WinkCalibrationPhase.Blinks:
+                var next = Array.IndexOf(_roundGestures, Phase) + 1;
+                if (next < _roundGestures.Length)
+                {
+                    Begin(_roundGestures[next], _roundSamples);
+                }
+                else
+                {
+                    Phase = WinkCalibrationPhase.Fitting;
+                    _fitTaken = false;
+                }
                 break;
             case WinkCalibrationPhase.RightCheck:
                 Begin(WinkCalibrationPhase.LeftCheck, WinkCalibration.FreshWinkAttempts);
@@ -160,21 +177,76 @@ public sealed class WinkCalibrationSession(string cameraId)
         if (Phase != WinkCalibrationPhase.Fitting || !_fitTaken) return;
         LastFailure = result.Failure;
         Assessment = result.Assessment;
+        if (result.Dropped is { Count: > 0 } dropped)
+        {
+            _training.RemoveAll(trial => dropped.Any(value => ReferenceEquals(value, trial)));
+        }
         if (result.Profile is not { IsValid: true } profile)
         {
             NeedsMoreSamples = true;
-            _extraRound = true;
-            Begin(WinkCalibrationPhase.RightWinks, ExtraSamples);
+            if (!TryStartExtraRound()) return;
+            StartCollection(NeededGestures(result), ExtraSamples);
             return;
         }
+        // Checking again after a failed check is also an extra round.
+        if (CheckRound > 0 && !TryStartExtraRound()) return;
         Profile = profile;
         NeedsMoreSamples = false;
         Begin(WinkCalibrationPhase.RightCheck, WinkCalibration.FreshWinkAttempts);
     }
 
+    /// <summary>Counts an extra round, or stops the calibration when the limit is reached.</summary>
+    private bool TryStartExtraRound()
+    {
+        if (++_extraRounds <= MaximumExtraRounds) return true;
+        Profile = null;
+        _capture = null;
+        Phase = WinkCalibrationPhase.Stopped;
+        return false;
+    }
+
+    private void StartCollection(WinkCalibrationPhase[] gestures, int samples)
+    {
+        _roundGestures = gestures;
+        _roundSamples = samples;
+        CollectionRound++;
+        Begin(gestures[0], samples);
+    }
+
+    /// <summary>The gestures whose samples did not reach the target. More of the others would not help the fit.</summary>
+    private WinkCalibrationPhase[] NeededGestures(WinkCalibrationResult result)
+    {
+        if (result.Failure == WinkCalibrationFailure.InsufficientEyeRange) return [WinkCalibrationPhase.Blinks];
+        var needed = new List<WinkCalibrationPhase>();
+        if (result.Assessment is { } assessment)
+        {
+            if (!ReachesWinkTarget(assessment.RightWinks)) needed.Add(WinkCalibrationPhase.RightWinks);
+            if (!ReachesWinkTarget(assessment.LeftWinks)) needed.Add(WinkCalibrationPhase.LeftWinks);
+            if (assessment.Blinks.Total < assessment.Blinks.Required || assessment.Blinks.Matched < assessment.Blinks.Total)
+            {
+                needed.Add(WinkCalibrationPhase.Blinks);
+            }
+        }
+        else if (result.Failure == WinkCalibrationFailure.InsufficientSamples)
+        {
+            (WinkCalibrationGesture Gesture, WinkCalibrationPhase Phase)[] gestures =
+            [
+                (WinkCalibrationGesture.RightWink, WinkCalibrationPhase.RightWinks),
+                (WinkCalibrationGesture.LeftWink, WinkCalibrationPhase.LeftWinks),
+                (WinkCalibrationGesture.Blink, WinkCalibrationPhase.Blinks)
+            ];
+            needed.AddRange(gestures
+                .Where(item => _training.Count(trial => trial.Actual == item.Gesture) < WinkCalibration.MinimumMatchedWinks)
+                .Select(item => item.Phase));
+        }
+        return needed.Count > 0 ? needed.ToArray() : AllGestures;
+    }
+
+    private static bool ReachesWinkTarget(WinkCalibrationMatchCount count) =>
+        count.Matched >= WinkCalibration.MinimumMatchedWinks && count.MatchPercentage >= WinkCalibration.WinkTargetPercentage;
+
     private void Begin(WinkCalibrationPhase phase, int required)
     {
-        if (phase == WinkCalibrationPhase.RightWinks) CollectionRound++;
         if (phase == WinkCalibrationPhase.RightCheck) CheckRound++;
         Phase = phase;
         PhaseSamples = 0;

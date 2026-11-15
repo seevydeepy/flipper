@@ -4,6 +4,7 @@ public sealed class WinkCalibrationCapture
 {
     private const double BaselineTolerance = 0.10;
     private const double ExcursionDrop = 0.12;
+    private const double WrongEyeMargin = 0.3;
     private const double InitialOpenMs = 300;
     private const double PreRollMs = 400;
     private const double ReopenMs = 200;
@@ -125,6 +126,35 @@ public sealed class WinkCalibrationCapture
         _excursionStartedAt = null;
         _excursionSamples = 0;
         return trial;
+    }
+
+    /// <summary>
+    /// True when a completed trial is clearly a different gesture from the one requested: for a wink, the other eye
+    /// closed clearly further; for a blink, one eye did not close at all. Partial closure of the other eye during a
+    /// wink, and uneven blinks, are not rejected here, because the fit needs them as evidence.
+    /// </summary>
+    public bool IsWrongGesture(WinkCalibrationTrial trial)
+    {
+        double leftDrop = 0;
+        double rightDrop = 0;
+        foreach (var sample in trial.Samples)
+        {
+            if (!sample.IsTracked || !WinkProbabilityClassifier.HasProbabilities(sample.LeftOpenProbability, sample.RightOpenProbability))
+            {
+                continue;
+            }
+
+            leftDrop = Math.Max(leftDrop, _leftOpenBaseline - sample.LeftOpenProbability!.Value);
+            rightDrop = Math.Max(rightDrop, _rightOpenBaseline - sample.RightOpenProbability!.Value);
+        }
+
+        return _gesture switch
+        {
+            WinkCalibrationGesture.RightWink => leftDrop - rightDrop >= WrongEyeMargin,
+            WinkCalibrationGesture.LeftWink => rightDrop - leftDrop >= WrongEyeMargin,
+            WinkCalibrationGesture.Blink => Math.Min(leftDrop, rightDrop) < ExcursionDrop,
+            _ => false
+        };
     }
 
     public void Reset()
