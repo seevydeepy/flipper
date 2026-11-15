@@ -39,9 +39,9 @@ public sealed partial class LibraryPage
         (VoiceCommand.Finish, "Back to library")
     ];
 
-    private const string VoiceReadyGlyph = "\uE930";
-    private const string VoiceAttentionGlyph = "\uE7BA";
-    private const string VoiceEmptyGlyph = "\uE946";
+    private const string ReadyGlyph = "\uE930";
+    private const string AttentionGlyph = "\uE7BA";
+    private const string EmptyGlyph = "\uE946";
 
     private Grid? _settingsOverlay;
 
@@ -384,13 +384,51 @@ public sealed partial class LibraryPage
 
     private static FrameworkElement CreateWinkSection()
     {
-        var calibrated = App.Current.Settings.WinkCalibration is { IsValid: true };
-        var calibrationStatus = Ui.Caption(calibrated ? "Calibrated" : string.Empty);
-        calibrationStatus.Visibility = calibrated ? Visibility.Visible : Visibility.Collapsed;
-        var calibrate = Ui.Button(calibrated ? "Recalibrate" : "Calibrate", primary: true);
+        var status = new Border { VerticalAlignment = VerticalAlignment.Center };
+        var heading = Ui.Label("Calibration");
+        heading.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(status, 1);
+        var header = new Grid
+        {
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto }
+            },
+            Children = { heading, status }
+        };
+        var calibrate = Ui.Button("Calibrate", primary: true);
         calibrate.HorizontalAlignment = HorizontalAlignment.Left;
-        AutomationProperties.SetName(calibrate, "Calibrate wink turning");
-        var details = Ui.Card(new StackPanel { Spacing = 12, Children = { calibrationStatus, calibrate } });
+        var details = Ui.Card(new StackPanel { Spacing = 12, Children = { header, calibrate } });
+        string? cameraId = null;
+        var cameraChecked = false;
+
+        // A profile works only with the camera that recorded it.
+        void RefreshStatus()
+        {
+            var profile = App.Current.Settings.WinkCalibration;
+            var calibrated = profile is { IsValid: true };
+            var ready = calibrated && cameraChecked && profile!.CameraId == cameraId;
+            status.Child = !cameraChecked ? null
+                : cameraId is null ? Ui.Chip(AttentionGlyph, "No camera found", "WarningBrush", "WarningSoftBrush")
+                : ready ? Ui.Chip(ReadyGlyph, "Ready", "SuccessBrush", "SuccessSoftBrush")
+                : Ui.Chip(AttentionGlyph, calibrated ? "Not calibrated for this camera" : "Not calibrated",
+                    "WarningBrush", "WarningSoftBrush");
+            var verb = ready ? "Recalibrate" : "Calibrate";
+            calibrate.Content = verb;
+            calibrate.Style = Ui.Style(ready ? "SecondaryButton" : "PrimaryButton");
+            AutomationProperties.SetName(calibrate, $"{verb} wink turning");
+        }
+
+        async Task FindCameraAsync()
+        {
+            try { cameraId = await WinkCameraListener.FindCameraIdAsync(); }
+            catch (Exception) { cameraId = null; }
+            cameraChecked = true;
+            RefreshStatus();
+        }
+
         calibrate.Click += (_, _) =>
         {
             WinkCalibrationWindow.Show(profile =>
@@ -403,11 +441,11 @@ public sealed partial class LibraryPage
                     App.Current.Settings.WinkCalibration = previous;
                     throw;
                 }
-                calibrationStatus.Text = "Calibrated";
-                calibrationStatus.Visibility = Visibility.Visible;
-                calibrate.Content = "Recalibrate";
+                RefreshStatus();
             });
         };
+        RefreshStatus();
+        _ = FindCameraAsync();
         var toggle = CreateSettingsToggle(App.Current.Settings.WinkTurningEnabled, "Wink turning");
         toggle.Toggled += (_, _) =>
         {
@@ -489,10 +527,10 @@ public sealed partial class LibraryPage
                 profiles.Children.Clear();
                 var words = settings.VoiceCommands.Where(profile => profile.Command == command).ToList();
                 actionStatus.Child = words.Any(profile => profile.MatchesDevice(deviceId))
-                    ? Ui.Chip(VoiceReadyGlyph, "Ready", "SuccessBrush", "SuccessSoftBrush")
+                    ? Ui.Chip(ReadyGlyph, "Ready", "SuccessBrush", "SuccessSoftBrush")
                     : words.Count > 0
-                        ? Ui.Chip(VoiceAttentionGlyph, "Not calibrated", "WarningBrush", "WarningSoftBrush")
-                        : Ui.Chip(VoiceEmptyGlyph, "No word yet", "MuteBrush", "SurfaceBrush");
+                        ? Ui.Chip(AttentionGlyph, "Not calibrated", "WarningBrush", "WarningSoftBrush")
+                        : Ui.Chip(EmptyGlyph, "No word yet", "MuteBrush", "SurfaceBrush");
                 foreach (var profile in words)
                 {
                     var ready = profile.MatchesDevice(deviceId);
@@ -526,8 +564,8 @@ public sealed partial class LibraryPage
                     var name = Ui.Body(profile.Label);
                     name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
                     var status = ready
-                        ? Ui.Status(VoiceReadyGlyph, "Ready", "SuccessBrush")
-                        : Ui.Status(VoiceAttentionGlyph, "Not calibrated for this microphone", "WarningBrush");
+                        ? Ui.Status(ReadyGlyph, "Ready", "SuccessBrush")
+                        : Ui.Status(AttentionGlyph, "Not calibrated for this microphone", "WarningBrush");
                     var text = new StackPanel { Spacing = 4, Children = { name, status } };
                     var buttons = new StackPanel
                     {

@@ -15,6 +15,27 @@ internal readonly record struct WinkCameraFrame(TimeSpan Timestamp, byte[] Pixel
 
 internal static class WinkCameraListener
 {
+    /// <summary>The identity of the camera that wink turning uses, or null when there is none. The camera is not opened.</summary>
+    public static async Task<string?> FindCameraIdAsync()
+    {
+        var choice = await ChooseCameraAsync();
+        return choice.Group is null ? null : CameraId(choice.Source);
+    }
+
+    private static async Task<(MediaFrameSourceGroup Group, MediaFrameSourceInfo Source)> ChooseCameraAsync()
+    {
+        var groups = await MediaFrameSourceGroup.FindAllAsync();
+        return groups.SelectMany(group => group.SourceInfos
+                .Where(source => source.SourceKind == MediaFrameSourceKind.Color
+                    && source.MediaStreamType is MediaStreamType.VideoPreview or MediaStreamType.VideoRecord)
+                .Select(source => (Group: group, Source: source)))
+            .OrderByDescending(item => item.Source.DeviceInformation?.EnclosureLocation?.Panel == Panel.Front)
+            .ThenByDescending(item => item.Source.MediaStreamType == MediaStreamType.VideoPreview)
+            .FirstOrDefault();
+    }
+
+    private static string CameraId(MediaFrameSourceInfo source) => source.DeviceInformation?.Id ?? source.Id;
+
     // Each run owns its camera, models and buffers. Cancellation completes cleanup
     // before the reader starts a replacement run. Images never leave this process.
     public static async Task RunAsync(Action<int> onTurn, Action<string> onStatus, CancellationToken token,
@@ -22,21 +43,14 @@ internal static class WinkCameraListener
     {
         try
         {
-            var groups = await MediaFrameSourceGroup.FindAllAsync();
+            var choice = await ChooseCameraAsync();
             token.ThrowIfCancellationRequested();
-            var choice = groups.SelectMany(group => group.SourceInfos
-                    .Where(source => source.SourceKind == MediaFrameSourceKind.Color
-                        && source.MediaStreamType is MediaStreamType.VideoPreview or MediaStreamType.VideoRecord)
-                    .Select(source => (Group: group, Source: source)))
-                .OrderByDescending(item => item.Source.DeviceInformation?.EnclosureLocation?.Panel == Panel.Front)
-                .ThenByDescending(item => item.Source.MediaStreamType == MediaStreamType.VideoPreview)
-                .FirstOrDefault();
             if (choice.Group is null)
             {
                 onStatus("Wink turning off — no camera");
                 return;
             }
-            var cameraId = choice.Source.DeviceInformation?.Id ?? choice.Source.Id;
+            var cameraId = CameraId(choice.Source);
             var profile = calibration is { IsValid: true }
                 && string.Equals(calibration.CameraId, cameraId, StringComparison.Ordinal) ? calibration : null;
 
