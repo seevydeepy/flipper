@@ -56,7 +56,8 @@ renaming everything felt like a waste of a perfectly good afternoon.
   winks from blinks, or a check does not pass, the window says why and starts
   an extra round that asks only for the gestures that need more samples. A
   wink of the wrong eye, or a one-eye closure when a blink is asked for, is
-  not counted, and the window says what to do instead. A sample that cannot
+  not counted, and the window says what to do instead; the fourth such
+  gesture in a row is counted. A sample that cannot
   be scored and blocks every fit is left out. After three extra rounds the
   calibration stops with a tip, keeps the previous calibration, and offers
   **Start again** with new samples. Save after all checks pass. Use the

@@ -16,6 +16,7 @@ public sealed class WinkCalibrationSession(string cameraId)
     private const int RetainedSamples = 12;
     private const double StillTimeMs = 2500;
     public const int MaximumExtraRounds = 3;
+    private const int MaximumRejectionsInARow = 3;
     private static readonly WinkCalibrationPhase[] AllGestures =
         [WinkCalibrationPhase.RightWinks, WinkCalibrationPhase.LeftWinks, WinkCalibrationPhase.Blinks];
     private readonly List<WinkCalibrationSample> _still = [];
@@ -31,6 +32,7 @@ public sealed class WinkCalibrationSession(string cameraId)
     private WinkCalibrationPhase[] _roundGestures = AllGestures;
     private int _roundSamples = InitialSamples;
     private int _extraRounds;
+    private int _rejectionsInARow;
 
     public WinkCalibrationPhase Phase { get; private set; } = WinkCalibrationPhase.Baseline;
     /// <summary>The gestures that the current collection round asks for, in order.</summary>
@@ -108,12 +110,15 @@ public sealed class WinkCalibrationSession(string cameraId)
         }
 
         if (_capture?.Observe(sample) is not { } completed) return;
-        // A wink of the wrong eye is a mistake, not evidence. Counting it would block every fit.
-        if (_capture.IsWrongGesture(completed))
+        // A wink of the wrong eye is a mistake, not evidence. Counting it would block every fit. After several
+        // rejections in a row, the gesture may be how this person's eyes move, so it is counted and the fit decides.
+        if (_capture.IsWrongGesture(completed) && _rejectionsInARow < MaximumRejectionsInARow)
         {
+            _rejectionsInARow++;
             RejectedAttempts++;
             return;
         }
+        _rejectionsInARow = 0;
         if (Phase is WinkCalibrationPhase.RightCheck or WinkCalibrationPhase.LeftCheck or WinkCalibrationPhase.BlinkCheck)
         {
             var outcome = WinkCalibration.Evaluate(Profile!, completed);
@@ -177,10 +182,6 @@ public sealed class WinkCalibrationSession(string cameraId)
         if (Phase != WinkCalibrationPhase.Fitting || !_fitTaken) return;
         LastFailure = result.Failure;
         Assessment = result.Assessment;
-        if (result.Dropped is { Count: > 0 } dropped)
-        {
-            _training.RemoveAll(trial => dropped.Any(value => ReferenceEquals(value, trial)));
-        }
         if (result.Profile is not { IsValid: true } profile)
         {
             NeedsMoreSamples = true;
@@ -251,6 +252,7 @@ public sealed class WinkCalibrationSession(string cameraId)
         Phase = phase;
         PhaseSamples = 0;
         RequiredSamples = required;
+        _rejectionsInARow = 0;
         Pause();
         var gesture = phase switch
         {

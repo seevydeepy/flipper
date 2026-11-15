@@ -123,6 +123,7 @@ internal sealed class WinkCalibrationMeter : UserControl
     {
         if (phase is null) return "Start calibration when you are ready.";
         if (phase == WinkCalibrationPhase.Ready) return "Calibration checks complete.";
+        if (phase == WinkCalibrationPhase.Stopped) return "Calibration stopped.";
         if (phase == WinkCalibrationPhase.Fitting) return "Assessing the latest samples…";
         if (phase == WinkCalibrationPhase.Baseline) return "Measuring your open eyes.";
         if (IsChecking(phase)) return $"Fresh checks: {completedFreshChecks} of {requiredFreshChecks} complete.";

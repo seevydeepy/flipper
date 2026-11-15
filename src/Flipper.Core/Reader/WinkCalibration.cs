@@ -43,7 +43,10 @@ public sealed record WinkCalibrationAssessment(
         && Blinks.Matched == Blinks.Total && OpenEyes.Matched == OpenEyes.Total;
 }
 
-/// <param name="Dropped">Training trials left out of a successful repeated fit, because each one alone blocked it.</param>
+/// <param name="Dropped">
+/// Training trials left out of a successful repeated fit, because each one alone blocked it. The profile turns no
+/// page on them.
+/// </param>
 public sealed record WinkCalibrationResult(
     WinkCalibrationProfile? Profile,
     WinkCalibrationFailure Failure,
@@ -83,18 +86,19 @@ public static class WinkCalibration
         IReadOnlyList<WinkCalibrationTrial> trainingTrials,
         bool repeated)
     {
-        var result = Search(cameraId, openSamples, trainingTrials, repeated, out var blocker);
+        var result = Search(cameraId, openSamples, trainingTrials, [], repeated, out var blocker);
         if (!repeated || result.Profile is not null) return result;
 
         // One unusable sample must not block every candidate for the rest of the calibration. A blocker is left out
-        // only when it is the single failure of a candidate that otherwise meets the target. Fresh checks still follow.
+        // only when it is the single failure of a candidate that otherwise meets the target. It still rejects any
+        // candidate that turns a page on it, and fresh checks still follow.
         var dropped = new List<WinkCalibrationTrial>();
         var remaining = trainingTrials;
         while (blocker is { } trial && dropped.Count < MaximumDroppedTrials)
         {
             dropped.Add(trial);
             remaining = remaining.Where(value => !ReferenceEquals(value, trial)).ToArray();
-            var retry = Search(cameraId, openSamples, remaining, repeated, out blocker);
+            var retry = Search(cameraId, openSamples, remaining, dropped, repeated, out blocker);
             if (retry.Profile is not null) return retry with { Dropped = dropped };
         }
         return result;
@@ -104,6 +108,7 @@ public static class WinkCalibration
         string cameraId,
         IReadOnlyList<WinkCalibrationSample> openSamples,
         IReadOnlyList<WinkCalibrationTrial> trainingTrials,
+        IReadOnlyList<WinkCalibrationTrial> leftOut,
         bool repeated,
         out WinkCalibrationTrial? blocker)
     {
@@ -171,6 +176,12 @@ public static class WinkCalibration
                     };
                     failures.Clear();
                     var assessment = Assess(candidate, trainingTrials, repeated, failures);
+                    if (leftOut.Any(trial => Replay(candidate, trial) == WinkCalibrationTrialOutcome.UnsafeTurn))
+                    {
+                        assessment = assessment with { IsSafe = false };
+                        failures.Clear();
+                    }
+
                     if (repeated && blocker is null && failures is [var failure]
                         && IsDroppable(trainingTrials[failure.Index], failure.Outcome)
                         && Without(assessment, trainingTrials[failure.Index].Actual).MeetsRepeatedTarget)
