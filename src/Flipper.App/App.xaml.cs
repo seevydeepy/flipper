@@ -16,6 +16,7 @@ public partial class App : Application
     public PendingScoreDeletes PendingDeletes { get; } = new();
     public string? OpenCanonicalPath { get; set; }
     public LibrarySnapshot? LastSnapshot { get; set; }
+    public int PlaylistRevision { get; private set; }
     private Task? _libraryInitialization;
 
     public App()
@@ -76,6 +77,7 @@ public partial class App : Application
 
     public void PersistPlaylists()
     {
+        PlaylistRevision++;
         PlaylistLibrary.Save(Settings.LibraryPath, Settings.Playlists);
     }
 

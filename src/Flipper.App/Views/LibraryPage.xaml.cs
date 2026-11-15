@@ -86,7 +86,8 @@ public sealed partial class LibraryPage : Page
         }
 
         ScoreGrid.ItemsSource = _cards;
-        _watcher.Changed += OnWatcherChanged;
+        _watcher.Changed += () => OnWatcherChanged();
+        _watcher.PollRequested += () => OnWatcherChanged(isPoll: true);
         _watcher.CatalogChanged += OnCatalogChanged;
         _automaticCatalog.Changed += OnCatalogChanged;
         _catalogTimer.Tick += async (_, _) =>
@@ -303,11 +304,11 @@ public sealed partial class LibraryPage : Page
         SetLibraryLoading(false);
     }
 
-    private void OnWatcherChanged()
+    private void OnWatcherChanged(bool isPoll = false)
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (!_active || _refreshQueued)
+            if (!_active || _refreshQueued || (isPoll && _scanBusy))
             {
                 return;
             }
@@ -1876,6 +1877,7 @@ public sealed partial class LibraryPage : Page
                 var path = _scanPath;
                 var epoch = ++_scanEpoch;
                 var app = App.Current;
+                var playlistRevision = app.PlaylistRevision;
                 LibrarySnapshot next;
                 PlaylistLibraryChange? playlists = null;
                 try
@@ -1899,14 +1901,14 @@ public sealed partial class LibraryPage : Page
 
                 if (DispatcherQueue.HasThreadAccess)
                 {
-                    ApplySnapshotIfCurrent(next, path, epoch, playlists);
+                    ApplySnapshotIfCurrent(next, path, epoch, playlists, playlistRevision);
                 }
                 else
                 {
                     var applied = new TaskCompletionSource();
                     if (!DispatcherQueue.TryEnqueue(() =>
                     {
-                        ApplySnapshotIfCurrent(next, path, epoch, playlists);
+                        ApplySnapshotIfCurrent(next, path, epoch, playlists, playlistRevision);
                         applied.SetResult();
                     }))
                     {
@@ -1925,7 +1927,8 @@ public sealed partial class LibraryPage : Page
         }
     }
 
-    private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch, PlaylistLibraryChange? playlists)
+    private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch,
+        PlaylistLibraryChange? playlists, int playlistRevision)
     {
         if (!_active || epoch != _scanEpoch
             || !string.Equals(path, _scanPath, StringComparison.OrdinalIgnoreCase))
@@ -1933,11 +1936,15 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        // A playlist edit can finish while this background read is in flight.
+        // Do not replace that edit or remember the discarded read in the cache.
+        if (playlistRevision != App.Current.PlaylistRevision) playlists = null;
         if (playlists is not null)
         {
             _playlistCache.Apply(App.Current.Settings, playlists);
         }
         ApplySnapshot(next, path, playlistsChanged: playlists is not null);
+        SetLibraryLoading(false);
     }
 
     private LibrarySnapshot BuildSnapshot(App app, string? libraryPath)
@@ -2542,7 +2549,7 @@ public sealed partial class LibraryPage : Page
 
     private async Task LoadPreviewAsync(ScoreCard card, int epoch)
     {
-        if (!_active || card.PreviewEpoch != epoch)
+        if (card.PreviewEpoch != epoch)
         {
             return;
         }
@@ -2553,11 +2560,11 @@ public sealed partial class LibraryPage : Page
             await _previewSlots.WaitAsync();
             try
             {
-                if (!_active || card.PreviewEpoch != epoch) return;
+                if (card.PreviewEpoch != epoch) return;
                 var sourcePath = card.Entry.DisplayFullPath;
                 var created = await Task.Run(() => File.Exists(thumb)
                     || (File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, 360)));
-                if (!created || !_active || card.PreviewEpoch != epoch) return;
+                if (!created || card.PreviewEpoch != epoch) return;
             }
             finally
             {
@@ -2567,7 +2574,7 @@ public sealed partial class LibraryPage : Page
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (!_active || card.PreviewEpoch != epoch)
+            if (card.PreviewEpoch != epoch)
             {
                 return;
             }

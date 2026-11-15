@@ -10,6 +10,7 @@ public sealed class LibraryWatcher : IDisposable
     private bool _disposed;
 
     public event Action? Changed;
+    public event Action? PollRequested;
     public event Action? CatalogChanged;
 
     public void Start(string path)
@@ -112,7 +113,7 @@ public sealed class LibraryWatcher : IDisposable
             try
             {
                 await Task.Delay(delay, token);
-                Changed?.Invoke();
+                PollRequested?.Invoke();
             }
             catch (TaskCanceledException)
             {
