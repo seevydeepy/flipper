@@ -16,6 +16,7 @@ public sealed class ScoreCache
 
     private readonly string _directory;
     private readonly string _indexPath;
+    private readonly object _gate = new();
 
     public ScoreCache(string directory)
     {
@@ -35,9 +36,10 @@ public sealed class ScoreCache
 
     public IReadOnlyList<CacheIndexEntry> ListRecent()
     {
-        return LoadIndex().Entries
-            .OrderByDescending(entry => entry.LastOpenedUtc)
-            .ToArray();
+        lock (_gate)
+        {
+            return LoadIndex().Entries.OrderByDescending(entry => entry.LastOpenedUtc).ToArray();
+        }
     }
 
     public string? TryOpen(
@@ -45,6 +47,14 @@ public sealed class ScoreCache
         string? livePath,
         string displayPath,
         string? currentlyOpenCanonical)
+    {
+        lock (_gate)
+        {
+            return Open(canonicalPath, livePath, displayPath, currentlyOpenCanonical);
+        }
+    }
+
+    private string? Open(string canonicalPath, string? livePath, string displayPath, string? currentlyOpenCanonical)
     {
         var index = LoadIndex();
         string? cacheFile = null;
@@ -61,8 +71,7 @@ public sealed class ScoreCache
         }
         else
         {
-            var existing = index.Entries.FirstOrDefault(entry =>
-                string.Equals(entry.CanonicalPath, canonicalPath, StringComparison.OrdinalIgnoreCase));
+            var existing = FindEntry(index, canonicalPath);
             if (existing is null)
             {
                 return null;
@@ -83,31 +92,44 @@ public sealed class ScoreCache
         return cacheFile;
     }
 
-    public bool HasCopy(string canonicalPath)
+    public bool HasCopy(string canonicalPath) => FindCopy(canonicalPath) is not null;
+
+    public string? FindCopy(string canonicalPath)
     {
-        var existing = LoadIndex().Entries.FirstOrDefault(entry =>
-            string.Equals(entry.CanonicalPath, canonicalPath, StringComparison.OrdinalIgnoreCase));
-        return existing is not null && File.Exists(Path.Combine(_directory, existing.FileName));
+        lock (_gate)
+        {
+            var entry = FindEntry(LoadIndex(), canonicalPath);
+            var path = entry is null ? null : Path.Combine(_directory, entry.FileName);
+            return File.Exists(path) ? path : null;
+        }
     }
 
     public void Remove(string canonicalPath)
     {
-        var index = LoadIndex();
-        var existing = index.Entries.FirstOrDefault(entry =>
+        lock (_gate)
+        {
+            var index = LoadIndex();
+            var existing = FindEntry(index, canonicalPath);
+            if (existing is null)
+            {
+                return;
+            }
+
+            index.Entries.Remove(existing);
+            var path = Path.Combine(_directory, existing.FileName);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            SaveIndex(index);
+        }
+    }
+
+    private static CacheIndexEntry? FindEntry(CacheIndex index, string canonicalPath)
+    {
+        return index.Entries.FirstOrDefault(entry =>
             string.Equals(entry.CanonicalPath, canonicalPath, StringComparison.OrdinalIgnoreCase));
-        if (existing is null)
-        {
-            return;
-        }
-
-        index.Entries.Remove(existing);
-        var path = Path.Combine(_directory, existing.FileName);
-        if (File.Exists(path))
-        {
-            File.Delete(path);
-        }
-
-        SaveIndex(index);
     }
 
     private static void Upsert(

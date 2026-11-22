@@ -32,43 +32,56 @@ public sealed class ScoreCatalogCache
     {
         lock (_gate)
         {
-            Refresh(root);
+            Refresh(root, requireReadable: false);
             return _map;
         }
     }
 
-    public IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntries(string root)
+    public IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntries(string root) => LoadEntries(root, requireReadable: false);
+
+    internal IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntriesForScan(string root) => LoadEntries(root, requireReadable: true);
+
+    private IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntries(string root, bool requireReadable)
     {
         lock (_gate)
         {
-            Refresh(root);
+            Refresh(root, requireReadable);
             return _entries;
         }
     }
 
-    private void Refresh(string root)
+    private void Refresh(string root, bool requireReadable)
     {
-        var path = Path.Combine(root, ScoreCatalog.FileName);
-        if (!File.Exists(path))
+        var path = Path.GetFullPath(Path.Combine(root, ScoreCatalog.FileName));
+        var samePath = string.Equals(_path, path, StringComparison.OrdinalIgnoreCase);
+        if (!requireReadable && samePath)
+        {
+            var info = new FileInfo(path);
+            if (info.Exists && _length == info.Length && _lastWriteUtc == info.LastWriteTimeUtc)
+            {
+                return;
+            }
+        }
+
+        using var stream = SidecarRead.OpenOptional(path);
+        if (stream is null)
         {
             Clear();
             return;
         }
 
-        var info = new FileInfo(path);
-        if (_path is not null
-            && string.Equals(_path, path, StringComparison.OrdinalIgnoreCase)
-            && _length == info.Length
-            && _lastWriteUtc == info.LastWriteTimeUtc)
+        var length = stream.Length;
+        var lastWriteUtc = File.GetLastWriteTimeUtc(stream.SafeFileHandle);
+        if (samePath && _length == length && _lastWriteUtc == lastWriteUtc)
         {
             return;
         }
 
-        _entries = ScoreCatalog.LoadEntries(root);
+        _entries = ScoreCatalog.ReadEntries(stream, path);
         _map = _entries.ToDictionary(pair => pair.Key, pair => pair.Value.Facts, StringComparer.OrdinalIgnoreCase);
         _path = path;
-        _length = info.Length;
-        _lastWriteUtc = info.LastWriteTimeUtc;
+        _length = length;
+        _lastWriteUtc = lastWriteUtc;
     }
 
     private void Clear()
@@ -99,19 +112,34 @@ public static class ScoreCatalog
 
     public static IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntries(string root)
     {
-        var path = Path.Combine(root, FileName);
-        if (!File.Exists(path))
+        try
+        {
+            return LoadEntriesForScan(root);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         }
+    }
 
+    internal static IReadOnlyDictionary<string, ScoreCatalogEntry> LoadEntriesForScan(string root)
+    {
+        var path = Path.GetFullPath(Path.Combine(root, FileName));
+        using var stream = SidecarRead.OpenOptional(path);
+        return stream is null
+            ? new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase)
+            : ReadEntries(stream, path);
+    }
+
+    internal static IReadOnlyDictionary<string, ScoreCatalogEntry> ReadEntries(Stream stream, string path)
+    {
         try
         {
-            var json = File.ReadAllText(path);
+            using var reader = new StreamReader(stream, leaveOpen: true);
             var map = new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
-            if (JsonNode.Parse(json, new JsonNodeOptions { PropertyNameCaseInsensitive = true }) is not JsonObject raw)
+            if (JsonNode.Parse(reader.ReadToEnd(), new JsonNodeOptions { PropertyNameCaseInsensitive = true }) is not JsonObject raw)
             {
-                return map;
+                throw new JsonException("Expected a score catalogue object.");
             }
 
             foreach (var pair in raw)
@@ -121,17 +149,9 @@ public static class ScoreCatalog
 
             return map;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
         {
-            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
-        }
-        catch (IOException)
-        {
-            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+            throw new IOException($"Cannot read the score catalogue from '{path}'.", ex);
         }
     }
 
