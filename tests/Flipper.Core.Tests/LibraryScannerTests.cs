@@ -59,6 +59,79 @@ public sealed class LibraryScannerTests
     }
 
     [Fact]
+    public void Scan_ReportsAnUnchangedButLockedCatalogueAsIncomplete()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "Score.pdf"), "a");
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"Score.pdf":{"title":"Library title"}}""");
+        var cache = new ScoreCatalogCache();
+        Assert.Equal("Library title", Assert.Single(LibraryScanner.Scan(root.Path, cache).Scores).Title);
+
+        using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var snapshot = LibraryScanner.Scan(root.Path, cache);
+            Assert.True(snapshot.RootReachable);
+            Assert.Single(snapshot.Scores);
+            Assert.Equal(path, Assert.Single(snapshot.SkippedPaths).Path);
+        }
+
+        var recovered = LibraryScanner.Scan(root.Path, cache);
+        Assert.Empty(recovered.SkippedPaths);
+        Assert.Equal("Library title", Assert.Single(recovered.Scores).Title);
+    }
+
+    [Fact]
+    public void Scan_RetriesMalformedCatalogueAtTheSameSizeAndTimestamp()
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "Score.pdf"), "a");
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        var stamp = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.WriteAllText(path, """{"Score.pdf":{"title":"Old title"}}""");
+        File.SetLastWriteTimeUtc(path, stamp.AddMinutes(-1));
+        var cache = new ScoreCatalogCache();
+        Assert.Equal("Old title", cache.LoadEntries(root.Path)["Score.pdf"].Facts.Title);
+
+        const string current = """{"Score.pdf":{"title":"New title"}}""";
+        File.WriteAllText(path, current[..^1] + "]");
+        File.SetLastWriteTimeUtc(path, stamp);
+        Assert.ThrowsAny<IOException>(() => cache.LoadEntries(root.Path));
+        Assert.Empty(ScoreCatalog.LoadEntries(root.Path));
+        Assert.Equal(path, Assert.Single(LibraryScanner.Scan(root.Path).SkippedPaths).Path);
+        var incomplete = LibraryScanner.Scan(root.Path, cache);
+        Assert.Equal(path, Assert.Single(incomplete.SkippedPaths).Path);
+        Assert.Single(incomplete.Scores);
+
+        File.WriteAllText(path, current);
+        File.SetLastWriteTimeUtc(path, stamp);
+        var recovered = LibraryScanner.Scan(root.Path, cache);
+        Assert.Empty(recovered.SkippedPaths);
+        Assert.Equal("New title", Assert.Single(recovered.Scores).Title);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("{}")]
+    public void Scan_TreatsAnAbsentOrEmptyCatalogueAsComplete(string? content)
+    {
+        using var root = new TempDir();
+        File.WriteAllText(Path.Combine(root.Path, "Score.pdf"), "a");
+        var path = Path.Combine(root.Path, ScoreCatalog.FileName);
+        File.WriteAllText(path, """{"Score.pdf":{"title":"Old title"}}""");
+        var cache = new ScoreCatalogCache();
+        Assert.Equal("Old title", Assert.Single(LibraryScanner.Scan(root.Path, cache).Scores).Title);
+
+        if (content is null) File.Delete(path);
+        else File.WriteAllText(path, content);
+
+        var snapshot = LibraryScanner.Scan(root.Path, cache);
+        Assert.Empty(snapshot.SkippedPaths);
+        Assert.False(Assert.Single(snapshot.Scores).HasCatalogEntry);
+        Assert.Empty(cache.LoadEntries(root.Path));
+    }
+
+    [Fact]
     public void Scan_DistinguishesMissingEntryFromExistingNullEntry()
     {
         using var root = new TempDir();

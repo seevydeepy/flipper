@@ -12,6 +12,7 @@ public sealed class LibraryPathRewriteTests
         {
             LibraryPath = @"\\Alexandria\Charles\Scores",
             LastScoreCanonicalPath = @"\\Alexandria\Charles\Scores\Downloads\Air.pdf",
+            SelectedFolder = @"Downloads\Piano",
             Scores =
             {
                 [@"\\Alexandria\Charles\Scores\Downloads\Air.pdf"] = new ScoreStats { Favourite = true, PlayCount = 3 },
@@ -40,6 +41,7 @@ public sealed class LibraryPathRewriteTests
         Assert.Equal(@"\\Alexandria\Charles\Scores\K's Collection\Air.pdf", settings.LastScoreCanonicalPath);
         Assert.Equal(@"\\Alexandria\Charles\Scores\K's Collection\Air.pdf", settings.Playlists[0].CanonicalPaths[0]);
         Assert.True(settings.FolderIsExpanded("K's Collection", false));
+        Assert.Equal(@"K's Collection\Piano", settings.SelectedFolder);
         Assert.False(settings.FolderExpanded.ContainsKey("Downloads"));
     }
 

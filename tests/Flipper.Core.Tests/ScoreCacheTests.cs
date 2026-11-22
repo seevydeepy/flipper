@@ -24,6 +24,52 @@ public sealed class ScoreCacheTests
     }
 
     [Fact]
+    public void FindCopy_UsesOnlyLocalFilesAndKeepsTheLastOpenedTime()
+    {
+        using var live = new TempDir();
+        using var cacheDir = new TempDir();
+        var liveFile = Path.Combine(live.Path, "score.pdf");
+        var canonicalPath = @"\\share\score.pdf";
+        File.WriteAllText(liveFile, "pdf-bytes");
+        var cache = new ScoreCache(cacheDir.Path);
+        var copy = cache.TryOpen(canonicalPath, liveFile, liveFile, null);
+        Assert.NotNull(copy);
+        var lastOpened = Assert.Single(cache.ListRecent()).LastOpenedUtc;
+        File.Delete(liveFile);
+
+        Assert.Equal(copy, cache.FindCopy(canonicalPath.ToUpperInvariant()));
+        Assert.Equal(lastOpened, Assert.Single(cache.ListRecent()).LastOpenedUtc);
+        File.Delete(copy);
+        Assert.Null(cache.FindCopy(canonicalPath));
+    }
+
+    [Fact]
+    public async Task TryOpen_ConcurrentCallsKeepEveryIndexEntry()
+    {
+        using var live = new TempDir();
+        using var cacheDir = new TempDir();
+        var cache = new ScoreCache(cacheDir.Path);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var files = Enumerable.Range(0, ScoreCache.MaxEntries).Select(i =>
+        {
+            var path = Path.Combine(live.Path, $"score-{i}.pdf");
+            File.WriteAllText(path, $"score-{i}");
+            return path;
+        }).ToArray();
+        var opens = files.Select(path => Task.Run(async () =>
+        {
+            await start.Task;
+            return cache.TryOpen(path, path, path, null);
+        })).ToArray();
+
+        start.SetResult();
+        await Task.WhenAll(opens);
+
+        Assert.Equal(ScoreCache.MaxEntries, cache.ListRecent().Count);
+        Assert.All(files, path => Assert.NotNull(cache.FindCopy(path)));
+    }
+
+    [Fact]
     public void TryOpen_KeepsTwentyAndNeverEvictsOpenScore()
     {
         using var live = new TempDir();

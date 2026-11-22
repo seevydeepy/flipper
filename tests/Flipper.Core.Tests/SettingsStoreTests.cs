@@ -16,6 +16,7 @@ public sealed class SettingsStoreTests
             store.Save(new AppSettings
             {
                 SearchQuery = "chopin",
+                SelectedFolder = @"Practice\Piano",
                 Sort = SortMode.Recent,
                 SortReversed = true,
                 UiScalePercent = 150,
@@ -26,6 +27,7 @@ public sealed class SettingsStoreTests
 
             var loaded = store.Load();
             Assert.Equal("chopin", loaded.SearchQuery);
+            Assert.Equal(@"Practice\Piano", loaded.SelectedFolder);
             Assert.Equal(SortMode.Recent, loaded.Sort);
             Assert.True(loaded.SortReversed);
             Assert.Equal(150, loaded.UiScalePercent);
@@ -241,6 +243,17 @@ public sealed class SettingsStoreTests
         {
             DeleteParent(path);
         }
+    }
+
+    [Fact]
+    public void Save_KeepsOnlyPlaylistsStillAwaitingMigration()
+    {
+        using var dir = new TempDir();
+        var store = new SettingsStore(Path.Combine(dir.Path, "settings.json"));
+        var settings = new AppSettings { Playlists = [new Playlist { Id = "remote", Name = "On the share" }] };
+        store.Save(settings, [new Playlist { Id = "old", Name = "Before the update" }]);
+        Assert.Equal("old", Assert.Single(store.Load().Playlists).Id);
+        Assert.Equal("remote", Assert.Single(settings.Playlists).Id);
     }
 
     [Fact]
