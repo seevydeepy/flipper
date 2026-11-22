@@ -1,6 +1,6 @@
 namespace Flipper.Core.Library;
 
-/// <summary>Why a directory was skipped during a scan.</summary>
+/// <summary>Why a path was skipped during a scan.</summary>
 public sealed record ScanSkipped(string Path, string Reason);
 
 public static class LibraryScanner
@@ -12,13 +12,24 @@ public static class LibraryScanner
             return new LibrarySnapshot(displayRoot ?? string.Empty, Array.Empty<ScoreEntry>(), false);
         }
 
-        var catalog = catalogCache is null
-            ? ScoreCatalog.LoadEntries(displayRoot)
-            : catalogCache.LoadEntries(displayRoot);
+        var skipped = new List<ScanSkipped>();
+        IReadOnlyDictionary<string, ScoreCatalogEntry> catalog;
+        try
+        {
+            catalog = catalogCache is null
+                ? ScoreCatalog.LoadEntriesForScan(displayRoot)
+                : catalogCache.LoadEntriesForScan(displayRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            var reason = ex is UnauthorizedAccessException ? "unauthorised" : "unreadable";
+            skipped.Add(new ScanSkipped(Path.Combine(displayRoot, ScoreCatalog.FileName), reason));
+            catalog = new Dictionary<string, ScoreCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        }
+
         ScoreTrash.Ensure(displayRoot);
         var trashIndex = ScoreTrash.LoadIndex(displayRoot);
         var scores = new List<ScoreEntry>();
-        var skipped = new List<ScanSkipped>();
         ScanDirectory(displayRoot, displayRoot, scores, catalog, trashIndex, skipped, isRoot: true);
         return new LibrarySnapshot(displayRoot, scores, true, [.. skipped], catalog);
     }

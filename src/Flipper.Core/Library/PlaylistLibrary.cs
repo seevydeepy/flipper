@@ -7,6 +7,7 @@ public sealed record PlaylistLibraryChange(string Path, long Length, DateTime La
 
 public sealed class PlaylistLibraryCache
 {
+    private const long MissingLength = -1;
     private string? _path;
     private long _length;
     private DateTime _lastWriteUtc;
@@ -27,29 +28,31 @@ public sealed class PlaylistLibraryCache
             return null;
         }
 
-        var path = Path.Combine(root, PlaylistLibrary.FileName);
-        if (!File.Exists(path))
+        var path = Path.GetFullPath(Path.Combine(root, PlaylistLibrary.FileName));
+        using var stream = SidecarRead.OpenOptional(path);
+        var length = stream?.Length ?? MissingLength;
+        var lastWriteUtc = stream is null ? default : File.GetLastWriteTimeUtc(stream.SafeFileHandle);
+
+        if (string.Equals(_path, path, StringComparison.OrdinalIgnoreCase)
+            && _length == length
+            && _lastWriteUtc == lastWriteUtc)
         {
             return null;
         }
 
-        var info = new FileInfo(path);
-        if (_path is not null
-            && string.Equals(_path, path, StringComparison.OrdinalIgnoreCase)
-            && _length == info.Length
-            && _lastWriteUtc == info.LastWriteTimeUtc)
-        {
-            return null;
-        }
-
-        var playlists = PlaylistLibrary.Load(root);
-        return new PlaylistLibraryChange(info.FullName, info.Length, info.LastWriteTimeUtc, playlists);
+        using var reader = stream is null ? null : new StreamReader(stream, leaveOpen: true);
+        return new PlaylistLibraryChange(path, length, lastWriteUtc,
+            reader is null ? [] : PlaylistLibrary.Read(reader, path));
     }
 
     public void Apply(AppSettings settings, PlaylistLibraryChange change)
     {
         settings.Playlists = change.Playlists;
         settings.Normalize();
+        if (settings.Playlists.Count == 0)
+        {
+            settings.SelectedPlaylistId = null;
+        }
         _path = change.Path;
         _length = change.Length;
         _lastWriteUtc = change.LastWriteUtc;
@@ -113,17 +116,30 @@ public static class PlaylistLibrary
 
         try
         {
-            var json = File.ReadAllText(path);
-            var loaded = JsonSerializer.Deserialize<List<Playlist>>(json, JsonOptions);
-            return PlaylistBook.Sanitize(loaded);
-        }
-        catch (JsonException)
-        {
-            return [];
+            using var reader = File.OpenText(path);
+            return Read(reader, path);
         }
         catch (IOException)
         {
             return [];
+        }
+    }
+
+    internal static List<Playlist> Read(TextReader reader, string path)
+    {
+        try
+        {
+            var loaded = JsonSerializer.Deserialize<List<Playlist>>(reader.ReadToEnd(), JsonOptions);
+            if (loaded is null || loaded.Any(playlist => playlist is null))
+            {
+                throw new JsonException("Expected a list of playlists.");
+            }
+
+            return PlaylistBook.Sanitize(loaded);
+        }
+        catch (JsonException exception)
+        {
+            throw new IOException($"Cannot read playlists from '{path}'.", exception);
         }
     }
 
@@ -136,7 +152,6 @@ public static class PlaylistLibrary
 
         try
         {
-            Directory.CreateDirectory(root);
             var path = Path.Combine(root, FileName);
             var json = JsonSerializer.Serialize(PlaylistBook.Sanitize(playlists), JsonOptions);
             SidecarReplace.Write(path, json);
@@ -152,6 +167,20 @@ public static class PlaylistLibrary
         }
     }
 
+    public static PlaylistLibraryChange LoadAndMigrate(string root, List<Playlist> legacyPlaylists, out bool migrated)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+        var current = new PlaylistLibraryCache().LoadIfChanged(root)!;
+        var legacy = PlaylistBook.Sanitize(PlaylistBook.Copy(legacyPlaylists));
+        migrated = false;
+        if (legacy.Count == 0) return current;
+
+        var merged = Merge(PlaylistBook.Copy(current.Playlists), legacy);
+        migrated = Save(root, merged);
+        // Keep the read fingerprint so the next refresh detects the replacement.
+        return migrated ? current with { Playlists = merged } : current;
+    }
+
     public static bool Hydrate(AppSettings settings)
     {
         if (string.IsNullOrWhiteSpace(settings.LibraryPath))
@@ -159,7 +188,20 @@ public static class PlaylistLibrary
             return false;
         }
 
-        var fromDisk = Load(settings.LibraryPath);
+        List<Playlist> fromDisk;
+        try
+        {
+            fromDisk = new PlaylistLibraryCache().LoadIfChanged(settings.LibraryPath)!.Playlists;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+
         var fromSettings = PlaylistBook.Sanitize(settings.Playlists);
         if (fromDisk.Count == 0 && fromSettings.Count == 0)
         {

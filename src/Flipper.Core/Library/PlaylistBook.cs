@@ -9,6 +9,9 @@ public sealed class Playlist
 
 public static class PlaylistBook
 {
+    public static List<Playlist> Copy(IEnumerable<Playlist> playlists) =>
+        playlists.Select(p => new Playlist { Id = p.Id, Name = p.Name, CanonicalPaths = [.. p.CanonicalPaths] }).ToList();
+
     public static bool TryCreate(IList<Playlist> list, string name, out Playlist playlist)
     {
         var trimmed = name.Trim();

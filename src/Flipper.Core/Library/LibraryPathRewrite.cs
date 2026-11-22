@@ -15,6 +15,11 @@ public static class LibraryPathRewrite
         changed |= RewritePlaylists(settings, oldName, newName);
         changed |= RewriteLastScore(settings, oldName, newName);
         changed |= RewriteFolderExpanded(settings, oldName, newName);
+        if (settings.SelectedFolder is { } folder && TryRewriteRelative(folder, oldName, newName, out var nextFolder))
+        {
+            settings.SelectedFolder = nextFolder;
+            changed = true;
+        }
         return changed;
     }
 

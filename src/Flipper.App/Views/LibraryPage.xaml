@@ -259,6 +259,7 @@
                                                     VerticalAlignment="Bottom"
                                                     Margin="4"
                                                     Click="EditScore_Click"
+                                                    IsEnabled="{x:Bind CanEdit, Mode=OneWay}"
                                                     Tag="{x:Bind}"
                                                     Visibility="{x:Bind FavouriteVisibility}"
                                                     AutomationProperties.Name="Edit score details"
@@ -271,6 +272,7 @@
                                                     VerticalAlignment="Bottom"
                                                     Margin="4"
                                                     Click="Restore_Click"
+                                                    IsEnabled="{x:Bind CanEdit, Mode=OneWay}"
                                                     Tag="{x:Bind}"
                                                     Visibility="{x:Bind RestoreVisibility}"
                                                     AutomationProperties.Name="Restore">

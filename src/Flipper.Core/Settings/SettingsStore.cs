@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Flipper.Core.Library;
 
 namespace Flipper.Core.Settings;
 
@@ -52,7 +53,7 @@ public sealed class SettingsStore
         }
     }
 
-    public void Save(AppSettings settings)
+    public void Save(AppSettings settings, List<Playlist>? pendingPlaylistMigration = null)
     {
         var dir = Path.GetDirectoryName(_path);
         if (!string.IsNullOrEmpty(dir))
@@ -61,7 +62,7 @@ public sealed class SettingsStore
         }
 
         var playlists = settings.Playlists;
-        settings.Playlists = [];
+        settings.Playlists = pendingPlaylistMigration ?? [];
         try
         {
             var json = JsonSerializer.Serialize(settings, JsonOptions);

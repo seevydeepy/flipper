@@ -38,6 +38,7 @@ public sealed class AppSettings
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Playlist> Playlists { get; set; } = new();
     public string? SelectedPlaylistId { get; set; }
+    public string? SelectedFolder { get; set; }
     public Dictionary<string, bool> FolderExpanded { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public const int DefaultUiScalePercent = 100;
