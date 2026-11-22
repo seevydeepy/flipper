@@ -167,6 +167,20 @@ public static class PlaylistLibrary
         }
     }
 
+    public static PlaylistLibraryChange LoadAndMigrate(string root, List<Playlist> legacyPlaylists, out bool migrated)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+        var current = new PlaylistLibraryCache().LoadIfChanged(root)!;
+        var legacy = PlaylistBook.Sanitize(PlaylistBook.Copy(legacyPlaylists));
+        migrated = false;
+        if (legacy.Count == 0) return current;
+
+        var merged = Merge(PlaylistBook.Copy(current.Playlists), legacy);
+        migrated = Save(root, merged);
+        // Keep the read fingerprint so the next refresh detects the replacement.
+        return migrated ? current with { Playlists = merged } : current;
+    }
+
     public static bool Hydrate(AppSettings settings)
     {
         if (string.IsNullOrWhiteSpace(settings.LibraryPath))

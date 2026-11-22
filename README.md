@@ -19,8 +19,9 @@ renaming everything felt like a waste of a perfectly good afternoon.
   and playlists on this device and downloads every PDF in the background.
   Leave Carousel open with the share connected for the first download. On
   later starts you can browse the saved library and read downloaded scores
-  while Windows reconnects. Carousel picks up changes from the share when it
-  becomes available. Each device needs enough free space for its copy.
+  while Windows reconnects. If a download stops during a later update, the
+  previous folders and PDFs stay available offline until the update finishes.
+  Each device needs enough free space for its copy.
 - **Reader** — proper page rendering with paper-white theming, ink annotations
   cropping, page-turn gestures and keys.
 - **Voice** — local matching against your own recorded command sounds. In

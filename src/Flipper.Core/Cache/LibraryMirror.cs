@@ -15,8 +15,11 @@ public sealed class LibraryMirror
     private readonly string _libraryPrefix;
     private readonly string _directory;
     private readonly string _snapshotPath;
+    private readonly object _stateGate = new();
     private readonly SemaphoreSlim _copyGate = new(1);
-    private LibrarySnapshot? _savedSnapshot;
+    private bool _loaded;
+    private MirroredLibrary? _published;
+    private MirroredLibrary? _staged;
 
     public LibraryMirror(string storageDirectory, string libraryPath)
     {
@@ -28,15 +31,29 @@ public sealed class LibraryMirror
         _snapshotPath = Path.Combine(_directory, "library.json");
     }
 
+    // Keep the published view stable between updates. Copy its playlists before editing them.
+    public MirroredLibrary? Published => Volatile.Read(ref _published);
+
     public MirroredLibrary? Load()
     {
+        lock (_stateGate)
+        {
+            return TryLoadPublished() ? _published : null;
+        }
+    }
+
+    private bool TryLoadPublished()
+    {
+        if (_loaded) return true;
+
         try
         {
             using var stream = new FileStream(_snapshotPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             var library = JsonSerializer.Deserialize<MirroredLibrary>(stream, JsonOptions);
             if (library?.Snapshot is not { Scores: not null } snapshot || library.Playlists is null || !MatchesRoot(snapshot))
             {
-                return null;
+                _loaded = true;
+                return true;
             }
 
             foreach (var score in snapshot.Scores)
@@ -54,24 +71,45 @@ public sealed class LibraryMirror
                 snapshot = snapshot with { CatalogEntries = new Dictionary<string, ScoreCatalogEntry>(catalog, StringComparer.OrdinalIgnoreCase) };
             }
 
-            return library with { Snapshot = snapshot with { RootReachable = false } };
+            Volatile.Write(ref _published, library with { Snapshot = snapshot with { RootReachable = false } });
+            _loaded = true;
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException or ArgumentException)
         {
-            return null;
+            _loaded = true;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
-    public bool SaveSnapshot(LibrarySnapshot snapshot, IReadOnlyList<Playlist> playlists)
+    public bool StageSnapshot(LibrarySnapshot snapshot, IReadOnlyList<Playlist> playlists)
     {
         if (!IsComplete(snapshot)) return false;
 
+        lock (_stateGate)
+        {
+            if (!TryLoadPublished()) return false;
+
+            var next = new MirroredLibrary(snapshot with { RootReachable = false }, PlaylistBook.Copy(playlists));
+            // The first library can be browsed while it downloads. Later file changes wait for their copies.
+            if ((_published is null || SameFiles(_published.Snapshot, next.Snapshot)) && !Publish(next)) return false;
+
+            _staged = next;
+            return true;
+        }
+    }
+
+    private bool Publish(MirroredLibrary library)
+    {
         try
         {
             Directory.CreateDirectory(_directory);
-            var library = new MirroredLibrary(snapshot, playlists.ToList());
             SidecarReplace.Write(_snapshotPath, JsonSerializer.Serialize(library, JsonOptions));
-            Volatile.Write(ref _savedSnapshot, snapshot);
+            Volatile.Write(ref _published, library);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -83,7 +121,14 @@ public sealed class LibraryMirror
     public string? FindCopy(ScoreEntry score)
     {
         var path = CopyPath(score);
-        return File.Exists(path) ? path : null;
+        if (path is null || File.Exists(path)) return path;
+
+        var previous = Published?.Snapshot.Scores.FirstOrDefault(entry =>
+            string.Equals(entry.DisplayFullPath, score.DisplayFullPath, StringComparison.OrdinalIgnoreCase));
+        if (previous is null) return null;
+
+        var fallback = CopyPath(previous);
+        return File.Exists(fallback) ? fallback : null;
     }
 
     public async Task<string?> CopyScoreAsync(ScoreEntry score, CancellationToken token)
@@ -93,13 +138,20 @@ public sealed class LibraryMirror
         if (path is null) return null;
 
         await CopyCurrentScoreAsync(score, path, token).ConfigureAwait(false);
-        return File.Exists(path) ? path : null;
+        return FindCopy(score);
     }
 
     public async Task<bool> CopyScoresAsync(LibrarySnapshot snapshot, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (!IsComplete(snapshot)) return false;
+
+        var files = snapshot with { RootReachable = false };
+        lock (_stateGate)
+        {
+            if (!TryLoadPublished()) return false;
+            if ((_staged ?? _published) is not { } library || !SameFiles(library.Snapshot, files)) return true;
+        }
 
         var expected = new HashSet<string>(StringComparer.Ordinal);
         var copiedAll = true;
@@ -122,26 +174,16 @@ public sealed class LibraryMirror
         await _copyGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            // A newer scan can publish its library and supply on-demand copies during this pass.
-            var saved = Volatile.Read(ref _savedSnapshot);
-            if (saved is not null && !ReferenceEquals(snapshot, saved) && !snapshot.SameMembership(saved, includeLabels: false))
-            {
-                return true;
-            }
-
-            if (!Directory.Exists(_directory)) return true;
-
-            foreach (var path in Directory.EnumerateFiles(_directory, "*.pdf"))
+            lock (_stateGate)
             {
                 token.ThrowIfCancellationRequested();
-                if (!expected.Contains(path)) File.Delete(path);
-            }
+                // A newer scan can stage its metadata and supply on-demand copies during this pass.
+                if ((_staged ?? _published) is not { } latest || !SameFiles(latest.Snapshot, files)) return true;
+                if (!ReferenceEquals(latest, _published) && !Publish(latest)) return false;
 
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
+                RemoveObsoleteCopies(expected);
+                return true;
+            }
         }
         finally
         {
@@ -195,13 +237,7 @@ public sealed class LibraryMirror
         {
             if (temp is not null)
             {
-                try
-                {
-                    File.Delete(temp);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                }
+                TryDelete(temp);
             }
 
             _copyGate.Release();
@@ -214,13 +250,48 @@ public sealed class LibraryMirror
     private bool MatchesRoot(LibrarySnapshot snapshot) =>
         !string.IsNullOrWhiteSpace(snapshot.RootDisplayPath) && NormalizePath(snapshot.RootDisplayPath) == _libraryRoot;
 
+    private static bool SameFiles(LibrarySnapshot left, LibrarySnapshot right) =>
+        ReferenceEquals(left.Scores, right.Scores) || left.SameMembership(right, includeLabels: false);
+
     private string? CopyPath(ScoreEntry score)
     {
         // A mapped drive's canonical UNC path can change when the mapping cannot be queried.
         var source = NormalizePath(score.DisplayFullPath);
+        // Keep the old version readable until the whole staged library has been published.
         return source.StartsWith(_libraryPrefix, StringComparison.Ordinal)
-            ? Path.Combine(_directory, Hash(source) + ".pdf")
+            ? Path.Combine(_directory, $"{Hash(source)}.{score.Length:x}-{score.LastWriteUtc.Ticks:x}.pdf")
             : null;
+    }
+
+    private void RemoveObsoleteCopies(HashSet<string> expected)
+    {
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(_directory, "*.pdf"))
+            {
+                if (!expected.Contains(path)) TryDelete(path);
+            }
+
+            var cutoff = DateTime.UtcNow.AddDays(-1);
+            foreach (var path in Directory.EnumerateFiles(_directory, "*.pdf.*.tmp"))
+            {
+                if (File.GetLastWriteTimeUtc(path) < cutoff) TryDelete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static string NormalizePath(string path)

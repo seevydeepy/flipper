@@ -7,7 +7,7 @@ internal sealed class NetworkLibraryCopy(LibraryMirror mirror)
 {
     public LibraryMirror Mirror { get; } = mirror;
     private readonly CancellationTokenSource _lifetime = new();
-    private LibrarySnapshot? _saved;
+    private LibrarySnapshot? _staged;
     private int _playlistRevision;
     private LibrarySnapshot? _wantedFiles;
     private LibrarySnapshot? _copiedFiles;
@@ -19,24 +19,34 @@ internal sealed class NetworkLibraryCopy(LibraryMirror mirror)
 
     // The library page awaits each metadata save. Copying the PDFs can continue in the reader.
     public async Task RefreshAsync(LibrarySnapshot snapshot, List<Playlist> playlists,
-        int playlistRevision, bool playlistsChanged)
+        int playlistRevision, bool playlistsChanged, bool reconnected)
     {
-        if (playlistsChanged || playlistRevision != _playlistRevision) _saved = null;
-        if (_saved is null || !_saved.SameMembership(snapshot))
+        if (reconnected)
         {
-            if (DateTime.UtcNow < _retrySaveAfter) return;
-            var detached = PlaylistBook.Copy(playlists);
-            if (!await Task.Run(() => !_lifetime.IsCancellationRequested && Mirror.SaveSnapshot(snapshot, detached)))
-            {
-                _retrySaveAfter = DateTime.UtcNow.AddSeconds(30);
-                return;
-            }
-            _saved = snapshot;
-            _playlistRevision = playlistRevision;
+            _retryFilesAfter = default;
+            _retrySaveAfter = default;
         }
+        if (playlistsChanged || playlistRevision != _playlistRevision) _staged = null;
+        if (DateTime.UtcNow < _retrySaveAfter) return;
+        var prior = _staged;
+        var wanted = _wantedFiles;
+        var (ready, filesChanged) = await Task.Run(() =>
+        {
+            if (_lifetime.IsCancellationRequested) return (false, false);
+            if (prior is not null && prior.SameMembership(snapshot)) return (true, false);
+            if (!Mirror.StageSnapshot(snapshot, playlists)) return (false, false);
+            return (true, wanted is null || !wanted.SameMembership(snapshot, includeLabels: false));
+        });
 
         if (_lifetime.IsCancellationRequested) return;
-        if (_wantedFiles is null || !_wantedFiles.SameMembership(snapshot, includeLabels: false))
+        if (!ready)
+        {
+            _retrySaveAfter = DateTime.UtcNow.AddSeconds(30);
+            return;
+        }
+        _staged = snapshot;
+        _playlistRevision = playlistRevision;
+        if (filesChanged)
         {
             _wantedFiles = snapshot;
             _retryFilesAfter = default;

@@ -243,11 +243,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (App.Current.LastSnapshot is { } snapshot)
-        {
-            App.Current.LastSnapshot = snapshot.Without(result.CanonicalPath);
-        }
-
         if (RootFrame.Content is LibraryPage library)
         {
             library.ForgetCommitted(result.CanonicalPath);

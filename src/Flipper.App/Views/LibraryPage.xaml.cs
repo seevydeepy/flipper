@@ -47,8 +47,11 @@ public sealed partial class LibraryPage : Page
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
     private LibrarySnapshot? _lastComplete;
     private NetworkLibraryCopy? _networkCopy;
+    private MirroredLibrary? _displayedLocalLibrary;
     private bool _prepared;
+    private DateTime _retryMigrationAfter;
     private int _libraryGeneration;
+    private bool _restoreSelectionWhenAvailable;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _searchTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private readonly DispatcherTimer _catalogTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -158,9 +161,12 @@ public sealed partial class LibraryPage : Page
         _scanAgain = false;
         _scanPath = path;
         _prepared = false;
+        _retryMigrationAfter = default;
+        _restoreSelectionWhenAvailable = false;
         _playlistCache = new();
         _networkCopy?.Stop();
         _networkCopy = null;
+        _displayedLocalLibrary = null;
         _lastComplete = null;
         _watcher.Stop();
         _watchedPath = null;
@@ -180,7 +186,6 @@ public sealed partial class LibraryPage : Page
             if (saved is not null)
             {
                 _lastComplete = saved.Snapshot;
-                App.Current.Settings.Playlists = saved.Playlists;
                 ApplySnapshot(saved.Snapshot, path, playlistsChanged: true);
                 SetLibraryLoading(false);
             }
@@ -381,7 +386,6 @@ public sealed partial class LibraryPage : Page
                 }
 
                 _snapshot = next;
-                App.Current.LastSnapshot = next;
                 ApplyFilter();
             }
             while (_catalogAgain);
@@ -409,12 +413,15 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        if (string.Equals(result.Path, App.Current.Settings.LibraryPath, StringComparison.OrdinalIgnoreCase))
+        {
+            Reload(result.Path);
+            return;
+        }
         App.Current.UseLibraryPath(result.Path);
         _automaticCatalog.SetRoot(result.Path);
         _selectedFolder = null;
         _selectedPlaylistId = null;
-        App.Current.Settings.SelectedPlaylistId = null;
-        App.Current.LastSnapshot = null;
         ExitAssignment();
         HidePlaylistDelete();
         _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), false);
@@ -444,6 +451,7 @@ public sealed partial class LibraryPage : Page
             RestoreSelectedNode();
             return;
         }
+        _restoreSelectionWhenAvailable = false;
         if (mark?.Favourites == true)
         {
             _showFavourites = true;
@@ -861,11 +869,6 @@ public sealed partial class LibraryPage : Page
         }
 
         _snapshot = _snapshot.Without(entry.CanonicalPath);
-        if (App.Current.LastSnapshot is { } snapshot)
-        {
-            App.Current.LastSnapshot = snapshot.Without(entry.CanonicalPath);
-        }
-
         ApplyFilter();
         var playlistIds = PlaylistBook.IdsContaining(App.Current.Settings.Playlists, entry.CanonicalPath);
         var moved = await Task.Run(() => ScoreTrash.TryMove(entry.DisplayFullPath, library, playlistIds, out _));
@@ -2000,37 +2003,16 @@ public sealed partial class LibraryPage : Page
                 var playlistRevision = app.PlaylistRevision;
                 var playlistCache = _playlistCache;
                 var prepare = !_prepared;
-                var legacyPlaylists = app.LegacyPlaylists;
-                List<Playlist>? unmigrated = null;
+                var legacyPlaylists = DateTime.UtcNow >= _retryMigrationAfter ? app.LegacyPlaylists : [];
                 var network = _networkCopy is not null;
-                var collectionRenamed = false;
-                LibrarySnapshot next;
-                PlaylistLibraryChange? playlists = null;
+                LibraryRead read;
                 try
                 {
-                    (next, playlists) = await Task.Run(() =>
-                    {
-                        if (prepare && !string.IsNullOrWhiteSpace(path))
-                        {
-                            if (!Directory.Exists(path))
-                                return (new LibrarySnapshot(path, [], false), null);
-                            collectionRenamed = App.PrepareLibrary(path, legacyPlaylists, out unmigrated);
-                            network |= PathCanonicalizer.NeedsFastPoll(path);
-                        }
-                        var snapshot = BuildSnapshot(app, path);
-                        if (!snapshot.RootReachable || (network && snapshot.SkippedPaths.Count > 0))
-                            return (snapshot, null);
-                        try { return (snapshot, playlistCache.LoadIfChanged(path)); }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                        {
-                            return (snapshot with { Skipped = [.. snapshot.SkippedPaths,
-                                new ScanSkipped(PlaylistLibrary.FileName, "unreadable")] }, null);
-                        }
-                    });
+                    read = await Task.Run(() => ReadLibrary(app, path, network, prepare, legacyPlaylists, playlistCache));
                 }
                 catch (Exception)
                 {
-                    next = new LibrarySnapshot(path ?? string.Empty, Array.Empty<ScoreEntry>(), false);
+                    read = new LibraryRead(new LibrarySnapshot(path ?? string.Empty, [], false), network);
                 }
 
                 if (epoch != _scanEpoch)
@@ -2040,15 +2022,14 @@ public sealed partial class LibraryPage : Page
 
                 if (DispatcherQueue.HasThreadAccess)
                 {
-                    await ApplySnapshotIfCurrentAsync(next, path, epoch, playlists, playlistRevision, network, collectionRenamed, unmigrated);
+                    await ApplySnapshotIfCurrentAsync(read, path, epoch, playlistRevision);
                 }
                 else
                 {
                     var applied = new TaskCompletionSource<Task>();
                     if (!DispatcherQueue.TryEnqueue(() =>
                     {
-                        applied.SetResult(ApplySnapshotIfCurrentAsync(next, path, epoch, playlists, playlistRevision,
-                            network, collectionRenamed, unmigrated));
+                        applied.SetResult(ApplySnapshotIfCurrentAsync(read, path, epoch, playlistRevision));
                     }))
                     {
                         continue;
@@ -2066,8 +2047,39 @@ public sealed partial class LibraryPage : Page
         }
     }
 
-    private async Task ApplySnapshotIfCurrentAsync(LibrarySnapshot next, string? path, int epoch,
-        PlaylistLibraryChange? playlists, int playlistRevision, bool network, bool collectionRenamed, List<Playlist>? unmigrated)
+    private sealed record LibraryRead(LibrarySnapshot Snapshot, bool Network, bool CollectionRenamed = false,
+        PlaylistLibraryChange? Playlists = null, bool? PlaylistsMigrated = null);
+
+    private LibraryRead ReadLibrary(App app, string? path, bool network, bool prepare, List<Playlist> legacyPlaylists,
+        PlaylistLibraryCache playlistCache)
+    {
+        var collectionRenamed = false;
+        if (prepare && !string.IsNullOrWhiteSpace(path))
+        {
+            if (!Directory.Exists(path)) return new LibraryRead(new LibrarySnapshot(path, [], false), network);
+            collectionRenamed = App.PrepareCollectionRename(path);
+            network = network || PathCanonicalizer.NeedsFastPoll(path);
+        }
+        var snapshot = BuildSnapshot(app, path);
+        if (!snapshot.RootReachable || path is null || (network && snapshot.SkippedPaths.Count > 0))
+            return new LibraryRead(snapshot, network, collectionRenamed);
+        try
+        {
+            if (legacyPlaylists.Count > 0 && snapshot.SkippedPaths.Count == 0)
+            {
+                var change = PlaylistLibrary.LoadAndMigrate(path, legacyPlaylists, out var migrated);
+                return new LibraryRead(snapshot, network, collectionRenamed, change, migrated);
+            }
+            return new LibraryRead(snapshot, network, collectionRenamed, playlistCache.LoadIfChanged(path));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new LibraryRead(snapshot with { Skipped = [.. snapshot.SkippedPaths,
+                new ScanSkipped(PlaylistLibrary.FileName, "unreadable")] }, network, collectionRenamed);
+        }
+    }
+
+    private async Task ApplySnapshotIfCurrentAsync(LibraryRead read, string? path, int epoch, int playlistRevision)
     {
         if (!_active || epoch != _scanEpoch
             || !string.Equals(path, _scanPath, StringComparison.OrdinalIgnoreCase))
@@ -2077,29 +2089,34 @@ public sealed partial class LibraryPage : Page
 
         // A playlist edit can finish while this background read is in flight.
         // Do not replace that edit or remember the discarded read in the cache.
-        if (playlistRevision != App.Current.PlaylistRevision) playlists = null;
+        var next = read.Snapshot;
+        var playlists = playlistRevision == App.Current.PlaylistRevision ? read.Playlists : null;
         if (playlists is not null)
         {
             _playlistCache.Apply(App.Current.Settings, playlists);
         }
-        if (network && _networkCopy is null && path is not null)
+        if (read.Network && _networkCopy is null && path is not null)
             _networkCopy = new NetworkLibraryCopy(CreateMirror(path));
         bool complete = next.RootReachable && next.SkippedPaths.Count == 0;
+        if (read.PlaylistsMigrated == true) App.Current.FinishPlaylistMigration();
+        if (read.PlaylistsMigrated == false) _retryMigrationAfter = DateTime.UtcNow.AddSeconds(30);
         if (complete && !_prepared)
         {
-            if (unmigrated is null) App.Current.FinishPlaylistMigration();
-            else App.Current.Settings.Playlists = unmigrated;
-            if (collectionRenamed)
+            if (read.CollectionRenamed)
             {
                 App.Current.ApplyCollectionRename();
                 _selectedFolder = App.Current.Settings.SelectedFolder;
             }
             _prepared = true;
         }
+        if (complete && _networkCopy is { } copy)
+        {
+            await copy.RefreshAsync(next, App.Current.Settings.Playlists, App.Current.PlaylistRevision,
+                playlistsChanged: playlists is not null, reconnected: !_snapshot.RootReachable);
+            if (!_active || epoch != _scanEpoch) return;
+        }
         ApplySnapshot(next, path, playlistsChanged: playlists is not null);
         SetLibraryLoading(false);
-        if (complete && _networkCopy is { } copy)
-            await copy.RefreshAsync(next, App.Current.Settings.Playlists, App.Current.PlaylistRevision, playlists is not null);
     }
 
     private LibrarySnapshot BuildSnapshot(App app, string? libraryPath)
@@ -2131,27 +2148,42 @@ public sealed partial class LibraryPage : Page
             _watcher.Stop();
             _watchedPath = null;
             _snapshot = next;
-            App.Current.LastSnapshot = null;
             return;
         }
 
-        if (_networkCopy is not null && next.SkippedPaths.Count > 0 && _lastComplete is not null)
-            next = _lastComplete with { RootReachable = false };
-
-        if (next.RootReachable)
+        var published = _networkCopy?.Mirror.Published;
+        var useSaved = !next.RootReachable || (_networkCopy is not null && next.SkippedPaths.Count > 0
+            && (published is not null || _lastComplete is not null));
+        if (!useSaved)
         {
             OfflineLabel.Visibility = Visibility.Collapsed;
             if (_networkCopy is not null && next.SkippedPaths.Count == 0) _lastComplete = next;
+            _displayedLocalLibrary = null;
         }
         else
         {
-            next = _lastComplete is { } last
-                ? last with { RootReachable = false }
-                : CachedAsSnapshot(libraryPath);
-            OfflineLabel.Text = _networkCopy is not null && _lastComplete is not null ? "Using local copy" : "Library offline";
+            if (published is not null)
+            {
+                next = published.Snapshot;
+                if (!ReferenceEquals(published, _displayedLocalLibrary))
+                {
+                    App.Current.Settings.Playlists = PlaylistBook.Copy(published.Playlists);
+                    _displayedLocalLibrary = published;
+                    // A pending online listing can have different playlists but the same sidecar stamp on reconnect.
+                    _playlistCache = new();
+                    playlistsChanged = true;
+                }
+            }
+            else
+            {
+                next = _lastComplete is { } last ? last with { RootReachable = false } : CachedAsSnapshot(libraryPath);
+            }
+            OfflineLabel.Text = published is not null || _lastComplete is not null ? "Using local copy" : "Library offline";
             OfflineLabel.Visibility = Visibility.Visible;
         }
-        AddPlaylistButton.IsEnabled = next.RootReachable && (_networkCopy is null || next.SkippedPaths.Count == 0);
+        var canEdit = next.RootReachable && (_networkCopy is null || next.SkippedPaths.Count == 0);
+        var canEditChanged = canEdit != AddPlaylistButton.IsEnabled;
+        AddPlaylistButton.IsEnabled = canEdit;
 
         if (!string.Equals(_watchedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
         {
@@ -2159,15 +2191,14 @@ public sealed partial class LibraryPage : Page
             _watchedPath = libraryPath;
         }
 
-        if (next.RootReachable && (_networkCopy is null || next.SkippedPaths.Count == 0))
+        if (canEdit)
         {
             _automaticCatalog.Schedule(libraryPath, next);
         }
 
-        if (_snapshot.SameMembership(next) && !playlistsChanged && FolderTree.RootNodes.Count > 0)
+        if (_snapshot.SameMembership(next) && !playlistsChanged && !canEditChanged && FolderTree.RootNodes.Count > 0)
         {
             _snapshot = next;
-            App.Current.LastSnapshot = next;
             RestoreGridScroll();
             return;
         }
@@ -2175,7 +2206,6 @@ public sealed partial class LibraryPage : Page
         var foldersChanged = !_snapshot.SameMembership(next, includeLabels: false);
         if (_snapshot.RootReachable && !next.RootReachable) ExitAssignment();
         _snapshot = next;
-        App.Current.LastSnapshot = next;
         if (foldersChanged || playlistsChanged || FolderTree.RootNodes.Count == 0) BindFolders();
         ApplyFilter();
     }
@@ -2198,8 +2228,8 @@ public sealed partial class LibraryPage : Page
     private void BindFolders()
     {
         HidePlaylistDelete();
-        var previousFolder = _selectedFolder;
-        var previousPlaylist = _selectedPlaylistId;
+        var previousFolder = _restoreSelectionWhenAvailable ? App.Current.Settings.SelectedFolder : _selectedFolder;
+        var previousPlaylist = _restoreSelectionWhenAvailable ? App.Current.Settings.SelectedPlaylistId : _selectedPlaylistId;
         _bindingFolders = true;
         try
         {
@@ -2262,14 +2292,14 @@ public sealed partial class LibraryPage : Page
             }
 
             FolderTree.SelectedNode = match ?? all;
-            if (match is not null || _lastComplete is not null || (_snapshot.RootReachable && _snapshot.SkippedPaths.Count == 0))
+            ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
+            _restoreSelectionWhenAvailable = match is null && (!_snapshot.RootReachable || _snapshot.SkippedPaths.Count > 0)
+                && (previousPlaylist is not null || previousFolder is not null);
+            if (!_restoreSelectionWhenAvailable && match is null && previousFolder is not null
+                && App.Current.Settings.SelectedFolder == previousFolder)
             {
-                ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
-                if (match is null && previousFolder is not null && App.Current.Settings.SelectedFolder == previousFolder)
-                {
-                    App.Current.Settings.SelectedFolder = null;
-                    App.Current.PersistSettings();
-                }
+                App.Current.Settings.SelectedFolder = null;
+                App.Current.PersistSettings();
             }
             FolderTree.UpdateLayout();
             StyleSidebarRows();
@@ -2638,7 +2668,7 @@ public sealed partial class LibraryPage : Page
 
         if (SameCardOrder(rows))
         {
-            for (var index = 0; index < rows.Count; index++) _cards[index].Update(rows[index]);
+            for (var index = 0; index < rows.Count; index++) _cards[index].Update(rows[index], CanEditSharedLibrary);
             RestoreGridScroll();
             return;
         }
@@ -2658,13 +2688,13 @@ public sealed partial class LibraryPage : Page
                 && card.Entry.LastWriteUtc == score.LastWriteUtc
                 && card.ShowRestore == _showTrash)
             {
-                card.Update(score);
+                card.Update(score, CanEditSharedLibrary);
                 card.IsFavourite = favourite;
                 next.Add(card);
             }
             else
             {
-                next.Add(new ScoreCard(score, favourite, _showTrash));
+                next.Add(new ScoreCard(score, favourite, _showTrash, CanEditSharedLibrary));
             }
         }
 
@@ -2876,7 +2906,7 @@ public sealed class ScoreCard : INotifyPropertyChanged
     private bool _favourite;
     private bool _highlighted;
 
-    public ScoreCard(ScoreEntry entry, bool favourite, bool restore = false)
+    public ScoreCard(ScoreEntry entry, bool favourite, bool restore, bool canEdit)
     {
         Entry = entry;
         var text = entry.CardText;
@@ -2885,6 +2915,7 @@ public sealed class ScoreCard : INotifyPropertyChanged
         Composer = text.Composer;
         _favourite = favourite;
         ShowRestore = restore;
+        CanEdit = canEdit;
     }
 
     public ScoreEntry Entry { get; private set; }
@@ -2892,8 +2923,15 @@ public sealed class ScoreCard : INotifyPropertyChanged
     public string Subtitle { get; private set; }
     public string Composer { get; private set; }
 
-    public void Update(ScoreEntry entry)
+    public bool CanEdit { get; private set; }
+
+    public void Update(ScoreEntry entry, bool canEdit)
     {
+        if (CanEdit != canEdit)
+        {
+            CanEdit = canEdit;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEdit)));
+        }
         Entry = entry;
         var text = entry.CardText;
         if (Title == text.Title && Subtitle == text.Subtitle && Composer == text.Composer) return;

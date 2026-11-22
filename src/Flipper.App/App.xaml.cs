@@ -15,7 +15,6 @@ public partial class App : Application
     public ScoreCache Cache { get; } = ScoreCache.ForAppData();
     public PendingScoreDeletes PendingDeletes { get; } = new();
     public string? OpenCanonicalPath { get; set; }
-    public LibrarySnapshot? LastSnapshot { get; set; }
     public int PlaylistRevision { get; private set; }
     internal List<Playlist> LegacyPlaylists { get; private set; }
 
@@ -34,17 +33,8 @@ public partial class App : Application
         Window.ShowLibrary();
     }
 
-    // Only playlists from an old settings file are eligible for migration to the share.
-    // The tablet's saved library is a read-only view of that share.
-    internal static bool PrepareLibrary(string root, List<Playlist> legacyPlaylists, out List<Playlist>? unmigrated)
+    internal static bool PrepareCollectionRename(string root)
     {
-        unmigrated = null;
-        if (legacyPlaylists.Count > 0)
-        {
-            var migration = new AppSettings { LibraryPath = root, Playlists = PlaylistBook.Copy(legacyPlaylists) };
-            if (!PlaylistLibrary.Hydrate(migration)) unmigrated = migration.Playlists;
-        }
-
         var legacy = Path.Combine(root, LibraryFolders.LegacyCollectionName);
         var current = Path.Combine(root, LibraryFolders.CollectionName);
         if (Directory.Exists(legacy) || !Directory.Exists(current))
