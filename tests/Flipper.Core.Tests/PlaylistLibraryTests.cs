@@ -105,6 +105,56 @@ public sealed class PlaylistLibraryTests
     }
 
     [Fact]
+    public void LoadAndMigrate_FailedReadCanRetryWithoutLosingEitherPlaylist()
+    {
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, PlaylistLibrary.FileName);
+        var legacy = new List<Playlist> { new() { Id = "practice", Name = "Practice" } };
+        File.WriteAllText(path, "[");
+
+        Assert.Throws<IOException>(() => PlaylistLibrary.LoadAndMigrate(root.Path, legacy, out _));
+        Assert.Equal("[", File.ReadAllText(path));
+        Assert.Equal("practice", Assert.Single(legacy).Id);
+
+        Assert.True(PlaylistLibrary.Save(root.Path, [new Playlist { Id = "concert", Name = "Concert" }]));
+        var change = PlaylistLibrary.LoadAndMigrate(root.Path, legacy, out var migrated);
+
+        Assert.True(migrated);
+        Assert.Equal(["concert", "practice"], change.Playlists.Select(playlist => playlist.Id));
+        Assert.Equal(["concert", "practice"], PlaylistLibrary.Load(root.Path).Select(playlist => playlist.Id));
+    }
+
+    [Fact]
+    public void LoadAndMigrate_ReadableSidecarLockedAgainstReplacementReturnsOnlySharedPlaylists()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var root = new TempDir();
+        var path = Path.Combine(root.Path, PlaylistLibrary.FileName);
+        Assert.True(PlaylistLibrary.Save(root.Path,
+            [new Playlist { Id = "concert", Name = "Concert", CanonicalPaths = [@"C:\library\Concert.pdf"] }]));
+        var legacy = new List<Playlist>
+        {
+            new() { Id = "legacy-concert", Name = "Concert", CanonicalPaths = [@"C:\library\Encore.pdf"] },
+            new() { Id = "practice", Name = "Practice" }
+        };
+        var original = File.ReadAllText(path);
+
+        using (File.OpenRead(path))
+        {
+            var change = PlaylistLibrary.LoadAndMigrate(root.Path, legacy, out var migrated);
+
+            Assert.False(migrated);
+            var playlist = Assert.Single(change.Playlists);
+            Assert.Equal("concert", playlist.Id);
+            Assert.Equal([@"C:\library\Concert.pdf"], playlist.CanonicalPaths);
+        }
+
+        Assert.Equal(original, File.ReadAllText(path));
+        Assert.Equal([@"C:\library\Encore.pdf"], legacy[0].CanonicalPaths);
+    }
+
+    [Fact]
     public void Cache_ReloadsAfterWrite()
     {
         using var root = new TempDir();
