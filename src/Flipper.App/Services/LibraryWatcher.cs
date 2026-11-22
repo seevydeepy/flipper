@@ -13,7 +13,7 @@ public sealed class LibraryWatcher : IDisposable
     public event Action? PollRequested;
     public event Action? CatalogChanged;
 
-    public void Start(string path)
+    public void Start(string path, bool networkLibrary)
     {
         Stop();
         if (string.IsNullOrWhiteSpace(path))
@@ -21,7 +21,7 @@ public sealed class LibraryWatcher : IDisposable
             return;
         }
 
-        _fastPoll = PathCanonicalizer.NeedsFastPoll(path);
+        _fastPoll = networkLibrary;
         if (!_fastPoll)
         {
             try

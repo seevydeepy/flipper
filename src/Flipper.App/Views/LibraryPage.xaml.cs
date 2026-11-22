@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Flipper.App.Services;
+using Flipper.Core.Cache;
 using Flipper.Core.Library;
 using Flipper.Core.Settings;
 using Microsoft.UI.Dispatching;
@@ -41,9 +42,13 @@ public sealed partial class LibraryPage : Page
     private readonly AutomaticScoreCatalog _automaticCatalog = new(() => App.Current.Settings.JevImageFallbackEnabled);
     private readonly ResettableCollection<ScoreCard> _cards = new();
     private readonly ScoreCatalogCache _catalogCache = new();
-    private readonly PlaylistLibraryCache _playlistCache = new();
+    private PlaylistLibraryCache _playlistCache = new();
     private readonly SemaphoreSlim _previewSlots = new(2);
     private LibrarySnapshot _snapshot = new(string.Empty, Array.Empty<ScoreEntry>(), false);
+    private LibrarySnapshot? _lastComplete;
+    private NetworkLibraryCopy? _networkCopy;
+    private bool _prepared;
+    private int _libraryGeneration;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _searchTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private readonly DispatcherTimer _catalogTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -75,6 +80,11 @@ public sealed partial class LibraryPage : Page
     private double? _restoreScroll;
     private int _scrollRestoreTries;
     private string? _openingCanonical;
+    private CancellationTokenSource? _scoreOpenRequest;
+
+    private bool CanEditSharedLibrary => _active && _snapshot.RootReachable
+        && (_networkCopy is null || _snapshot.SkippedPaths.Count == 0)
+        && string.Equals(_snapshot.RootDisplayPath, App.Current.Settings.LibraryPath, StringComparison.OrdinalIgnoreCase);
 
     public LibraryPage()
     {
@@ -121,7 +131,7 @@ public sealed partial class LibraryPage : Page
         RememberSearch();
         _restoreScroll = FindScrollViewer(ScoreGrid)?.VerticalOffset;
         _scrollRestoreTries = 0;
-        _openingCanonical = null;
+        CancelScoreOpen();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -135,43 +145,59 @@ public sealed partial class LibraryPage : Page
         }
 
         _hydrating = true;
-        LibraryControls.IsEnabled = false;
-        SetLibraryLoading(!string.IsNullOrWhiteSpace(App.Current.Settings.LibraryPath));
-        try
-        {
-            await App.Current.InitializeLibraryAsync();
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
-        finally
-        {
-            LibraryControls.IsEnabled = true;
-        }
-        if (!_active) return;
-
         RestoreGridChrome();
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            RestoreGridChrome();
-            _hydrating = false;
-        });
-        var path = App.Current.Settings.LibraryPath;
-        if (App.Current.LastSnapshot is { } cached
-            && string.Equals(cached.RootDisplayPath, path, StringComparison.OrdinalIgnoreCase))
-        {
-            ApplySnapshot(cached, path);
-        }
+        await LoadLibraryAsync(App.Current.Settings.LibraryPath);
+        _hydrating = false;
+    }
 
+    private async Task LoadLibraryAsync(string? path)
+    {
+        CancelScoreOpen();
+        var generation = ++_libraryGeneration;
+        _scanEpoch++;
+        _scanAgain = false;
+        _scanPath = path;
+        _prepared = false;
+        _playlistCache = new();
+        _networkCopy?.Stop();
+        _networkCopy = null;
+        _lastComplete = null;
+        _watcher.Stop();
+        _watchedPath = null;
+        _loadedPath = null;
+        SetLibraryLoading(!string.IsNullOrWhiteSpace(path));
+        AddPlaylistButton.IsEnabled = false;
+
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            var mirror = CreateMirror(path);
+            var saved = await Task.Run(mirror.Load);
+            if (!_active || generation != _libraryGeneration) return;
+            if (saved is not null || path.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                _networkCopy = new NetworkLibraryCopy(mirror);
+            }
+            if (saved is not null)
+            {
+                _lastComplete = saved.Snapshot;
+                App.Current.Settings.Playlists = saved.Playlists;
+                ApplySnapshot(saved.Snapshot, path, playlistsChanged: true);
+                SetLibraryLoading(false);
+            }
+        }
         Reload(path);
     }
 
+    private static LibraryMirror CreateMirror(string path) => new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flipper", "libraries"), path);
+
     private void ResumeFromReader()
     {
-        _openingCanonical = null;
+        CancelScoreOpen();
         var path = App.Current.Settings.LibraryPath;
         if (!string.IsNullOrWhiteSpace(path))
         {
-            _watcher.Start(path);
+            _watcher.Start(path, _networkCopy is not null || !_snapshot.RootReachable);
             _watchedPath = path;
         }
 
@@ -289,6 +315,7 @@ public sealed partial class LibraryPage : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _active = false;
+        CancelScoreOpen();
         _automaticCatalog.Pause();
         RememberSearch();
         ExitAssignment();
@@ -390,10 +417,10 @@ public sealed partial class LibraryPage : Page
         App.Current.LastSnapshot = null;
         ExitAssignment();
         HidePlaylistDelete();
-        _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), true);
+        _snapshot = new LibrarySnapshot(result.Path, Array.Empty<ScoreEntry>(), false);
         FolderTree.RootNodes.Clear();
         _cards.Clear();
-        Reload(result.Path);
+        await LoadLibraryAsync(result.Path);
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => QueueSearch();
@@ -455,6 +482,7 @@ public sealed partial class LibraryPage : Page
         App.Current.Settings.ShowFavourites = _showFavourites;
         App.Current.Settings.ShowTrash = _showTrash;
         App.Current.Settings.SelectedPlaylistId = _selectedPlaylistId;
+        App.Current.Settings.SelectedFolder = _selectedFolder;
         App.Current.PersistSettings();
         ApplyFilter();
     }
@@ -491,6 +519,9 @@ public sealed partial class LibraryPage : Page
 
     private async void AddPlaylist_Click(object sender, RoutedEventArgs e)
     {
+        if (!CanEditSharedLibrary) return;
+
+        var root = _snapshot.RootDisplayPath;
         var box = new TextBox { PlaceholderText = "Name", Style = Ui.Style("AppTextBox") };
         var dialog = new ContentDialog
         {
@@ -504,6 +535,12 @@ public sealed partial class LibraryPage : Page
         Ui.Prepare(dialog);
         dialog.PrimaryButtonClick += (_, args) =>
         {
+            if (!CanEditSharedLibrary || root != _snapshot.RootDisplayPath)
+            {
+                args.Cancel = true;
+                return;
+            }
+
             var playlist = App.Current.TryCreatePlaylist(box.Text ?? string.Empty);
             if (playlist is null)
             {
@@ -544,7 +581,7 @@ public sealed partial class LibraryPage : Page
 
     private void ArmPlaylistDelete(DependencyObject? source)
     {
-        var node = NodeFromSource(source);
+        var node = CanEditSharedLibrary ? NodeFromSource(source) : null;
         if (node?.Content is not FolderMark { PlaylistId: { } id })
         {
             HidePlaylistDelete();
@@ -590,11 +627,13 @@ public sealed partial class LibraryPage : Page
 
     private async void DeletePlaylist_Click(object sender, RoutedEventArgs e)
     {
-        if (_armedPlaylistId is null)
+        if (!CanEditSharedLibrary || _armedPlaylistId is null)
         {
+            HidePlaylistDelete();
             return;
         }
 
+        var root = _snapshot.RootDisplayPath;
         var playlist = PlaylistBook.Find(App.Current.Settings.Playlists, _armedPlaylistId);
         if (playlist is null)
         {
@@ -612,7 +651,8 @@ public sealed partial class LibraryPage : Page
             DefaultButton = ContentDialogButton.Close
         };
         Ui.Prepare(dialog);
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary
+            || !CanEditSharedLibrary || root != _snapshot.RootDisplayPath)
         {
             return;
         }
@@ -657,6 +697,12 @@ public sealed partial class LibraryPage : Page
 
     private void ShowTrashDrop()
     {
+        if (!CanEditSharedLibrary)
+        {
+            TrashDrop.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         SkinTrashDrop();
         TrashDrop.Visibility = Visibility.Visible;
         TrashDrop.UpdateLayout();
@@ -710,7 +756,7 @@ public sealed partial class LibraryPage : Page
 
     private void TrashDrop_DragOver(object sender, DragEventArgs e)
     {
-        e.AcceptedOperation = e.DataView.Contains(ScoreDragFormat)
+        e.AcceptedOperation = CanEditSharedLibrary && e.DataView.Contains(ScoreDragFormat)
             ? DataPackageOperation.Move
             : DataPackageOperation.None;
         e.Handled = true;
@@ -777,6 +823,8 @@ public sealed partial class LibraryPage : Page
 
     private async Task ApplyTrashZoneAsync(ScoreEntry entry)
     {
+        if (!CanEditSharedLibrary) return;
+
         if (_showTrash)
         {
             await RestoreScoreAsync(entry);
@@ -874,14 +922,15 @@ public sealed partial class LibraryPage : Page
 
     private void CompletePlaylistAdd(string playlistId, string canonicalPath)
     {
+        if (!CanEditSharedLibrary) return;
+
         var playlist = PlaylistBook.Find(App.Current.Settings.Playlists, playlistId);
-        if (playlist is null)
+        if (playlist is null || !App.Current.AddToPlaylist(playlistId, canonicalPath))
         {
             return;
         }
 
-        if (App.Current.AddToPlaylist(playlistId, canonicalPath)
-            && string.Equals(_selectedPlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(_selectedPlaylistId, playlistId, StringComparison.OrdinalIgnoreCase))
         {
             ApplyFilter();
         }
@@ -912,7 +961,7 @@ public sealed partial class LibraryPage : Page
     private TreeViewNode? SidebarDropNode(Point point)
     {
         var node = NodeFromPoint(point);
-        return node?.Content is FolderMark mark && (mark.Favourites || mark.PlaylistId is not null)
+        return node?.Content is FolderMark mark && (mark.Favourites || (CanEditSharedLibrary && mark.PlaylistId is not null))
             ? node
             : null;
     }
@@ -964,7 +1013,7 @@ public sealed partial class LibraryPage : Page
 
     private async void EditScore_Click(object sender, RoutedEventArgs e)
     {
-        if (_editingScore || sender is not FrameworkElement { Tag: ScoreCard card } || !_snapshot.RootReachable) return;
+        if (_editingScore || !CanEditSharedLibrary || sender is not FrameworkElement { Tag: ScoreCard card }) return;
         _editingScore = true;
         SuppressNextItemClick();
         try { await EditScoreAsync(card); }
@@ -982,7 +1031,7 @@ public sealed partial class LibraryPage : Page
         var entry = card.Entry;
         var key = ScoreCatalog.Key(entry.RelativeFolder, Path.GetFileName(entry.DisplayFullPath));
         var stored = await Task.Run(() => ScoreCatalog.LoadEntry(root, key));
-        if (!_active || root != _snapshot.RootDisplayPath) return;
+        if (!CanEditSharedLibrary || root != _snapshot.RootDisplayPath) return;
         var facts = stored?.Facts ?? new ScoreFacts();
         var fieldStyle = Ui.Style("AppTextBox");
         var title = new TextBox { Header = "Title", Text = facts.Title ?? string.Empty, Style = fieldStyle,
@@ -1028,6 +1077,8 @@ public sealed partial class LibraryPage : Page
         dialog.Closed += (_, _) => matchCancellation.Cancel();
         match.Click += async (_, _) =>
         {
+            if (!CanEditSharedLibrary || root != _snapshot.RootDisplayPath) return;
+
             match.IsEnabled = dialog.IsPrimaryButtonEnabled = false;
             title.IsEnabled = subtitle.IsEnabled = composer.IsEnabled = false;
             matching.Visibility = Visibility.Visible;
@@ -1045,9 +1096,11 @@ public sealed partial class LibraryPage : Page
                 }
                 var result = await Task.Run(() => new PdfScoreFactExtractor()
                     .ExtractWithStatusAsync(entry, matchCancellation.Token, () => settings.JevImageFallbackEnabled));
-                if (matchCancellation.IsCancellationRequested || !_active || root != _snapshot.RootDisplayPath) return;
-                var currentFile = new FileInfo(entry.DisplayFullPath);
-                if (!currentFile.Exists || currentFile.Length != entry.Length || currentFile.LastWriteTimeUtc != entry.LastWriteUtc)
+                if (matchCancellation.IsCancellationRequested || !CanEditSharedLibrary || root != _snapshot.RootDisplayPath) return;
+                var currentFileMatches = await Task.Run(() => MatchesScoreVersion(entry.DisplayFullPath, entry),
+                    matchCancellation.Token);
+                if (matchCancellation.IsCancellationRequested || !CanEditSharedLibrary || root != _snapshot.RootDisplayPath) return;
+                if (!currentFileMatches)
                 {
                     error.Text = "The PDF changed during analysis. Reopen Score details and try again.";
                     return;
@@ -1098,7 +1151,8 @@ public sealed partial class LibraryPage : Page
                 var nextSubtitle = Changed(subtitle.Text, facts.Subtitle);
                 var nextComposer = Changed(composer.Text, facts.Composer);
                 if (nextTitle is null && nextSubtitle is null && nextComposer is null) return;
-                var saved = await Task.Run(() => ScoreCatalog.TryCorrect(root, key,
+                var saved = CanEditSharedLibrary && root == _snapshot.RootDisplayPath
+                    && await Task.Run(() => ScoreCatalog.TryCorrect(root, key,
                     nextTitle, nextComposer, nextSubtitle,
                     clearTitle: nextTitle == string.Empty,
                     clearComposer: nextComposer == string.Empty,
@@ -1387,6 +1441,8 @@ public sealed partial class LibraryPage : Page
                 continue;
             }
 
+            if (!CanEditSharedLibrary) continue;
+
             if (mark.Section && mark.Name == "Playlists")
             {
                 playlistSection = Union(playlistSection, rect);
@@ -1420,7 +1476,11 @@ public sealed partial class LibraryPage : Page
             AddHole(playRect.Value);
         }
 
-        if (TrashDrop.Visibility == Visibility.Visible)
+        if (!CanEditSharedLibrary)
+        {
+            TrashDrop.Visibility = Visibility.Collapsed;
+        }
+        else if (TrashDrop.Visibility == Visibility.Visible)
         {
             var trash = ElementRect(TrashDrop, SelectionShade);
             AddHole(trash);
@@ -1792,38 +1852,98 @@ public sealed partial class LibraryPage : Page
         OpenScore(card);
     }
 
-    private void OpenScore(ScoreCard card)
+    private async void OpenScore(ScoreCard card)
     {
-        if (_assignmentCard is not null)
+        if (!_active || _assignmentCard is not null)
         {
             return;
         }
 
-        if (string.Equals(_openingCanonical, card.Entry.CanonicalPath, StringComparison.OrdinalIgnoreCase))
+        var entry = card.Entry;
+        if (string.Equals(_openingCanonical, entry.CanonicalPath, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        _openingCanonical = card.Entry.CanonicalPath;
+        CancelScoreOpen();
+        using var request = new CancellationTokenSource();
+        _scoreOpenRequest = request;
+        _openingCanonical = entry.CanonicalPath;
         RememberSearch();
         ErrorLabel.Visibility = Visibility.Collapsed;
-        var livePath = File.Exists(card.Entry.DisplayFullPath) ? card.Entry.DisplayFullPath : null;
-        var cachePath = App.Current.Cache.TryOpen(
-            card.Entry.CanonicalPath,
-            livePath,
-            card.Entry.DisplayFullPath,
-            App.Current.OpenCanonicalPath);
-        if (cachePath is null)
-        {
-            _openingCanonical = null;
-            ErrorLabel.Text = "Cannot open this score";
-            ErrorLabel.Visibility = Visibility.Visible;
-            return;
-        }
+        var app = App.Current;
+        var mirror = _networkCopy?.Mirror;
+        var libraryPath = app.Settings.LibraryPath;
+        var sourceReachable = _snapshot.RootReachable;
+        var currentlyOpen = app.OpenCanonicalPath;
+        var token = request.Token;
 
-        App.Current.OpenCanonicalPath = card.Entry.CanonicalPath;
-        App.Current.RecordPlay(card.Entry.CanonicalPath);
-        App.Current.Window?.ShowReader(card.Entry, cachePath);
+        try
+        {
+            string? cachePath;
+            try
+            {
+                cachePath = await Task.Run(async () =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (mirror is null)
+                    {
+                        return app.Cache.TryOpen(entry.CanonicalPath, sourceReachable ? entry.DisplayFullPath : null,
+                            entry.DisplayFullPath, currentlyOpen);
+                    }
+
+                    var local = mirror.FindCopy(entry) ?? app.Cache.FindCopy(entry.CanonicalPath);
+                    if (local is null && sourceReachable)
+                    {
+                        local = await mirror.CopyScoreAsync(entry, token);
+                    }
+
+                    return local;
+                }, token);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                cachePath = null;
+            }
+
+            if (!_active || !ReferenceEquals(_scoreOpenRequest, request)
+                || !string.Equals(libraryPath, app.Settings.LibraryPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (cachePath is null)
+            {
+                ErrorLabel.Text = mirror is not null && !_snapshot.RootReachable
+                    ? "This score is unavailable offline."
+                    : "Cannot open this score";
+                ErrorLabel.Visibility = Visibility.Visible;
+                return;
+            }
+
+            app.OpenCanonicalPath = entry.CanonicalPath;
+            app.RecordPlay(entry.CanonicalPath);
+            app.Window?.ShowReader(entry, cachePath);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_scoreOpenRequest, request))
+            {
+                _scoreOpenRequest = null;
+                _openingCanonical = null;
+            }
+        }
+    }
+
+    private void CancelScoreOpen()
+    {
+        var request = _scoreOpenRequest;
+        _scoreOpenRequest = null;
+        _openingCanonical = null;
+        request?.Cancel();
     }
 
     private static bool FromCardButton(object? source)
@@ -1878,15 +1998,34 @@ public sealed partial class LibraryPage : Page
                 var epoch = ++_scanEpoch;
                 var app = App.Current;
                 var playlistRevision = app.PlaylistRevision;
+                var playlistCache = _playlistCache;
+                var prepare = !_prepared;
+                var legacyPlaylists = app.LegacyPlaylists;
+                List<Playlist>? unmigrated = null;
+                var network = _networkCopy is not null;
+                var collectionRenamed = false;
                 LibrarySnapshot next;
                 PlaylistLibraryChange? playlists = null;
                 try
                 {
                     (next, playlists) = await Task.Run(() =>
                     {
+                        if (prepare && !string.IsNullOrWhiteSpace(path))
+                        {
+                            if (!Directory.Exists(path))
+                                return (new LibrarySnapshot(path, [], false), null);
+                            collectionRenamed = App.PrepareLibrary(path, legacyPlaylists, out unmigrated);
+                            network |= PathCanonicalizer.NeedsFastPoll(path);
+                        }
                         var snapshot = BuildSnapshot(app, path);
-                        var updatedPlaylists = snapshot.RootReachable ? _playlistCache.LoadIfChanged(path) : null;
-                        return (snapshot, updatedPlaylists);
+                        if (!snapshot.RootReachable || (network && snapshot.SkippedPaths.Count > 0))
+                            return (snapshot, null);
+                        try { return (snapshot, playlistCache.LoadIfChanged(path)); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            return (snapshot with { Skipped = [.. snapshot.SkippedPaths,
+                                new ScanSkipped(PlaylistLibrary.FileName, "unreadable")] }, null);
+                        }
                     });
                 }
                 catch (Exception)
@@ -1901,21 +2040,21 @@ public sealed partial class LibraryPage : Page
 
                 if (DispatcherQueue.HasThreadAccess)
                 {
-                    ApplySnapshotIfCurrent(next, path, epoch, playlists, playlistRevision);
+                    await ApplySnapshotIfCurrentAsync(next, path, epoch, playlists, playlistRevision, network, collectionRenamed, unmigrated);
                 }
                 else
                 {
-                    var applied = new TaskCompletionSource();
+                    var applied = new TaskCompletionSource<Task>();
                     if (!DispatcherQueue.TryEnqueue(() =>
                     {
-                        ApplySnapshotIfCurrent(next, path, epoch, playlists, playlistRevision);
-                        applied.SetResult();
+                        applied.SetResult(ApplySnapshotIfCurrentAsync(next, path, epoch, playlists, playlistRevision,
+                            network, collectionRenamed, unmigrated));
                     }))
                     {
                         continue;
                     }
 
-                    await applied.Task;
+                    await applied.Task.Unwrap();
                 }
             }
             while (_scanAgain);
@@ -1927,8 +2066,8 @@ public sealed partial class LibraryPage : Page
         }
     }
 
-    private void ApplySnapshotIfCurrent(LibrarySnapshot next, string? path, int epoch,
-        PlaylistLibraryChange? playlists, int playlistRevision)
+    private async Task ApplySnapshotIfCurrentAsync(LibrarySnapshot next, string? path, int epoch,
+        PlaylistLibraryChange? playlists, int playlistRevision, bool network, bool collectionRenamed, List<Playlist>? unmigrated)
     {
         if (!_active || epoch != _scanEpoch
             || !string.Equals(path, _scanPath, StringComparison.OrdinalIgnoreCase))
@@ -1943,8 +2082,24 @@ public sealed partial class LibraryPage : Page
         {
             _playlistCache.Apply(App.Current.Settings, playlists);
         }
+        if (network && _networkCopy is null && path is not null)
+            _networkCopy = new NetworkLibraryCopy(CreateMirror(path));
+        bool complete = next.RootReachable && next.SkippedPaths.Count == 0;
+        if (complete && !_prepared)
+        {
+            if (unmigrated is null) App.Current.FinishPlaylistMigration();
+            else App.Current.Settings.Playlists = unmigrated;
+            if (collectionRenamed)
+            {
+                App.Current.ApplyCollectionRename();
+                _selectedFolder = App.Current.Settings.SelectedFolder;
+            }
+            _prepared = true;
+        }
         ApplySnapshot(next, path, playlistsChanged: playlists is not null);
         SetLibraryLoading(false);
+        if (complete && _networkCopy is { } copy)
+            await copy.RefreshAsync(next, App.Current.Settings.Playlists, App.Current.PlaylistRevision, playlists is not null);
     }
 
     private LibrarySnapshot BuildSnapshot(App app, string? libraryPath)
@@ -1980,28 +2135,36 @@ public sealed partial class LibraryPage : Page
             return;
         }
 
+        if (_networkCopy is not null && next.SkippedPaths.Count > 0 && _lastComplete is not null)
+            next = _lastComplete with { RootReachable = false };
+
         if (next.RootReachable)
         {
             OfflineLabel.Visibility = Visibility.Collapsed;
+            if (_networkCopy is not null && next.SkippedPaths.Count == 0) _lastComplete = next;
         }
         else
         {
+            next = _lastComplete is { } last
+                ? last with { RootReachable = false }
+                : CachedAsSnapshot(libraryPath);
+            OfflineLabel.Text = _networkCopy is not null && _lastComplete is not null ? "Using local copy" : "Library offline";
             OfflineLabel.Visibility = Visibility.Visible;
-            next = CachedAsSnapshot(libraryPath);
         }
+        AddPlaylistButton.IsEnabled = next.RootReachable && (_networkCopy is null || next.SkippedPaths.Count == 0);
 
         if (!string.Equals(_watchedPath, libraryPath, StringComparison.OrdinalIgnoreCase))
         {
-            _watcher.Start(libraryPath);
+            _watcher.Start(libraryPath, _networkCopy is not null || !next.RootReachable);
             _watchedPath = libraryPath;
         }
 
-        if (next.RootReachable)
+        if (next.RootReachable && (_networkCopy is null || next.SkippedPaths.Count == 0))
         {
             _automaticCatalog.Schedule(libraryPath, next);
         }
 
-        if (_snapshot.SameMembership(next) && !playlistsChanged)
+        if (_snapshot.SameMembership(next) && !playlistsChanged && FolderTree.RootNodes.Count > 0)
         {
             _snapshot = next;
             App.Current.LastSnapshot = next;
@@ -2010,23 +2173,24 @@ public sealed partial class LibraryPage : Page
         }
 
         var foldersChanged = !_snapshot.SameMembership(next, includeLabels: false);
+        if (_snapshot.RootReachable && !next.RootReachable) ExitAssignment();
         _snapshot = next;
         App.Current.LastSnapshot = next;
-        if (foldersChanged || playlistsChanged) BindFolders();
+        if (foldersChanged || playlistsChanged || FolderTree.RootNodes.Count == 0) BindFolders();
         ApplyFilter();
     }
 
     private static LibrarySnapshot CachedAsSnapshot(string libraryPath)
     {
         var entries = App.Current.Cache.ListRecent()
-            .Where(entry => App.Current.Cache.HasCopy(entry.CanonicalPath))
-            .Select(entry => new ScoreEntry(
-                Path.GetFileNameWithoutExtension(entry.DisplayPath),
-                string.Empty,
-                entry.DisplayPath,
-                entry.CanonicalPath,
-                entry.Length,
-                entry.LastWriteUtc))
+            .Select(entry => (Entry: entry, Relative: Path.GetRelativePath(libraryPath, entry.DisplayPath)))
+            .Where(item => !Path.IsPathRooted(item.Relative) && item.Relative != ".."
+                && !item.Relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            .Where(item => App.Current.Cache.HasCopy(item.Entry.CanonicalPath))
+            .Select(item => new ScoreEntry(
+                Path.GetFileNameWithoutExtension(item.Entry.DisplayPath),
+                Path.GetDirectoryName(item.Relative) ?? string.Empty,
+                item.Entry.DisplayPath, item.Entry.CanonicalPath, item.Entry.Length, item.Entry.LastWriteUtc))
             .ToArray();
         return new LibrarySnapshot(libraryPath, entries, false);
     }
@@ -2098,7 +2262,15 @@ public sealed partial class LibraryPage : Page
             }
 
             FolderTree.SelectedNode = match ?? all;
-            ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
+            if (match is not null || _lastComplete is not null || (_snapshot.RootReachable && _snapshot.SkippedPaths.Count == 0))
+            {
+                ApplySelectedMark(FolderTree.SelectedNode?.Content as FolderMark);
+                if (match is null && previousFolder is not null && App.Current.Settings.SelectedFolder == previousFolder)
+                {
+                    App.Current.Settings.SelectedFolder = null;
+                    App.Current.PersistSettings();
+                }
+            }
             FolderTree.UpdateLayout();
             StyleSidebarRows();
             DispatcherQueue.TryEnqueue(StyleSidebarRows);
@@ -2345,6 +2517,7 @@ public sealed partial class LibraryPage : Page
         _showFavourites = settings.ShowFavourites;
         _showTrash = settings.ShowTrash;
         _selectedPlaylistId = settings.SelectedPlaylistId;
+        _selectedFolder = settings.SelectedFolder;
         if (_showTrash)
         {
             _showFavourites = false;
@@ -2549,32 +2722,54 @@ public sealed partial class LibraryPage : Page
 
     private async Task LoadPreviewAsync(ScoreCard card, int epoch)
     {
-        if (card.PreviewEpoch != epoch)
+        if (!_active || card.PreviewEpoch != epoch)
         {
             return;
         }
 
-        var thumb = ThumbnailStore.PathFor(card.Entry.CanonicalPath, card.Entry.Length, card.Entry.LastWriteUtc);
-        if (!File.Exists(thumb))
+        var entry = card.Entry;
+        var thumb = ThumbnailStore.PathFor(entry.CanonicalPath, entry.Length, entry.LastWriteUtc);
+        await _previewSlots.WaitAsync();
+        try
         {
-            await _previewSlots.WaitAsync();
-            try
+            if (!_active || card.PreviewEpoch != epoch) return;
+            var mirror = _networkCopy?.Mirror;
+            var cache = App.Current.Cache;
+            var sourceReachable = _snapshot.RootReachable;
+            var created = await Task.Run(async () =>
             {
-                if (card.PreviewEpoch != epoch) return;
-                var sourcePath = card.Entry.DisplayFullPath;
-                var created = await Task.Run(() => File.Exists(thumb)
-                    || (File.Exists(sourcePath) && PdfPageSource.TrySavePreview(sourcePath, thumb, 360)));
-                if (!created || card.PreviewEpoch != epoch) return;
-            }
-            finally
-            {
-                _previewSlots.Release();
-            }
+                if (File.Exists(thumb)) return true;
+                if (mirror is null && sourceReachable)
+                {
+                    return File.Exists(entry.DisplayFullPath)
+                        && PdfPageSource.TrySavePreview(entry.DisplayFullPath, thumb, 360);
+                }
+
+                var sourcePath = mirror?.FindCopy(entry);
+                if (!MatchesScoreVersion(sourcePath, entry)) sourcePath = cache.FindCopy(entry.CanonicalPath);
+                if (!MatchesScoreVersion(sourcePath, entry) && mirror is not null && sourceReachable)
+                {
+                    sourcePath = await mirror.CopyScoreAsync(entry, CancellationToken.None);
+                }
+
+                // Thumbnails are keyed by the score version, so never render a previous local PDF into that key.
+                return MatchesScoreVersion(sourcePath, entry) && PdfPageSource.TrySavePreview(sourcePath!, thumb, 360);
+            });
+            if (!created) return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+        finally
+        {
+            _previewSlots.Release();
         }
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (card.PreviewEpoch != epoch)
+            if (!_active || card.PreviewEpoch != epoch
+                || card.Entry.Length != entry.Length || card.Entry.LastWriteUtc != entry.LastWriteUtc)
             {
                 return;
             }
@@ -2586,6 +2781,13 @@ public sealed partial class LibraryPage : Page
             image.UriSource = new Uri(thumb);
             card.Preview = image;
         });
+    }
+
+    private static bool MatchesScoreVersion(string? path, ScoreEntry entry)
+    {
+        if (path is null) return false;
+        var file = new FileInfo(path);
+        return file.Exists && file.Length == entry.Length && file.LastWriteTimeUtc == entry.LastWriteUtc;
     }
 
     private void SelectSort(SortMode mode)
@@ -2609,7 +2811,7 @@ public sealed partial class LibraryPage : Page
 
     private async void Restore_Click(object sender, RoutedEventArgs e)
     {
-        if (_assignmentCard is not null
+        if (!CanEditSharedLibrary || _assignmentCard is not null
             || sender is not Button button
             || button.Tag is not ScoreCard card)
         {
@@ -2621,6 +2823,8 @@ public sealed partial class LibraryPage : Page
 
     private async Task RestoreScoreAsync(ScoreEntry entry)
     {
+        if (!CanEditSharedLibrary) return;
+
         var library = App.Current.Settings.LibraryPath;
         if (string.IsNullOrWhiteSpace(library))
         {
@@ -2633,6 +2837,7 @@ public sealed partial class LibraryPage : Page
         IReadOnlyList<string> playlistIds = [];
         var ok = await Task.Run(() =>
             ScoreTrash.TryRestore(library, fileName, out restoredPath, out playlistIds));
+        if (!string.Equals(library, App.Current.Settings.LibraryPath, StringComparison.OrdinalIgnoreCase)) return;
         if (!ok || string.IsNullOrEmpty(restoredPath))
         {
             ShowCannotRestore();

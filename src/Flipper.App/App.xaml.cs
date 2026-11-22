@@ -17,27 +17,14 @@ public partial class App : Application
     public string? OpenCanonicalPath { get; set; }
     public LibrarySnapshot? LastSnapshot { get; set; }
     public int PlaylistRevision { get; private set; }
-    private Task? _libraryInitialization;
+    internal List<Playlist> LegacyPlaylists { get; private set; }
 
     public App()
     {
         InitializeComponent();
         Settings = SettingsStore.Load();
+        LegacyPlaylists = PlaylistBook.Copy(Settings.Playlists);
         Settings.SearchQuery = string.Empty;
-    }
-
-    // The library page waits for this with its controls disabled. The window
-    // can paint and respond while Windows connects to a network library.
-    public Task InitializeLibraryAsync() => _libraryInitialization ??= Task.Run(InitializeLibrary);
-
-    private void InitializeLibrary()
-    {
-        var playlistsMoved = PlaylistLibrary.Hydrate(Settings);
-        MaybeRewriteCollectionFolder();
-        if (playlistsMoved)
-        {
-            PersistSettings();
-        }
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -47,44 +34,64 @@ public partial class App : Application
         Window.ShowLibrary();
     }
 
-    private void MaybeRewriteCollectionFolder()
+    // Only playlists from an old settings file are eligible for migration to the share.
+    // The tablet's saved library is a read-only view of that share.
+    internal static bool PrepareLibrary(string root, List<Playlist> legacyPlaylists, out List<Playlist>? unmigrated)
     {
-        var root = Settings.LibraryPath;
-        if (string.IsNullOrWhiteSpace(root))
+        unmigrated = null;
+        if (legacyPlaylists.Count > 0)
         {
-            return;
+            var migration = new AppSettings { LibraryPath = root, Playlists = PlaylistBook.Copy(legacyPlaylists) };
+            if (!PlaylistLibrary.Hydrate(migration)) unmigrated = migration.Playlists;
         }
 
         var legacy = Path.Combine(root, LibraryFolders.LegacyCollectionName);
         var current = Path.Combine(root, LibraryFolders.CollectionName);
         if (Directory.Exists(legacy) || !Directory.Exists(current))
         {
-            return;
+            return false;
         }
 
         ScoreCatalog.TryRewriteRootFolder(root, LibraryFolders.LegacyCollectionName, LibraryFolders.CollectionName);
+        return true;
+    }
+
+    internal void ApplyCollectionRename()
+    {
         if (LibraryPathRewrite.RewriteRootFolder(Settings, LibraryFolders.LegacyCollectionName, LibraryFolders.CollectionName))
         {
             PersistSettings();
-            PersistPlaylists();
+            SavePlaylists(Settings.Playlists);
         }
     }
 
     public void PersistSettings()
     {
-        SettingsStore.Save(Settings);
+        SettingsStore.Save(Settings, LegacyPlaylists);
     }
 
-    public void PersistPlaylists()
+    internal void FinishPlaylistMigration()
     {
+        if (LegacyPlaylists.Count == 0) return;
+        LegacyPlaylists = [];
+        PersistSettings();
+    }
+
+    private bool SavePlaylists(List<Playlist> playlists)
+    {
+        if (!PlaylistLibrary.Save(Settings.LibraryPath, playlists)) return false;
+        Settings.Playlists = playlists;
         PlaylistRevision++;
-        PlaylistLibrary.Save(Settings.LibraryPath, Settings.Playlists);
+        return true;
     }
 
     public void UseLibraryPath(string path)
     {
-        PlaylistLibrary.BindToRoot(Settings, path);
-        PersistPlaylists();
+        Settings.LibraryPath = path;
+        LegacyPlaylists = [];
+        Settings.Playlists = [];
+        Settings.SelectedPlaylistId = null;
+        Settings.SelectedFolder = null;
         PersistSettings();
     }
 
@@ -142,43 +149,34 @@ public partial class App : Application
 
     public Playlist? TryCreatePlaylist(string name)
     {
-        if (!PlaylistBook.TryCreate(Settings.Playlists, name, out var playlist))
+        var next = PlaylistBook.Copy(Settings.Playlists);
+        if (!PlaylistBook.TryCreate(next, name, out var playlist) || !SavePlaylists(next))
         {
             return null;
         }
 
-        PersistPlaylists();
         PersistSettings();
         return playlist;
     }
 
     public bool AddToPlaylist(string playlistId, string canonicalPath)
     {
-        var playlist = PlaylistBook.Find(Settings.Playlists, playlistId);
-        if (playlist is null || !PlaylistBook.AddScore(playlist, canonicalPath))
-        {
-            return false;
-        }
-
-        PersistPlaylists();
-        return true;
+        var next = PlaylistBook.Copy(Settings.Playlists);
+        var playlist = PlaylistBook.Find(next, playlistId);
+        return playlist is not null && PlaylistBook.AddScore(playlist, canonicalPath) && SavePlaylists(next);
     }
 
     public bool RemoveFromPlaylist(string playlistId, string canonicalPath)
     {
-        var playlist = PlaylistBook.Find(Settings.Playlists, playlistId);
-        if (playlist is null || !PlaylistBook.RemoveScore(playlist, canonicalPath))
-        {
-            return false;
-        }
-
-        PersistPlaylists();
-        return true;
+        var next = PlaylistBook.Copy(Settings.Playlists);
+        var playlist = PlaylistBook.Find(next, playlistId);
+        return playlist is not null && PlaylistBook.RemoveScore(playlist, canonicalPath) && SavePlaylists(next);
     }
 
     public bool DeletePlaylist(string playlistId)
     {
-        if (!PlaylistBook.Delete(Settings.Playlists, playlistId))
+        var next = PlaylistBook.Copy(Settings.Playlists);
+        if (!PlaylistBook.Delete(next, playlistId) || !SavePlaylists(next))
         {
             return false;
         }
@@ -188,7 +186,6 @@ public partial class App : Application
             Settings.SelectedPlaylistId = null;
         }
 
-        PersistPlaylists();
         PersistSettings();
         return true;
     }
@@ -201,17 +198,18 @@ public partial class App : Application
             return ids;
         }
 
-        PlaylistBook.RemovePath(Settings.Playlists, canonicalPath);
-        PersistPlaylists();
-        return ids;
+        var next = PlaylistBook.Copy(Settings.Playlists);
+        PlaylistBook.RemovePath(next, canonicalPath);
+        return SavePlaylists(next) ? ids : [];
     }
 
     public void RestorePlaylistMembership(IEnumerable<string> playlistIds, string canonicalPath)
     {
+        var next = PlaylistBook.Copy(Settings.Playlists);
         var changed = false;
         foreach (var id in playlistIds)
         {
-            var playlist = PlaylistBook.Find(Settings.Playlists, id);
+            var playlist = PlaylistBook.Find(next, id);
             if (playlist is null || !PlaylistBook.AddScore(playlist, canonicalPath))
             {
                 continue;
@@ -222,7 +220,7 @@ public partial class App : Application
 
         if (changed)
         {
-            PersistPlaylists();
+            SavePlaylists(next);
         }
     }
 
@@ -230,13 +228,12 @@ public partial class App : Application
     {
         Cache.Remove(commit.CanonicalPath);
         Settings.Scores.Remove(commit.CanonicalPath);
-        PlaylistBook.RemovePath(Settings.Playlists, commit.CanonicalPath);
+        TakePlaylistMembership(commit.CanonicalPath);
         if (string.Equals(Settings.LastScoreCanonicalPath, commit.CanonicalPath, StringComparison.OrdinalIgnoreCase))
         {
             Settings.LastScoreCanonicalPath = null;
         }
 
-        PersistPlaylists();
         PersistSettings();
         var thumb = Services.ThumbnailStore.PathFor(commit.CanonicalPath, commit.Length, commit.LastWriteUtc);
         if (!File.Exists(thumb))
