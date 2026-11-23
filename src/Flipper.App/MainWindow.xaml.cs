@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        WindowRoot.Loaded += CheckForStartupUpdate;
         Closed += OnClosed;
         Activated += (_, args) =>
         {
@@ -265,6 +266,7 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        _updateCancellation.Cancel();
         IsReaderActive = false;
         if (RootFrame.Content is ReaderPage reader) reader.UpdateWinkCapture();
         foreach (var toast in _toasts.Values)

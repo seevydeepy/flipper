@@ -37,7 +37,14 @@ public sealed class UpdateClient
         return AppVersion.Running(info, file);
     }
 
-    public async Task<(UpdateOffer? offer, string status)> CheckAsync(CancellationToken cancellationToken)
+    public static async Task<(UpdateOffer? offer, string status)> CheckForUpdateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        return await new UpdateClient(http).CheckAsync(cancellationToken);
+    }
+
+    private async Task<(UpdateOffer? offer, string status)> CheckAsync(CancellationToken cancellationToken)
     {
         var rid = RuntimeRid.Current;
         if (rid is null)
@@ -86,18 +93,34 @@ public sealed class UpdateClient
         }, $"Version {remote.Major}.{remote.Minor}.{remote.Build} is available");
     }
 
-    public async Task<(string setupPath, string zipPath)?> DownloadAsync(
+    public async Task<string?> InstallAsync(
         UpdateOffer offer,
-        IProgress<InstallProgress>? progress,
+        IProgress<InstallProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        var files = await DownloadAsync(offer, progress, cancellationToken);
+        if (files is null || cancellationToken.IsCancellationRequested)
+        {
+            return "Could not download";
+        }
+
+        progress.Report(new InstallProgress(0, 0, "Installing..."));
+        var target = Path.GetDirectoryName(Environment.ProcessPath) ?? "";
+        return StartSetup(files.Value.setupPath, files.Value.zipPath, target) ? null : "Could not install";
+    }
+
+    private async Task<(string setupPath, string zipPath)?> DownloadAsync(
+        UpdateOffer offer,
+        IProgress<InstallProgress> progress,
         CancellationToken cancellationToken)
     {
         var folder = Path.Combine(Path.GetTempPath(), "CarouselUpdate", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(folder);
         var setupPath = Path.Combine(folder, "Carousel.Setup.exe");
         var zipPath = Path.Combine(folder, "payload.zip");
         try
         {
-            progress?.Report(new InstallProgress(0, 0, "Downloading..."));
+            Directory.CreateDirectory(folder);
+            progress.Report(new InstallProgress(0, 0, "Downloading..."));
             await DownloadFileAsync(offer.SetupUrl, setupPath, 0, 50, progress, cancellationToken);
             await DownloadFileAsync(offer.ZipUrl, zipPath, 50, 50, progress, cancellationToken);
             return (setupPath, zipPath);
@@ -120,7 +143,7 @@ public sealed class UpdateClient
         }
     }
 
-    public static bool StartSetup(string setupPath, string zipPath, string targetDir)
+    private static bool StartSetup(string setupPath, string zipPath, string targetDir)
     {
         if (string.IsNullOrWhiteSpace(targetDir))
         {

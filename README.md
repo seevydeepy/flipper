@@ -82,8 +82,9 @@ renaming everything felt like a waste of a perfectly good afternoon.
   are processed locally and are not saved or sent anywhere.
   This is off by default and needs an available camera with Windows camera
   access enabled. If capture is unavailable, the other page controls still work.
-- **Auto-update** — checks GitHub Releases, downloads the new version, installs
-  it in place, relaunches. First install comes straight from GitHub too.
+- **Auto-update** — checks GitHub Releases on startup. Choose **Not now** to
+  see the offer again next time, **Skip version** to dismiss that release,
+  or **Update** to install it and relaunch. You can also check from Settings.
 
 ## Download
 

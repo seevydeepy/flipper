@@ -35,6 +35,7 @@ public sealed class AppSettings
     public int UiScalePercent { get; set; } = DefaultUiScalePercent;
     public bool CropToInk { get; set; }
     public bool JevImageFallbackEnabled { get; set; }
+    public HashSet<string> SkippedUpdateVersions { get; set; } = [];
     public Dictionary<string, ScoreStats> Scores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Playlist> Playlists { get; set; } = new();
     public string? SelectedPlaylistId { get; set; }
@@ -52,6 +53,7 @@ public sealed class AppSettings
             .DistinctBy(profile => profile.Id, StringComparer.Ordinal)
             .ToList();
         if (WinkCalibration is { IsValid: false }) WinkCalibration = null;
+        SkippedUpdateVersions ??= [];
         Scores ??= new Dictionary<string, ScoreStats>(StringComparer.OrdinalIgnoreCase);
         Playlists ??= new List<Playlist>();
         FolderExpanded ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
