@@ -540,7 +540,6 @@ public sealed partial class LibraryPage : Page
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary
         };
-        Ui.Prepare(dialog);
         dialog.PrimaryButtonClick += (_, args) =>
         {
             if (!CanEditSharedLibrary || root != _snapshot.RootDisplayPath)
@@ -567,7 +566,7 @@ public sealed partial class LibraryPage : Page
             BindFolders();
             ApplyFilter();
         };
-        await dialog.ShowAsync();
+        await Ui.ShowDialogAsync(dialog);
     }
 
     private void FolderTree_Holding(object sender, HoldingRoutedEventArgs e)
@@ -658,8 +657,7 @@ public sealed partial class LibraryPage : Page
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
-        Ui.Prepare(dialog);
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary
+        if (await Ui.ShowDialogAsync(dialog) != ContentDialogResult.Primary
             || !CanEditSharedLibrary || root != _snapshot.RootDisplayPath)
         {
             return;
@@ -1075,7 +1073,6 @@ public sealed partial class LibraryPage : Page
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary
         };
-        Ui.Prepare(dialog);
         using var matchCancellation = new CancellationTokenSource();
         dialog.Closed += (_, _) => matchCancellation.Cancel();
         match.Click += async (_, _) =>
@@ -1171,7 +1168,7 @@ public sealed partial class LibraryPage : Page
             }
             finally { deferral.Complete(); }
         };
-        await dialog.ShowAsync();
+        await Ui.ShowDialogAsync(dialog);
     }
 
     private void ScoreCard_RightTapped(object sender, RightTappedRoutedEventArgs e)

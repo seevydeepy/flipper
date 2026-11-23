@@ -2,7 +2,6 @@ using System.Numerics;
 using Flipper.App.Services;
 using Flipper.Core.Reader;
 using Flipper.Core.Settings;
-using Flipper.Core.Update;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -674,70 +673,28 @@ public sealed partial class LibraryPage
     {
         var current = UpdateClient.CurrentVersion();
         var version = Ui.Label($"Current Version: {current.Major}.{current.Minor}.{current.Build}");
-        var status = Ui.Body();
-        status.Visibility = Visibility.Collapsed;
-        void ShowStatus(string text)
-        {
-            status.Text = text;
-            status.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
-        }
-
-        var bar = new ProgressBar
-        {
-            Minimum = 0,
-            Maximum = 100,
-            IsIndeterminate = true,
-            Visibility = Visibility.Collapsed
-        };
+        var progress = new UpdateProgressView();
         var install = Ui.Button("Install update", primary: true);
         install.Visibility = Visibility.Collapsed;
         var check = Ui.Button("Check for updates");
         UpdateOffer? offer = null;
-        void HideProgress()
-        {
-            bar.Visibility = Visibility.Collapsed;
-            bar.IsIndeterminate = true;
-            bar.Value = 0;
-        }
-
-        void ShowProgress(InstallProgress value)
-        {
-            bar.Visibility = Visibility.Visible;
-            ShowStatus(string.IsNullOrWhiteSpace(value.Message) ? "Downloading..." : value.Message);
-            if (value.Total <= 0)
-            {
-                bar.IsIndeterminate = true;
-                return;
-            }
-
-            bar.IsIndeterminate = false;
-            bar.Maximum = value.Total;
-            bar.Value = Math.Clamp(value.Current, 0, value.Total);
-        }
 
         check.Click += async (_, _) =>
         {
             check.IsEnabled = false;
             install.Visibility = Visibility.Collapsed;
-            HideProgress();
-            ShowStatus("");
+            progress.ShowStatus("");
             offer = null;
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                var client = new UpdateClient(http);
-                var result = await client.CheckAsync(CancellationToken.None);
+                var result = await UpdateClient.CheckForUpdateAsync();
                 offer = result.offer;
-                ShowStatus(result.status);
+                progress.ShowStatus(result.status);
                 install.Visibility = offer is null ? Visibility.Collapsed : Visibility.Visible;
-            }
-            catch (HttpRequestException)
-            {
-                ShowStatus("Could not check");
             }
             catch (Exception)
             {
-                ShowStatus("Could not check");
+                progress.ShowStatus("Could not check");
             }
             finally
             {
@@ -746,58 +703,23 @@ public sealed partial class LibraryPage
         };
         install.Click += async (_, _) =>
         {
-            if (offer is null)
+            if (offer is null || App.Current.Window is not { } window)
             {
                 return;
             }
 
             install.IsEnabled = false;
             check.IsEnabled = false;
-            ShowProgress(new InstallProgress(0, 0, "Downloading..."));
-            var closing = false;
-            try
+            var error = await window.InstallUpdateAsync(offer, progress.ShowProgress);
+            if (error is null)
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-                var client = new UpdateClient(http);
-                var progress = new Progress<InstallProgress>(ShowProgress);
-                var files = await client.DownloadAsync(offer, progress, CancellationToken.None);
-                if (files is null)
-                {
-                    HideProgress();
-                    ShowStatus("Could not download");
-                    return;
-                }
+                window.Close();
+                return;
+            }
 
-                ShowProgress(new InstallProgress(0, 0, "Installing..."));
-                var target = Path.GetDirectoryName(Environment.ProcessPath);
-                if (!UpdateClient.StartSetup(files.Value.setupPath, files.Value.zipPath, target ?? ""))
-                {
-                    HideProgress();
-                    ShowStatus("Could not install");
-                    return;
-                }
-
-                closing = true;
-                App.Current.Window?.Close();
-            }
-            catch (HttpRequestException)
-            {
-                HideProgress();
-                ShowStatus("Could not download");
-            }
-            catch (Exception)
-            {
-                HideProgress();
-                ShowStatus("Could not download");
-            }
-            finally
-            {
-                if (!closing)
-                {
-                    install.IsEnabled = true;
-                    check.IsEnabled = true;
-                }
-            }
+            progress.ShowStatus(error);
+            install.IsEnabled = true;
+            check.IsEnabled = true;
         };
 
         check.Margin = install.Margin = new Thickness(0, 0, 8, 8);
@@ -810,8 +732,7 @@ public sealed partial class LibraryPage
         var card = new StackPanel { Spacing = 12 };
         card.Children.Add(version);
         card.Children.Add(buttons);
-        card.Children.Add(status);
-        card.Children.Add(bar);
+        card.Children.Add(progress);
         return CreateSettingsPage("Updates", null, Ui.Card(card));
     }
 

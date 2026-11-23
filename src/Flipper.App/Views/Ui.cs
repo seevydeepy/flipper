@@ -18,6 +18,7 @@ internal static class Ui
 
     private static readonly FontFamily IconFont = new("Segoe Fluent Icons,Segoe MDL2 Assets");
     private static readonly FontFamily TitleFont = new("Cambria");
+    private static readonly SemaphoreSlim DialogSlot = new(1);
 
     public static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
 
@@ -197,14 +198,25 @@ internal static class Ui
         Child = control
     };
 
-    public static void Prepare(ContentDialog dialog)
+    public static async Task<ContentDialogResult> ShowDialogAsync(
+        ContentDialog dialog, CancellationToken cancellationToken = default)
     {
-        dialog.RequestedTheme = ElementTheme.Light;
-        var button = Style("SecondaryButton");
-        dialog.PrimaryButtonStyle = button;
-        dialog.SecondaryButtonStyle = button;
-        dialog.CloseButtonStyle = button;
-        dialog.Opened += (_, _) => SizeDialogButtons(dialog);
+        await DialogSlot.WaitAsync(cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dialog.RequestedTheme = ElementTheme.Light;
+            var button = Style("SecondaryButton");
+            dialog.PrimaryButtonStyle = button;
+            dialog.SecondaryButtonStyle = button;
+            dialog.CloseButtonStyle = button;
+            dialog.Opened += (_, _) => SizeDialogButtons(dialog);
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            DialogSlot.Release();
+        }
     }
 
     /// <summary>
